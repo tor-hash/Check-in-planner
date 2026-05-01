@@ -334,6 +334,142 @@
   }
   .week-nav .now-btn:hover { background: rgba(110,168,254,0.22); }
 
+  /* Journal main tab */
+  .journal-toolbar {
+    display: grid; grid-template-columns: 1fr auto auto; gap: 14px; align-items: center;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px 16px; margin-bottom: 16px;
+  }
+  @media (max-width: 900px) { .journal-toolbar { grid-template-columns: 1fr; } }
+  .journal-stats { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; }
+  .journal-stats .stat { display: flex; flex-direction: column; gap: 2px; }
+  .journal-stats .stat .num { font-size: 18px; font-weight: 700; line-height: 1; }
+  .journal-stats .stat .lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .journal-stats .stat.warn .num { color: var(--danger); }
+  .journal-stats .stat.ok .num { color: var(--ok); }
+  .journal-filters { display: flex; gap: 8px; flex-wrap: wrap; }
+  .journal-filters input, .journal-filters select { width: auto; min-width: 120px; }
+
+  .journal-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 12px;
+  }
+  .journal-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px;
+  }
+  .journal-card-head {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 8px;
+  }
+  .journal-card-head .left {
+    display: flex; gap: 10px; align-items: center; flex: 1; min-width: 0;
+  }
+  .journal-card-head .name {
+    font-weight: 600; font-size: 14px; line-height: 1.2;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .journal-card-head .sub {
+    font-size: 11px; color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .journal-card-head .right {
+    display: flex; gap: 6px; align-items: center; flex-shrink: 0;
+  }
+  .journal-card .last-checkin {
+    font-size: 11px; color: var(--muted);
+  }
+  .journal-card .trend-row {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 11px; color: var(--muted);
+    border-top: 1px solid var(--border);
+    padding-top: 8px; margin-top: 4px;
+  }
+  .journal-card .trend-row svg { flex-shrink: 0; }
+  .journal-card-actions {
+    display: flex; gap: 4px;
+  }
+  .journal-card-actions button {
+    padding: 4px 9px; font-size: 11px;
+  }
+  .journal-card details {
+    margin-top: 10px;
+  }
+  .journal-card details summary {
+    cursor: pointer; padding: 4px 0; font-size: 11px;
+    color: var(--accent); user-select: none;
+  }
+  .journal-card details summary:hover { color: var(--text); }
+  .journal-card .recent-entries {
+    margin-top: 6px; max-height: 280px; overflow-y: auto;
+  }
+
+  /* Report modal */
+  .report-modal { width: 540px; max-width: 92vw; }
+
+  /* Print stylesheet for PDF reports */
+  @media print {
+    body.report-mode {
+      background: white !important; color: black !important;
+      font-family: "Helvetica", Arial, sans-serif !important;
+    }
+    body.report-mode * { visibility: hidden; }
+    body.report-mode .report-output, body.report-mode .report-output * { visibility: visible; }
+    body.report-mode .report-output {
+      position: absolute; top: 0; left: 0; width: 100%; padding: 24px;
+    }
+    body.report-mode .no-print { display: none !important; }
+  }
+
+  .report-output {
+    background: white; color: #1a1a1a;
+    font-family: "Helvetica", Arial, sans-serif;
+    padding: 32px; max-width: 800px; margin: 0 auto;
+  }
+  .report-output h1 { font-size: 24px; margin: 0 0 4px; color: #0c1320; }
+  .report-output h2 { font-size: 16px; margin: 24px 0 8px; color: #0c1320; border-bottom: 2px solid #6ea8fe; padding-bottom: 4px; }
+  .report-output h3 { font-size: 14px; margin: 18px 0 6px; color: #0c1320; }
+  .report-output .report-subtitle { color: #555; font-size: 13px; margin-bottom: 24px; }
+  .report-output .summary-row { display: flex; gap: 24px; margin: 16px 0 24px; flex-wrap: wrap; }
+  .report-output .summary-row .item .num { font-size: 22px; font-weight: 700; }
+  .report-output .summary-row .item .lbl { font-size: 11px; color: #666; text-transform: uppercase; }
+  .report-output table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12px; }
+  .report-output th, .report-output td { padding: 6px 10px; text-align: left; border-bottom: 1px solid #ddd; }
+  .report-output th { background: #f3f5f9; font-weight: 600; font-size: 11px; text-transform: uppercase; color: #555; }
+  .report-output .entry-card {
+    background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px;
+    padding: 12px 14px; margin: 10px 0; page-break-inside: avoid;
+  }
+  .report-output .entry-card-head {
+    display: flex; gap: 12px; align-items: center; margin-bottom: 8px;
+    font-size: 13px;
+  }
+  .report-output .entry-card .field { margin: 4px 0 8px; font-size: 12px; }
+  .report-output .entry-card .field-label { font-size: 10px; color: #666; text-transform: uppercase; font-weight: 600; margin-bottom: 2px; }
+  .report-output .entry-card .field-content { white-space: pre-wrap; }
+  .report-output .trivsel-pill-rep {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 11px; font-weight: 700;
+  }
+  .report-output .trivsel-pill-rep.t-green { background: #d4f0c5; color: #2d7a1d; }
+  .report-output .trivsel-pill-rep.t-yellow { background: #f5e8c5; color: #8a6e1d; }
+  .report-output .trivsel-pill-rep.t-red { background: #f5c5c5; color: #8a1d2d; }
+  .report-output .footer {
+    margin-top: 32px; padding-top: 12px; border-top: 1px solid #ddd;
+    font-size: 10px; color: #888;
+  }
+  .report-output .print-bar {
+    position: sticky; top: 0; background: #f3f5f9; padding: 12px;
+    margin: -32px -32px 24px; border-bottom: 1px solid #ddd;
+    display: flex; gap: 8px; justify-content: flex-end; align-items: center;
+  }
+  .report-output .print-bar button {
+    background: #6ea8fe; color: white; border: none;
+    padding: 8px 16px; border-radius: 6px; cursor: pointer;
+    font-weight: 600; font-size: 13px;
+  }
+  .report-output .print-bar .hint { color: #555; font-size: 12px; margin-right: auto; }
+
   /* Person modal tabs */
   .modal-tabs {
     display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--border);
@@ -712,6 +848,7 @@
       <div class="tabs">
         <button class="tab active" data-tab="cal">Kalender — pr. session</button>
         <button class="tab" data-tab="byperson">Pr. medarbejder (datovalg + slots)</button>
+        <button class="tab" data-tab="journal">Journal & rapporter</button>
       </div>
 
       <div class="tab-panel active" id="panel-cal">
@@ -727,6 +864,32 @@
           </thead>
           <tbody id="cal-body"></tbody>
         </table>
+      </div>
+
+      <div class="tab-panel" id="panel-journal">
+        <div class="journal-toolbar">
+          <div class="journal-stats" id="journal-stats"></div>
+          <div class="journal-filters">
+            <input type="search" id="j-search" placeholder="Søg navn / titel…">
+            <select id="j-filter-team">
+              <option value="all">Alle teams</option>
+              <option value="team-1">Team 1</option>
+              <option value="team-2">Team 2</option>
+              <option value="team-3">Team 3</option>
+            </select>
+            <select id="j-filter-trivsel">
+              <option value="all">Alle trivsel</option>
+              <option value="low">⚠️ Trivsel &lt; 5</option>
+              <option value="mid">😐 Trivsel 5–6</option>
+              <option value="high">😀 Trivsel ≥ 7</option>
+              <option value="none">Uden entries</option>
+            </select>
+          </div>
+          <div>
+            <button class="primary" id="btn-open-report">📄 Generér rapport</button>
+          </div>
+        </div>
+        <div class="journal-grid" id="journal-grid"></div>
       </div>
 
       <div class="tab-panel" id="panel-byperson">
@@ -902,6 +1065,56 @@ function doGet(e) {
   </div>
 </div>
 
+<!-- Modal: PDF report options -->
+<div class="modal-bg" id="modal-report-bg">
+  <div class="modal report-modal">
+    <h2>Generér rapport</h2>
+    <p style="color: var(--muted); font-size: 12px; margin: 0 0 14px;">Rapporten åbner i et nyt vindue. Klik <strong>Print</strong> i topbaren og vælg <strong>"Save as PDF"</strong> som destination.</p>
+    <div class="form-grid">
+      <div class="full">
+        <label>Niveau</label>
+        <select id="rep-type">
+          <option value="org">Hele organisationen</option>
+          <option value="team">Et team</option>
+          <option value="person">Én medarbejder</option>
+        </select>
+      </div>
+      <div class="full" id="rep-team-wrap" style="display:none;">
+        <label>Team</label>
+        <select id="rep-team">
+          <option value="team-1">Team 1</option>
+          <option value="team-2">Team 2</option>
+          <option value="team-3">Team 3</option>
+        </select>
+      </div>
+      <div class="full" id="rep-person-wrap" style="display:none;">
+        <label>Medarbejder</label>
+        <select id="rep-person"></select>
+      </div>
+      <div class="full">
+        <label>Periode</label>
+        <select id="rep-period">
+          <option value="30">Sidste 30 dage</option>
+          <option value="90" selected>Sidste 90 dage</option>
+          <option value="180">Sidste 6 måneder</option>
+          <option value="365">Sidste 12 måneder</option>
+          <option value="all">Alle data</option>
+        </select>
+      </div>
+      <div class="full">
+        <label><input type="checkbox" id="rep-include-noter" checked style="width:auto; margin-right: 6px;"> Inkludér detaljerede notater i rapporten</label>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <div></div>
+      <div class="right">
+        <button class="ghost" id="rep-cancel">Annullér</button>
+        <button class="primary" id="rep-generate">Generér</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: create check-in event -->
 <div class="modal-bg" id="modal-event-bg">
   <div class="modal event-modal">
@@ -955,12 +1168,6 @@ function doGet(e) {
 <div class="modal-bg" id="modal-bg">
   <div class="modal" style="width: 720px; max-width: 96vw;">
     <h2 id="modal-title">Tilføj medarbejder</h2>
-    <div class="modal-tabs" id="person-tabs" style="display:none;">
-      <button class="tab active" data-mtab="info">Info</button>
-      <button class="tab" data-mtab="journal">Journal & historik</button>
-    </div>
-
-    <div class="modal-tab-panel active" id="mpanel-info">
     <div class="form-grid">
       <div class="full">
         <label>Navn *</label>
@@ -1013,17 +1220,6 @@ function doGet(e) {
         <input type="text" id="f-projects" placeholder="fx Apollo, Phoenix, Beta">
       </div>
     </div>
-    </div><!-- /info panel -->
-
-    <div class="modal-tab-panel" id="mpanel-journal">
-      <div class="trivsel-trend" id="trivsel-trend"></div>
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-        <h3 style="margin: 0;">Tidligere check-ins</h3>
-        <button class="primary" id="btn-add-entry">+ Log ny check-in</button>
-      </div>
-      <div class="journal-list" id="journal-list"></div>
-    </div>
-
     <div class="modal-actions">
       <button class="danger" id="modal-delete" style="display:none;">Slet medarbejder</button>
       <div class="right">
@@ -1699,7 +1895,7 @@ function renderMgrDropdowns() {
 let editingId = null;
 function openModal(personId = null) {
   editingId = personId;
-  document.getElementById("modal-title").textContent = personId ? "Medarbejder" : "Tilføj medarbejder";
+  document.getElementById("modal-title").textContent = personId ? "Redigér medarbejder" : "Tilføj medarbejder";
   const p = personId ? findPerson(personId) : { name:"", title:"", fn:"Engineering", org:"BCT", loc:"Aalborg Denmark", mbti:"", email:"", phone:"", linkedin:"", dessert:"", projects:[] };
   ["name","title","org","loc","mbti","email","phone","linkedin","dessert"].forEach(k => {
     document.getElementById("f-"+k).value = p[k] || "";
@@ -1707,17 +1903,8 @@ function openModal(personId = null) {
   document.getElementById("f-fn").value = p.fn || "Engineering";
   document.getElementById("f-projects").value = (p.projects || []).join(", ");
   document.getElementById("modal-delete").style.display = personId ? "inline-block" : "none";
-  // Show/hide tabs based on whether we're editing existing person
-  document.getElementById("person-tabs").style.display = personId ? "flex" : "none";
-  // Always start on info tab
-  switchPersonTab("info");
-  if (personId) renderJournalTab(personId);
   document.getElementById("modal-bg").classList.add("active");
   setTimeout(() => document.getElementById("f-name").focus(), 50);
-}
-function switchPersonTab(name) {
-  document.querySelectorAll("#person-tabs .tab").forEach(t => t.classList.toggle("active", t.dataset.mtab === name));
-  document.querySelectorAll(".modal-tab-panel").forEach(p => p.classList.toggle("active", p.id === "mpanel-" + name));
 }
 function closeModal() { editingId = null; document.getElementById("modal-bg").classList.remove("active"); }
 function saveModal() {
@@ -1822,6 +2009,448 @@ function renderSparkline(scores) {
     <path d="${path}" fill="none" stroke="#6ea8fe" stroke-width="1.5" opacity="0.7"/>
     ${dots}
   </svg>`;
+}
+
+// ============================================
+// JOURNAL MAIN TAB — Overview of all employees
+// ============================================
+function renderJournalOverview() {
+  const container = document.getElementById("journal-grid");
+  const statsEl = document.getElementById("journal-stats");
+  if (!container) return;
+
+  const search = (document.getElementById("j-search").value || "").toLowerCase();
+  const teamFilter = document.getElementById("j-filter-team").value;
+  const trivselFilter = document.getElementById("j-filter-trivsel").value;
+
+  // All assigned people (excluding managers from default view)
+  const allIds = [...state.teams["team-1"], ...state.teams["team-2"], ...state.teams["team-3"], ...state.teams["pool"]];
+  const cutoff30 = Date.now() - 30 * 86400000;
+
+  const eligibleIds = allIds.filter(id => {
+    const p = findPerson(id);
+    if (!p) return false;
+    if (search && !(p.name + " " + (p.title||"")).toLowerCase().includes(search)) return false;
+    if (teamFilter !== "all") {
+      const t = getTeamForPerson(id);
+      if (t !== teamFilter) return false;
+    }
+    const tr = getLatestTrivsel(id);
+    if (trivselFilter === "low" && (tr == null || tr >= 5)) return false;
+    if (trivselFilter === "mid" && (tr == null || tr < 5 || tr > 6)) return false;
+    if (trivselFilter === "high" && (tr == null || tr < 7)) return false;
+    if (trivselFilter === "none" && tr != null) return false;
+    return true;
+  });
+
+  // Stats — based on all (not filtered)
+  const allWithEntries = allIds.filter(id => getJournal(id).length > 0);
+  const allTrivsel = allWithEntries.map(id => getLatestTrivsel(id)).filter(s => s != null);
+  const avg = allTrivsel.length ? (allTrivsel.reduce((a,b) => a+b, 0) / allTrivsel.length).toFixed(1) : "–";
+  const recentCount = allIds.reduce((sum, id) => sum + getJournal(id).filter(e => new Date(e.date).getTime() >= cutoff30).length, 0);
+  const lowCount = allIds.filter(id => { const t = getLatestTrivsel(id); return t != null && t < 5; }).length;
+  const noneCount = allIds.filter(id => getJournal(id).length === 0).length;
+  statsEl.innerHTML = `
+    <div class="stat"><span class="num">${avg}</span><span class="lbl">Snit trivsel</span></div>
+    <div class="stat"><span class="num">${recentCount}</span><span class="lbl">Check-ins (30 dage)</span></div>
+    <div class="stat ${lowCount > 0 ? "warn" : ""}"><span class="num">${lowCount}</span><span class="lbl">Trivsel &lt; 5</span></div>
+    <div class="stat ${noneCount > 0 ? "warn" : ""}"><span class="num">${noneCount}</span><span class="lbl">Uden entries</span></div>
+  `;
+
+  if (!eligibleIds.length) {
+    container.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: var(--muted); padding: 30px; font-style: italic;">Ingen medarbejdere matcher filteret</div>`;
+    return;
+  }
+
+  // Sort: low trivsel first, then no entries, then by name
+  eligibleIds.sort((a, b) => {
+    const ta = getLatestTrivsel(a), tb = getLatestTrivsel(b);
+    if (ta == null && tb != null) return 1;
+    if (ta != null && tb == null) return -1;
+    if (ta != null && tb != null && ta !== tb) return ta - tb;
+    return findPerson(a).name.localeCompare(findPerson(b).name);
+  });
+
+  container.innerHTML = eligibleIds.map(id => renderJournalCard(id)).join("");
+
+  // Wire up
+  container.querySelectorAll("button[data-jact]").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      const pid = btn.dataset.pid;
+      const action = btn.dataset.jact;
+      if (action === "log") openEntryModal(pid);
+      else if (action === "edit-entry") openEntryModal(pid, btn.dataset.eid);
+      else if (action === "del-entry") deleteEntry(pid, btn.dataset.eid);
+    });
+  });
+}
+
+function renderJournalCard(personId) {
+  const p = findPerson(personId);
+  if (!p) return "";
+  const entries = [...getJournal(personId)].sort((a,b) => (b.date || "").localeCompare(a.date || ""));
+  const latest = entries[0];
+  const trivsel = latest?.trivsel;
+  const teamId = getTeamForPerson(personId);
+  const teamLabel = teamId === "pool" ? "Ikke tildelt" : teamId ? "Team " + teamId.split("-")[1] : "—";
+  const lastDate = latest?.date ? new Date(latest.date).toLocaleDateString("da-DK", { day: "2-digit", month: "short", year: "numeric" }) : "Aldrig";
+  const scores = entries.slice(0, 12).reverse().map(e => e.trivsel).filter(s => s != null);
+
+  const recentHtml = entries.length === 0
+    ? `<div style="color: var(--muted); font-size: 12px; font-style: italic; padding: 8px 0;">Ingen entries endnu</div>`
+    : entries.slice(0, 5).map(e => {
+        const mgr = findPerson(e.managerId);
+        const dateLabel = e.date ? new Date(e.date).toLocaleDateString("da-DK", { day: "2-digit", month: "short" }) : "–";
+        const fields = [
+          ["Faglig udvikling", e.faglig],
+          ["Personlig udvikling", e.personlig],
+          ["Udfordringer", e.udfordringer],
+          ["Mål næste periode", e.maal],
+          ["Noter", e.noter],
+          ["Opfølgning", e.opfolgning],
+        ].filter(([_, c]) => c && c.trim());
+        const fieldsHtml = fields.map(([label, content]) => `
+          <div class="field" style="margin-top: 6px;">
+            <div class="field-label">${label}</div>
+            <div class="field-content">${escapeHtml(content)}</div>
+          </div>`).join("");
+        const filesHtml = (e.files || []).length
+          ? `<div style="margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px;">${(e.files || []).map(f => `<a class="file-chip" download="${escapeHtml(f.name)}" href="${f.dataUrl}"><span class="fname">📎 ${escapeHtml(f.name)}</span><span class="fsize">${formatBytes(f.size)}</span></a>`).join("")}</div>`
+          : "";
+        return `
+          <div class="journal-entry" style="margin-bottom: 6px;">
+            <div class="journal-entry-head">
+              <div class="left">
+                <span class="journal-entry-date">${dateLabel}</span>
+                <span class="journal-entry-meta">${mgr ? mgr.name.split(" ")[0] : "—"}</span>
+                ${trivselSpan(e.trivsel)}
+              </div>
+              <div class="journal-entry-actions">
+                <button data-jact="edit-entry" data-pid="${personId}" data-eid="${e.id}" title="Redigér">✎</button>
+                <button data-jact="del-entry" data-pid="${personId}" data-eid="${e.id}" title="Slet">×</button>
+              </div>
+            </div>
+            ${fieldsHtml}
+            ${filesHtml}
+          </div>`;
+      }).join("");
+
+  const sparkline = scores.length ? renderSparkline(scores) : `<span style="color:var(--muted); font-size:11px;">Ingen trivsel-data endnu</span>`;
+
+  return `
+    <div class="journal-card">
+      <div class="journal-card-head">
+        <div class="left">
+          <div class="avatar">${initials(p.name)}</div>
+          <div style="flex: 1; min-width: 0;">
+            <div class="name">${p.name}${projectDots(p)}</div>
+            <div class="sub">${p.title || ""} · ${teamLabel}</div>
+          </div>
+        </div>
+        <div class="right">
+          ${trivsel != null ? trivselSpan(trivsel) : `<span style="font-size:11px; color:var(--muted);">Ingen score</span>`}
+          <div class="journal-card-actions">
+            <button class="primary" data-jact="log" data-pid="${personId}">+ Log</button>
+          </div>
+        </div>
+      </div>
+      <div class="trend-row">
+        ${sparkline}
+        <span class="last-checkin">Sidst: ${lastDate}${entries.length > 1 ? ` · ${entries.length} entries` : ""}</span>
+      </div>
+      <details>
+        <summary>${entries.length > 0 ? `Vis ${Math.min(5, entries.length)} seneste entries` : "Ingen entries"}</summary>
+        <div class="recent-entries">${recentHtml}</div>
+      </details>
+    </div>`;
+}
+
+// ============================================
+// PDF REPORTS
+// ============================================
+function openReportModal() {
+  // Populate person dropdown
+  const sel = document.getElementById("rep-person");
+  const allIds = [...state.teams["team-1"], ...state.teams["team-2"], ...state.teams["team-3"], ...state.teams["pool"]];
+  sel.innerHTML = allIds.map(id => {
+    const p = findPerson(id);
+    return p ? `<option value="${id}">${p.name}</option>` : "";
+  }).join("");
+  document.getElementById("rep-team-wrap").style.display = "none";
+  document.getElementById("rep-person-wrap").style.display = "none";
+  document.getElementById("rep-type").value = "org";
+  document.getElementById("modal-report-bg").classList.add("active");
+}
+function closeReportModal() {
+  document.getElementById("modal-report-bg").classList.remove("active");
+}
+
+function generateReport() {
+  const type = document.getElementById("rep-type").value;
+  const period = document.getElementById("rep-period").value;
+  const includeNotes = document.getElementById("rep-include-noter").checked;
+  const cutoff = period === "all" ? null : Date.now() - parseInt(period, 10) * 86400000;
+
+  let html = "";
+  if (type === "org") {
+    html = buildOrgReport(cutoff, includeNotes);
+  } else if (type === "team") {
+    const teamId = document.getElementById("rep-team").value;
+    html = buildTeamReport(teamId, cutoff, includeNotes);
+  } else if (type === "person") {
+    const pid = document.getElementById("rep-person").value;
+    html = buildPersonReport(pid, cutoff, includeNotes);
+  }
+
+  closeReportModal();
+  openReportWindow(html);
+}
+
+function openReportWindow(reportHtml) {
+  const w = window.open("", "_blank", "width=900,height=1100");
+  if (!w) { alert("Popup blokeret. Tillad popups for denne side og prøv igen."); return; }
+  // Extract the styles we need for the report from this page
+  const styles = Array.from(document.querySelectorAll("style")).map(s => s.textContent).join("\n");
+  w.document.write(`<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<title>BCT Check-in Rapport</title>
+<style>${styles}</style>
+</head>
+<body class="report-mode" style="background:white; color:#1a1a1a;">
+${reportHtml}
+</body>
+</html>`);
+  w.document.close();
+}
+
+function getEntriesInPeriod(personId, cutoff) {
+  const entries = getJournal(personId);
+  if (cutoff == null) return entries.slice().sort((a,b) => (b.date||"").localeCompare(a.date||""));
+  return entries.filter(e => new Date(e.date).getTime() >= cutoff)
+    .sort((a,b) => (b.date||"").localeCompare(a.date||""));
+}
+
+function periodLabel() {
+  const period = document.getElementById("rep-period").value;
+  if (period === "all") return "Alle data";
+  return "Sidste " + period + " dage";
+}
+
+function entryCardHtml(e, personName, includeNotes) {
+  const mgr = findPerson(e.managerId);
+  const date = e.date ? new Date(e.date).toLocaleDateString("da-DK", { day: "2-digit", month: "long", year: "numeric" }) : "—";
+  const tCls = trivselClass(e.trivsel);
+  const fields = includeNotes ? [
+    ["Faglig udvikling", e.faglig],
+    ["Personlig udvikling", e.personlig],
+    ["Udfordringer", e.udfordringer],
+    ["Mål næste periode", e.maal],
+    ["Noter", e.noter],
+    ["Opfølgning", e.opfolgning],
+  ].filter(([_, c]) => c && c.trim()) : [];
+  return `
+    <div class="entry-card">
+      <div class="entry-card-head">
+        <strong>${date}</strong>
+        <span style="color:#666;">${mgr ? mgr.name : "—"}</span>
+        <span class="trivsel-pill-rep ${tCls}">${e.trivsel != null ? e.trivsel + "/10" : "—"}</span>
+        ${personName ? `<span style="margin-left:auto; color:#666;">${escapeHtml(personName)}</span>` : ""}
+      </div>
+      ${fields.map(([label, content]) => `
+        <div class="field">
+          <div class="field-label">${label}</div>
+          <div class="field-content">${escapeHtml(content)}</div>
+        </div>`).join("")}
+      ${(e.files||[]).length ? `<div class="field"><div class="field-label">Vedhæftninger</div><div class="field-content">${e.files.map(f => "📎 " + escapeHtml(f.name)).join(", ")}</div></div>` : ""}
+    </div>`;
+}
+
+function printBarHtml(title) {
+  return `
+    <div class="print-bar no-print">
+      <span class="hint">Klik <strong>Print</strong> og vælg <strong>"Save as PDF"</strong> som destination.</span>
+      <button onclick="window.print()">🖨 Print / Save as PDF</button>
+      <button onclick="window.close()" style="background:#888;">Luk</button>
+    </div>`;
+}
+
+function buildOrgReport(cutoff, includeNotes) {
+  const allIds = [...state.teams["team-1"], ...state.teams["team-2"], ...state.teams["team-3"], ...state.teams["pool"]];
+  const allEntries = allIds.flatMap(id => getEntriesInPeriod(id, cutoff).map(e => ({...e, personId: id})));
+  const allTrivsel = allEntries.map(e => e.trivsel).filter(s => s != null);
+  const avg = allTrivsel.length ? (allTrivsel.reduce((a,b) => a+b, 0) / allTrivsel.length).toFixed(1) : "–";
+  const lowEntries = allEntries.filter(e => e.trivsel != null && e.trivsel < 5).length;
+
+  // Per team summary
+  const teamSummary = ["team-1","team-2","team-3"].map(t => {
+    const ids = state.teams[t];
+    const entries = ids.flatMap(id => getEntriesInPeriod(id, cutoff));
+    const tScores = entries.map(e => e.trivsel).filter(s => s != null);
+    const tAvg = tScores.length ? (tScores.reduce((a,b) => a+b, 0) / tScores.length).toFixed(1) : "–";
+    return {
+      team: t.replace("team-", "Team "),
+      members: ids.length,
+      entries: entries.length,
+      avg: tAvg,
+    };
+  });
+
+  // Per person breakdown
+  const personRows = allIds.map(id => {
+    const p = findPerson(id);
+    const entries = getEntriesInPeriod(id, cutoff);
+    const latest = entries[0];
+    const teamId = getTeamForPerson(id);
+    const teamLbl = teamId === "pool" ? "—" : "Team " + (teamId || "").split("-")[1];
+    return { p, entries, latest, teamLbl };
+  }).filter(r => r.p).sort((a, b) => {
+    const ta = a.latest?.trivsel ?? 99;
+    const tb = b.latest?.trivsel ?? 99;
+    return ta - tb;
+  });
+
+  const detailedEntries = includeNotes
+    ? allEntries.sort((a,b) => (b.date||"").localeCompare(a.date||"")).slice(0, 50)
+    : [];
+
+  return `
+    <div class="report-output">
+      ${printBarHtml()}
+      <h1>BCT Check-in Rapport — Organisation</h1>
+      <div class="report-subtitle">${periodLabel()} · Genereret ${new Date().toLocaleDateString("da-DK", { day: "2-digit", month: "long", year: "numeric" })}</div>
+
+      <div class="summary-row">
+        <div class="item"><div class="num">${avg}</div><div class="lbl">Snit trivsel</div></div>
+        <div class="item"><div class="num">${allEntries.length}</div><div class="lbl">Check-ins i periode</div></div>
+        <div class="item"><div class="num">${allIds.length}</div><div class="lbl">Medarbejdere</div></div>
+        <div class="item"><div class="num">${lowEntries}</div><div class="lbl">Entries med trivsel &lt; 5</div></div>
+      </div>
+
+      <h2>Pr. team</h2>
+      <table>
+        <thead><tr><th>Team</th><th>Medlemmer</th><th>Check-ins</th><th>Snit trivsel</th></tr></thead>
+        <tbody>
+          ${teamSummary.map(t => `<tr><td>${t.team}</td><td>${t.members}</td><td>${t.entries}</td><td>${t.avg}</td></tr>`).join("")}
+        </tbody>
+      </table>
+
+      <h2>Pr. medarbejder</h2>
+      <table>
+        <thead><tr><th>Navn</th><th>Team</th><th>Senest</th><th>Antal</th><th>Trivsel</th></tr></thead>
+        <tbody>
+          ${personRows.map(r => `
+            <tr>
+              <td>${escapeHtml(r.p.name)}</td>
+              <td>${r.teamLbl}</td>
+              <td>${r.latest?.date ? new Date(r.latest.date).toLocaleDateString("da-DK") : "—"}</td>
+              <td>${r.entries.length}</td>
+              <td><span class="trivsel-pill-rep ${trivselClass(r.latest?.trivsel)}">${r.latest?.trivsel != null ? r.latest.trivsel + "/10" : "—"}</span></td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+
+      ${detailedEntries.length ? `
+        <h2>Detaljerede entries (op til 50 nyeste)</h2>
+        ${detailedEntries.map(e => entryCardHtml(e, findPerson(e.personId)?.name, includeNotes)).join("")}` : ""}
+
+      <div class="footer">BCT Check-in Planner · Rapport genereret ${new Date().toLocaleString("da-DK")}</div>
+    </div>`;
+}
+
+function buildTeamReport(teamId, cutoff, includeNotes) {
+  const ids = state.teams[teamId] || [];
+  const entries = ids.flatMap(id => getEntriesInPeriod(id, cutoff).map(e => ({...e, personId: id})));
+  const tScores = entries.map(e => e.trivsel).filter(s => s != null);
+  const avg = tScores.length ? (tScores.reduce((a,b) => a+b, 0) / tScores.length).toFixed(1) : "–";
+  const teamN = teamId.split("-")[1];
+
+  const personRows = ids.map(id => {
+    const p = findPerson(id);
+    const e = getEntriesInPeriod(id, cutoff);
+    return { p, entries: e, latest: e[0] };
+  }).filter(r => r.p).sort((a,b) => (a.latest?.trivsel ?? 99) - (b.latest?.trivsel ?? 99));
+
+  return `
+    <div class="report-output">
+      ${printBarHtml()}
+      <h1>BCT Check-in Rapport — Team ${teamN}</h1>
+      <div class="report-subtitle">${periodLabel()} · Genereret ${new Date().toLocaleDateString("da-DK", { day: "2-digit", month: "long", year: "numeric" })}</div>
+
+      <div class="summary-row">
+        <div class="item"><div class="num">${avg}</div><div class="lbl">Snit trivsel</div></div>
+        <div class="item"><div class="num">${entries.length}</div><div class="lbl">Check-ins i periode</div></div>
+        <div class="item"><div class="num">${ids.length}</div><div class="lbl">Medlemmer</div></div>
+      </div>
+
+      <h2>Medlemmer</h2>
+      <table>
+        <thead><tr><th>Navn</th><th>Titel</th><th>Senest</th><th>Antal entries</th><th>Trivsel</th></tr></thead>
+        <tbody>
+          ${personRows.map(r => `
+            <tr>
+              <td>${escapeHtml(r.p.name)}</td>
+              <td>${escapeHtml(r.p.title || "")}</td>
+              <td>${r.latest?.date ? new Date(r.latest.date).toLocaleDateString("da-DK") : "—"}</td>
+              <td>${r.entries.length}</td>
+              <td><span class="trivsel-pill-rep ${trivselClass(r.latest?.trivsel)}">${r.latest?.trivsel != null ? r.latest.trivsel + "/10" : "—"}</span></td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+
+      ${includeNotes ? `
+        <h2>Entries i perioden</h2>
+        ${personRows.map(r => r.entries.length ? `
+          <h3>${escapeHtml(r.p.name)}</h3>
+          ${r.entries.map(e => entryCardHtml(e, null, true)).join("")}` : ""
+        ).join("")}` : ""}
+
+      <div class="footer">BCT Check-in Planner · Rapport genereret ${new Date().toLocaleString("da-DK")}</div>
+    </div>`;
+}
+
+function buildPersonReport(personId, cutoff, includeNotes) {
+  const p = findPerson(personId);
+  if (!p) return `<div class="report-output"><h1>Person ikke fundet</h1></div>`;
+  const entries = getEntriesInPeriod(personId, cutoff);
+  const scores = entries.map(e => e.trivsel).filter(s => s != null);
+  const avg = scores.length ? (scores.reduce((a,b) => a+b, 0) / scores.length).toFixed(1) : "–";
+  const teamId = getTeamForPerson(personId);
+  const teamLabel = teamId === "pool" ? "Ikke tildelt" : teamId ? "Team " + teamId.split("-")[1] : "—";
+
+  return `
+    <div class="report-output">
+      ${printBarHtml()}
+      <h1>BCT Check-in Rapport — ${escapeHtml(p.name)}</h1>
+      <div class="report-subtitle">${periodLabel()} · Genereret ${new Date().toLocaleDateString("da-DK", { day: "2-digit", month: "long", year: "numeric" })}</div>
+
+      <h2>Profil</h2>
+      <table>
+        <tbody>
+          <tr><th style="width: 30%;">Navn</th><td>${escapeHtml(p.name)}</td></tr>
+          <tr><th>Titel</th><td>${escapeHtml(p.title || "—")}</td></tr>
+          <tr><th>Funktion</th><td>${escapeHtml(p.fn || "—")}</td></tr>
+          <tr><th>Team</th><td>${teamLabel}</td></tr>
+          <tr><th>Email</th><td>${escapeHtml(p.email || "—")}</td></tr>
+          <tr><th>Projekter</th><td>${(p.projects || []).map(escapeHtml).join(", ") || "—"}</td></tr>
+        </tbody>
+      </table>
+
+      <div class="summary-row">
+        <div class="item"><div class="num">${avg}</div><div class="lbl">Snit trivsel (periode)</div></div>
+        <div class="item"><div class="num">${entries.length}</div><div class="lbl">Check-ins i periode</div></div>
+        <div class="item"><div class="num">${getJournal(personId).length}</div><div class="lbl">Total check-ins</div></div>
+      </div>
+
+      <h2>Check-in historik</h2>
+      ${entries.length === 0
+        ? `<p style="color: #666; font-style: italic;">Ingen check-ins logget i denne periode.</p>`
+        : entries.map(e => entryCardHtml(e, null, includeNotes)).join("")}
+
+      <div class="footer">BCT Check-in Planner · Rapport genereret ${new Date().toLocaleString("da-DK")}</div>
+    </div>`;
 }
 
 function renderJournalTab(personId) {
@@ -2045,9 +2674,8 @@ function saveEntry() {
     alert("Kunne ikke gemme — sandsynligvis localStorage fyldt op af filer. Slet gamle entries eller fjern store filer.");
     return;
   }
-  const pid = editingEntryPid;
   closeEntryModal();
-  renderJournalTab(pid);
+  renderJournalOverview();
   renderLists();  // Update trivsel badges
 }
 function deleteEntry(personId, entryId) {
@@ -2057,7 +2685,7 @@ function deleteEntry(personId, entryId) {
   }
   saveState();
   if (editingEntryPid === personId) closeEntryModal();
-  renderJournalTab(personId);
+  renderJournalOverview();
   renderLists();
 }
 
@@ -2655,14 +3283,23 @@ document.body.addEventListener("click", e => {
 
 document.getElementById("btn-add-person").addEventListener("click", () => openModal());
 
-// Person tabs
-document.querySelectorAll("#person-tabs .tab").forEach(btn => {
-  btn.addEventListener("click", () => switchPersonTab(btn.dataset.mtab));
+// Journal main tab filters
+["j-search","j-filter-team","j-filter-trivsel"].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener("input", renderJournalOverview);
+  if (el) el.addEventListener("change", renderJournalOverview);
 });
 
-// Journal: add entry
-document.getElementById("btn-add-entry").addEventListener("click", () => {
-  if (editingId) openEntryModal(editingId);
+// Report modal
+document.getElementById("btn-open-report").addEventListener("click", openReportModal);
+document.getElementById("rep-cancel").addEventListener("click", closeReportModal);
+document.getElementById("rep-generate").addEventListener("click", generateReport);
+document.getElementById("rep-type").addEventListener("change", e => {
+  document.getElementById("rep-team-wrap").style.display = e.target.value === "team" ? "block" : "none";
+  document.getElementById("rep-person-wrap").style.display = e.target.value === "person" ? "block" : "none";
+});
+document.getElementById("modal-report-bg").addEventListener("click", e => {
+  if (e.target.id === "modal-report-bg") closeReportModal();
 });
 
 // Entry modal
@@ -2703,6 +3340,7 @@ document.getElementById("modal-bg").addEventListener("click", e => { if (e.targe
 document.addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
   if (document.getElementById("modal-entry-bg").classList.contains("active")) { closeEntryModal(); return; }
+  if (document.getElementById("modal-report-bg").classList.contains("active")) { closeReportModal(); return; }
   if (document.getElementById("modal-bg").classList.contains("active")) closeModal();
   if (document.getElementById("modal-event-bg").classList.contains("active")) closeEventModal();
   if (document.getElementById("modal-project-bg").classList.contains("active")) closeProjectModal();
@@ -2796,6 +3434,7 @@ function renderAll() {
   renderProjects();
   renderCalendar();
   renderByPerson();
+  renderJournalOverview();
   renderICSList();
 }
 renderAll();
