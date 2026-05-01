@@ -1,0 +1,2274 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BCT Check-in Planner</title>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1f2330;
+    --border: #2a2f3d;
+    --text: #e7eaf0;
+    --muted: #8b93a7;
+    --accent: #6ea8fe;
+    --t1: #6ea8fe;
+    --t2: #f5a97f;
+    --t3: #a6da95;
+    --m1: #c6a0f6;
+    --m2: #ee99a0;
+    --m3: #91d7e3;
+    --danger: #ed8796;
+    --ok: #a6da95;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  .wrap { max-width: 1500px; margin: 0 auto; padding: 24px; }
+  header.top {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 18px; flex-wrap: wrap; gap: 12px;
+  }
+  h1 { font-size: 22px; margin: 0; font-weight: 600; }
+  h1 .sub { color: var(--muted); font-weight: 400; font-size: 14px; margin-left: 8px; }
+  h2 { font-size: 14px; font-weight: 600; margin: 0 0 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+  h3 { font-size: 13px; font-weight: 600; margin: 0 0 8px; color: var(--text); }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+  button {
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); padding: 7px 13px;
+    border-radius: 8px; cursor: pointer; font-size: 13px;
+    transition: background .15s, border-color .15s;
+    font-family: inherit;
+  }
+  button:hover { background: #262b3a; border-color: #3a4154; }
+  button.primary { background: var(--accent); color: #0c1320; border-color: var(--accent); font-weight: 600; }
+  button.primary:hover { filter: brightness(1.08); }
+  button.ghost { background: transparent; }
+  button.danger { color: var(--danger); border-color: rgba(237,135,150,0.3); }
+  button.danger:hover { background: rgba(237,135,150,0.1); }
+  button.icon-btn { padding: 4px 7px; font-size: 11px; }
+
+  .config {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px 18px; margin-bottom: 18px;
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; align-items: end;
+  }
+  .config label { display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+  input, select, textarea {
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 10px; width: 100%; font-size: 13px;
+    font-family: inherit;
+  }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+
+  .layout { display: grid; grid-template-columns: 280px 1fr; gap: 18px; }
+  @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px;
+  }
+  .pool-list, .team-list { min-height: 80px; }
+  .team-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  @media (max-width: 900px) { .team-grid { grid-template-columns: 1fr; } }
+
+  .team-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .team-title { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .team-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .team-1 .team-dot { background: var(--t1); }
+  .team-2 .team-dot { background: var(--t2); }
+  .team-3 .team-dot { background: var(--t3); }
+  .team-count { color: var(--muted); font-size: 12px; }
+
+  .team-1 { border-top: 3px solid var(--t1); }
+  .team-2 { border-top: 3px solid var(--t2); }
+  .team-3 { border-top: 3px solid var(--t3); }
+
+  .person {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 10px; margin-bottom: 6px;
+    cursor: grab; display: flex; gap: 10px; align-items: center;
+    user-select: none; transition: background .12s, border-color .12s, box-shadow .12s;
+    position: relative;
+  }
+  .person:hover { background: #242936; border-color: #3a4154; }
+  .person:active { cursor: grabbing; }
+  .person.sortable-ghost { opacity: 0.35; }
+  .person.sortable-chosen { background: #2c3243; }
+  .person.highlight {
+    background: rgba(110,168,254,0.12);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(110,168,254,0.25);
+  }
+  .person.dim { opacity: 0.35; }
+  .avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: linear-gradient(135deg, #4a5169, #2a2f3d);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 600; font-size: 11px; color: #fff; flex-shrink: 0;
+  }
+  .person-meta { flex: 1; min-width: 0; }
+  .person-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .person-title { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .project-dots { display: inline-flex; gap: 3px; margin-left: 4px; vertical-align: middle; }
+  .project-dot {
+    width: 7px; height: 7px; border-radius: 50%; display: inline-block;
+  }
+  .person-actions {
+    display: none; gap: 4px; flex-shrink: 0;
+  }
+  .person:hover .person-actions { display: flex; }
+  .person-actions button {
+    padding: 3px 6px; font-size: 11px; opacity: 0.85;
+    background: transparent; border: 1px solid transparent;
+  }
+  .person-actions button:hover { background: var(--border); border-color: var(--border); }
+  .person-actions .del:hover { color: var(--danger); border-color: rgba(237,135,150,0.4); }
+
+  .badge {
+    display: inline-block; padding: 1px 6px; border-radius: 4px;
+    font-size: 10px; font-weight: 600; margin-right: 4px;
+    background: rgba(255,255,255,0.08); color: var(--muted);
+  }
+  .badge.eng { background: rgba(110,168,254,0.15); color: var(--t1); }
+  .badge.bd  { background: rgba(245,169,127,0.15); color: var(--t2); }
+  .badge.mkt { background: rgba(166,218,149,0.15); color: var(--t3); }
+  .badge.oth { background: rgba(198,160,246,0.15); color: var(--m1); }
+  .badge.oslo { background: rgba(145,215,227,0.15); color: var(--m3); }
+
+  .filter-bar { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+  .filter-bar input { flex: 1; min-width: 120px; }
+
+  /* Projects sidebar */
+  .projects-section { margin-top: 14px; }
+  .project-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; border-radius: 6px; cursor: pointer;
+    margin-bottom: 3px; font-size: 12px;
+    border: 1px solid transparent;
+    transition: background .12s;
+  }
+  .project-row:hover { background: var(--panel-2); }
+  .project-row.active { background: rgba(110,168,254,0.12); border-color: var(--accent); }
+  .project-row .pname { flex: 1; font-weight: 500; }
+  .project-row .pcount { color: var(--muted); font-size: 11px; }
+  .project-row .pswatch {
+    width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0;
+  }
+  .project-row .ptags {
+    font-size: 10px; color: var(--muted); margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .project-spread {
+    font-size: 10px; color: var(--muted);
+    display: flex; gap: 3px;
+  }
+  .project-spread .ts {
+    padding: 1px 4px; border-radius: 3px; font-weight: 600;
+  }
+  .ts.t-1 { background: rgba(110,168,254,0.18); color: var(--t1); }
+  .ts.t-2 { background: rgba(245,169,127,0.18); color: var(--t2); }
+  .ts.t-3 { background: rgba(166,218,149,0.18); color: var(--t3); }
+  .ts.t-pool { background: rgba(255,255,255,0.06); color: var(--muted); }
+
+  /* Calendar */
+  table.cal {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+  }
+  table.cal th, table.cal td {
+    padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  table.cal th {
+    background: var(--panel-2); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600;
+  }
+  table.cal tr:last-child td { border-bottom: none; }
+  table.cal tr.upcoming { background: rgba(110,168,254,0.06); }
+  .week-pill {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 11px; font-weight: 600;
+  }
+  .pill-t1 { background: rgba(110,168,254,0.18); color: var(--t1); }
+  .pill-t2 { background: rgba(245,169,127,0.18); color: var(--t2); }
+  .pill-t3 { background: rgba(166,218,149,0.18); color: var(--t3); }
+  .manager-cell { display: flex; flex-direction: column; gap: 2px; }
+  .manager-cell .mgr { font-weight: 500; }
+  .members-row { font-size: 12px; color: var(--muted); }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 4px; margin: 22px 0 12px; border-bottom: 1px solid var(--border); }
+  .tab {
+    padding: 8px 14px; background: transparent; border: none; color: var(--muted);
+    cursor: pointer; font-size: 13px; font-weight: 500; border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  .person-schedule { font-size: 12px; }
+  .person-schedule td { padding: 6px 10px !important; }
+  .schedule-mgr { font-weight: 500; }
+  .date-input-cell { display: flex; align-items: center; gap: 6px; }
+  .date-input-cell input[type="datetime-local"] {
+    font-size: 11px; padding: 3px 6px; width: 175px;
+  }
+  .slot-suggestions {
+    display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px;
+  }
+  .slot-pill {
+    background: rgba(110,168,254,0.12); color: var(--t1);
+    border: 1px solid rgba(110,168,254,0.25); border-radius: 4px;
+    padding: 2px 6px; font-size: 11px; cursor: pointer;
+  }
+  .slot-pill:hover { background: rgba(110,168,254,0.22); }
+  .slot-empty { color: var(--muted); font-size: 11px; font-style: italic; }
+
+  /* Day grid for slot picking */
+  .slot-cell { padding: 8px !important; }
+  .slot-source-info { color: var(--muted); font-size: 11px; margin-left: 8px; }
+  .day-grid-week { margin-bottom: 10px; }
+  .day-grid-week:last-child { margin-bottom: 0; }
+  .day-grid-week-label {
+    font-size: 10px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.05em; margin-bottom: 4px; font-weight: 600;
+  }
+  .day-grid {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px;
+  }
+  .day-col {
+    display: flex; flex-direction: column; gap: 2px;
+    background: rgba(255,255,255,0.02); border-radius: 4px; padding: 4px;
+    min-height: 60px;
+  }
+  .day-col.today { background: rgba(110,168,254,0.06); border: 1px solid rgba(110,168,254,0.2); }
+  .day-col-header {
+    font-size: 10px; color: var(--muted); text-align: center;
+    padding-bottom: 3px; border-bottom: 1px solid var(--border);
+    margin-bottom: 3px;
+  }
+  .day-col-header .dow { display: block; font-weight: 600; color: var(--text); font-size: 11px; }
+  .day-col-header .num { font-size: 10px; }
+  .slot-tile {
+    background: rgba(110,168,254,0.12); color: var(--t1);
+    border: 1px solid rgba(110,168,254,0.25); border-radius: 3px;
+    padding: 2px 0; font-size: 11px; cursor: pointer; text-align: center;
+    font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+    transition: background .12s, transform .08s;
+    line-height: 1.3;
+  }
+  .slot-tile:hover { background: rgba(110,168,254,0.28); transform: translateY(-1px); }
+  .slot-tile.selected {
+    background: var(--accent); color: #0c1320; font-weight: 700;
+    border-color: var(--accent);
+  }
+  .day-col-empty {
+    color: var(--muted); font-size: 11px; text-align: center; padding: 6px 2px;
+    font-style: italic;
+  }
+  .day-col-overflow {
+    font-size: 10px; color: var(--muted); cursor: pointer; text-align: center;
+    padding: 2px; border-radius: 3px; border: 1px dashed var(--border);
+  }
+  .day-col-overflow:hover { background: var(--panel-2); color: var(--text); }
+  .no-slots-msg {
+    color: var(--muted); font-size: 12px; font-style: italic;
+    padding: 8px; text-align: center;
+    background: rgba(255,255,255,0.02); border-radius: 6px;
+  }
+
+  /* By-person filter bar */
+  .byperson-filter {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 14px; margin-bottom: 12px;
+  }
+  .byperson-filter > div { display: flex; align-items: center; gap: 8px; }
+  .byperson-filter label {
+    font-size: 11px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.06em; margin: 0;
+  }
+  .byperson-filter select { width: auto; min-width: 160px; }
+  .week-nav { display: flex; align-items: center; gap: 6px; }
+  .week-nav .arrow {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 12px; font-size: 16px; line-height: 1;
+    cursor: pointer; color: var(--text); font-weight: 600;
+    min-width: 36px; text-align: center;
+  }
+  .week-nav .arrow:hover {
+    background: var(--accent); color: #0c1320; border-color: var(--accent);
+  }
+  .week-nav .label {
+    font-size: 13px; font-weight: 600; min-width: 220px; text-align: center;
+    padding: 4px 12px;
+  }
+  .week-nav .label .sub {
+    display: block; font-size: 11px; color: var(--muted); font-weight: 400; margin-top: 2px;
+  }
+  .week-nav .label .upcoming-tag {
+    display: inline-block; font-size: 9px; font-weight: 700;
+    background: rgba(110,168,254,0.18); color: var(--accent);
+    padding: 1px 5px; border-radius: 3px; margin-left: 6px;
+    text-transform: uppercase; letter-spacing: 0.05em;
+    vertical-align: middle;
+  }
+  .week-nav .now-btn {
+    background: rgba(110,168,254,0.12); color: var(--accent);
+    border: 1px solid rgba(110,168,254,0.3); border-radius: 4px;
+    padding: 4px 10px; font-size: 11px; margin-left: 4px; font-weight: 600;
+  }
+  .week-nav .now-btn:hover { background: rgba(110,168,254,0.22); }
+
+  /* Project actions */
+  .project-row { position: relative; }
+  .project-actions {
+    display: none; gap: 3px; position: absolute; right: 6px; top: 4px;
+  }
+  .project-row:hover .project-actions { display: flex; }
+  .project-actions button {
+    padding: 2px 6px; font-size: 11px; opacity: 0.85;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 3px; cursor: pointer; color: var(--text);
+  }
+  .project-actions button:hover { background: var(--border); }
+  .project-actions .del:hover { color: var(--danger); border-color: rgba(237,135,150,0.4); }
+  .project-row .pdesc {
+    font-size: 10px; color: var(--muted); margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-style: italic;
+  }
+  .member-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px;
+    max-height: 280px; overflow-y: auto;
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px;
+  }
+  .member-grid label.member-checkbox {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 6px; border-radius: 4px; cursor: pointer;
+    font-size: 12px; color: var(--text); margin: 0;
+    text-transform: none; letter-spacing: 0;
+  }
+  .member-checkbox:hover { background: rgba(255,255,255,0.04); }
+  .member-checkbox input { width: auto; margin: 0; }
+  .member-checkbox .meta { color: var(--muted); font-size: 10px; }
+
+  /* Session tags in calendar table */
+  .session-tag {
+    display: inline-block; padding: 1px 6px; border-radius: 3px;
+    font-size: 9px; font-weight: 700; margin-left: 6px;
+    text-transform: uppercase; letter-spacing: 0.05em;
+    vertical-align: middle;
+  }
+  .session-tag.now { background: rgba(166,218,149,0.2); color: var(--ok); }
+  .session-tag.next { background: rgba(110,168,254,0.2); color: var(--accent); }
+  table.cal tr.current-session { background: rgba(166,218,149,0.05); }
+  table.cal tr.current-session td:first-child { border-left: 3px solid var(--ok); padding-left: 10px; }
+
+  /* Event modal */
+  .modal.event-modal { width: 520px; }
+  .modal textarea { resize: vertical; min-height: 80px; font-family: inherit; line-height: 1.5; }
+  .ev-info {
+    background: rgba(110,168,254,0.08); border: 1px solid rgba(110,168,254,0.2);
+    border-radius: 6px; padding: 8px 10px; font-size: 11px; color: var(--muted);
+    margin-top: 10px;
+  }
+  .ev-info strong { color: var(--text); }
+
+  /* Modal */
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+    display: none; align-items: center; justify-content: center; z-index: 100;
+  }
+  .modal-bg.active { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 22px; width: 580px; max-width: 92vw;
+    max-height: 90vh; overflow-y: auto;
+  }
+  .modal h2 { color: var(--text); text-transform: none; letter-spacing: 0; font-size: 18px; margin-bottom: 14px; }
+  .form-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  }
+  .form-grid .full { grid-column: 1 / -1; }
+  .form-grid label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; display: block; }
+  .modal-actions { display: flex; justify-content: space-between; gap: 8px; margin-top: 18px; }
+  .modal-actions .right { display: flex; gap: 8px; }
+
+  /* Calendar integration sections */
+  .cal-section {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px; margin-top: 18px;
+  }
+  .cal-section .head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .cal-section .head h2 { margin: 0; }
+  .status-pill {
+    font-size: 11px; padding: 2px 8px; border-radius: 4px;
+    background: var(--panel-2); color: var(--muted);
+  }
+  .status-pill.ok { background: rgba(166,218,149,0.18); color: var(--ok); }
+  .status-pill.err { background: rgba(237,135,150,0.18); color: var(--danger); }
+  .live-config {
+    display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; margin-top: 8px;
+  }
+  .script-urls { display: grid; gap: 6px; margin-top: 8px; }
+  .script-urls .row {
+    display: grid; grid-template-columns: 140px 1fr; gap: 8px; align-items: center;
+  }
+  .script-urls .row label {
+    font-size: 12px; color: var(--text); text-transform: none; letter-spacing: 0;
+    margin: 0; font-weight: 500;
+  }
+  .script-actions { display: flex; gap: 8px; margin-top: 12px; }
+  details.script-help { margin-top: 10px; }
+  details.script-help summary {
+    cursor: pointer; padding: 6px 10px; background: var(--panel-2);
+    border-radius: 6px; font-size: 12px; user-select: none;
+  }
+  details.script-help summary:hover { background: #262b3a; }
+  details.script-help[open] summary { margin-bottom: 8px; }
+  pre.code {
+    background: #0a0c11; border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+    font-size: 11px; line-height: 1.5; overflow-x: auto; color: #c8cfdc;
+    margin: 8px 0;
+  }
+  pre.code .kw { color: #c6a0f6; }
+  pre.code .str { color: #a6da95; }
+  pre.code .com { color: #6e7383; font-style: italic; }
+  ol.steps { padding-left: 22px; font-size: 13px; color: var(--text); }
+  ol.steps li { margin-bottom: 6px; }
+  ol.steps code {
+    background: var(--panel-2); padding: 1px 5px; border-radius: 3px; font-size: 12px;
+  }
+
+  .ics-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 10px;
+  }
+  @media (max-width: 800px) { .ics-grid { grid-template-columns: 1fr; } }
+  .drop-zone {
+    border: 2px dashed var(--border); border-radius: 10px;
+    padding: 18px; text-align: center; cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .drop-zone:hover, .drop-zone.dragover {
+    border-color: var(--accent); background: rgba(110,168,254,0.05);
+  }
+  .drop-zone .label { font-weight: 500; margin-bottom: 4px; }
+  .drop-zone .hint { font-size: 11px; color: var(--muted); }
+  .uploaded-list { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .uploaded-list .item { display: flex; justify-content: space-between; padding: 3px 0; }
+  .uploaded-list .item .x { cursor: pointer; color: var(--danger); padding: 0 6px; }
+
+  .work-hours { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  .work-hours input[type="time"] { width: 90px; }
+  .work-hours label { font-size: 12px; color: var(--muted); margin: 0; text-transform: none; letter-spacing: 0; }
+
+  .team-list.empty::after, .pool-list.empty::after {
+    content: "Træk personer hertil"; display: block; padding: 12px; text-align: center;
+    color: var(--muted); font-size: 12px; border: 1px dashed var(--border); border-radius: 8px;
+  }
+
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+
+  .add-btn {
+    width: 100%; padding: 9px; margin-top: 8px;
+    background: rgba(110,168,254,0.08); color: var(--accent);
+    border: 1px dashed rgba(110,168,254,0.4); border-radius: 8px;
+    cursor: pointer; font-size: 13px; font-weight: 500;
+  }
+  .add-btn:hover { background: rgba(110,168,254,0.15); }
+
+  @media print {
+    body { background: white; color: black; }
+    .config, .filter-bar, .toolbar, .tabs, .panel, .person, .cal-section { background: white !important; color: black !important; border-color: #ddd !important; }
+    button, .person-actions, .add-btn { display: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <h1>BCT Check-in Planner <span class="sub">Drag & drop · Biweekly rotation · Live calendar · Projekt-view</span></h1>
+    <div class="toolbar">
+      <button class="ghost" id="btn-reset">Nulstil til standard</button>
+      <button class="ghost" id="btn-shuffle">Bland teams</button>
+      <button class="ghost" id="btn-export-csv">Eksportér CSV</button>
+      <button class="primary" id="btn-print">Print kalender</button>
+    </div>
+  </header>
+
+  <div class="config">
+    <div>
+      <label>Manager 1</label>
+      <select id="mgr1"></select>
+    </div>
+    <div>
+      <label>Manager 2</label>
+      <select id="mgr2"></select>
+    </div>
+    <div>
+      <label>Manager 3</label>
+      <select id="mgr3"></select>
+    </div>
+    <div>
+      <label>Første check-in dato</label>
+      <input type="date" id="startDate">
+    </div>
+  </div>
+
+  <div class="layout">
+    <!-- Sidebar -->
+    <div>
+      <div class="panel pool">
+        <h2>Ikke tildelt <span class="team-count" id="pool-count"></span></h2>
+        <div class="filter-bar">
+          <input type="text" id="search" placeholder="Søg navn / titel / projekt…">
+        </div>
+        <div id="pool" class="pool-list"></div>
+        <button class="add-btn" id="btn-add-person">+ Tilføj medarbejder</button>
+        <div class="legend">
+          <div class="legend-item"><span class="badge eng">ENG</span>Engineering</div>
+          <div class="legend-item"><span class="badge bd">BD</span>Business Dev.</div>
+          <div class="legend-item"><span class="badge mkt">MKT</span>Marketing</div>
+          <div class="legend-item"><span class="badge oslo">OSLO</span>Oslo</div>
+        </div>
+      </div>
+
+      <div class="panel projects-section">
+        <h2>Projekter <span class="team-count" id="projects-count"></span></h2>
+        <p style="color: var(--muted); font-size: 11px; margin: 0 0 8px;">Klik et projekt for at fremhæve medlemmer på tværs af teams.</p>
+        <div id="projects-list"></div>
+        <button class="add-btn" id="btn-add-project">+ Tilføj projekt</button>
+      </div>
+    </div>
+
+    <!-- Teams + tabs -->
+    <div>
+      <div class="team-grid">
+        <div class="panel team-1">
+          <div class="team-header">
+            <div class="team-title"><span class="team-dot"></span>Team 1</div>
+            <div class="team-count" id="team-1-count">0</div>
+          </div>
+          <div id="team-1" class="team-list"></div>
+        </div>
+        <div class="panel team-2">
+          <div class="team-header">
+            <div class="team-title"><span class="team-dot"></span>Team 2</div>
+            <div class="team-count" id="team-2-count">0</div>
+          </div>
+          <div id="team-2" class="team-list"></div>
+        </div>
+        <div class="panel team-3">
+          <div class="team-header">
+            <div class="team-title"><span class="team-dot"></span>Team 3</div>
+            <div class="team-count" id="team-3-count">0</div>
+          </div>
+          <div id="team-3" class="team-list"></div>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <button class="tab active" data-tab="cal">Kalender — pr. session</button>
+        <button class="tab" data-tab="byperson">Pr. medarbejder (datovalg + slots)</button>
+      </div>
+
+      <div class="tab-panel active" id="panel-cal">
+        <table class="cal">
+          <thead>
+            <tr>
+              <th style="width: 80px;">Uge</th>
+              <th style="width: 130px;">Dato</th>
+              <th>Manager 1</th>
+              <th>Manager 2</th>
+              <th>Manager 3</th>
+            </tr>
+          </thead>
+          <tbody id="cal-body"></tbody>
+        </table>
+      </div>
+
+      <div class="tab-panel" id="panel-byperson">
+        <p style="color: var(--muted); font-size: 12px; margin: 0 0 10px;">
+          Klik et tids-slot for at åbne booking-dialog. Slots viser tider hvor både du og medarbejderen er ledige.
+        </p>
+        <div class="byperson-filter">
+          <div>
+            <label>Vis check-ins for:</label>
+            <select id="mgr-filter">
+              <option value="all">Alle managers</option>
+            </select>
+          </div>
+          <div>
+            <label>Periode:</label>
+            <div class="week-nav">
+              <button class="arrow" id="wk-prev" title="Forrige uge">‹</button>
+              <span class="label" id="wk-label">—</span>
+              <button class="arrow" id="wk-next" title="Næste uge">›</button>
+              <button class="now-btn" id="wk-now" style="display:none;" title="Tilbage til nuværende uge">Nu</button>
+            </div>
+          </div>
+          <div style="margin-left: auto; color: var(--muted); font-size: 11px;" id="filter-count"></div>
+        </div>
+        <table class="cal person-schedule">
+          <thead>
+            <tr>
+              <th style="width: 180px;">Medarbejder</th>
+              <th style="width: 80px;">Team</th>
+              <th style="width: 90px;">Manager</th>
+              <th>Ledige tider i sessionsvinduet</th>
+            </tr>
+          </thead>
+          <tbody id="byperson-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- LIVE Apps Script section -->
+  <div class="cal-section">
+    <div class="head">
+      <h2>Live Google Calendar (Apps Script) <span class="status-pill" id="live-status">Ikke konfigureret</span></h2>
+      <div>
+        <label style="color: var(--muted); font-size: 12px; margin-right: 10px;"><input type="checkbox" id="live-auto" style="width:auto; margin-right: 4px;"> Auto-refresh hver 10 min</label>
+        <button class="ghost" id="btn-live-refresh">Refresh nu</button>
+      </div>
+    </div>
+    <p style="color: var(--muted); font-size: 12px; margin: 0 0 8px;">
+      Hver manager deployer sit eget Apps Script og indsætter sin egen URL nedenfor. Du behøver kun udfylde din egen — andre managers indsætter deres URL i deres egen browser.<br>
+      Medarbejdere skal <strong>ikke</strong> deploye noget — de skal blot dele deres Google Calendar med dig (Calendar settings → Share with specific people → "See only free/busy").
+    </p>
+    <div id="script-urls" class="script-urls"></div>
+    <div class="script-actions">
+      <button class="primary" id="btn-live-test">Test alle URLs</button>
+    </div>
+
+    <details class="script-help">
+      <summary>Sådan opretter du Apps Script (klik for guide)</summary>
+      <ol class="steps">
+        <li>Gå til <a href="https://script.google.com/home/projects/create" target="_blank" style="color: var(--accent);">script.google.com</a> og opret et nyt projekt.</li>
+        <li>Slet det tomme <code>function myFunction()</code> og indsæt koden nedenfor.</li>
+        <li><strong>Aktivér Calendar API:</strong> i venstre sidebar, klik <code>Services</code> (+ ikon). Find <code>Google Calendar API</code>, lad identifier være <code>Calendar</code>, klik <code>Add</code>. Det er nødvendigt for FreeBusy API'et — uden det får du 0 OK · 21 fejl.</li>
+        <li>Klik <code>Deploy → New deployment → Web app</code>. Sæt <code>Execute as: Me</code> og <code>Who has access: Anyone</code>. Klik Deploy. Autorisér scope første gang (Calendar read).</li>
+        <li>Kopiér <code>Web app URL</code> (slutter på <code>/exec</code>) og indsæt i feltet her på siden. Klik Test forbindelse, så Refresh.</li>
+        <li>Hvis du har en eksisterende deployment: <code>Deploy → Manage deployments → ✎ → New version → Deploy</code>. URL'en kan forblive den samme.</li>
+        <li><strong>Domæne-deling:</strong> i Google Workspace er free/busy som standard delt internt på domænet. Hvis nogle medarbejdere stadig fejler, skal de manuelt dele deres kalender (<code>Calendar Settings → Share with specific people → See all event details</code> til din email).</li>
+      </ol>
+      <pre class="code">// Kræver: Services → Google Calendar API tilføjet (identifier: Calendar)
+function doGet(e) {
+  const params = e.parameter;
+  const callback = params.callback;
+  const calId = params.calendar || "primary";
+  const start = new Date(params.start || new Date());
+  const end = new Date(params.end || new Date(Date.now() + 14*864e5));
+  const realId = (calId === "primary") ? Session.getActiveUser().getEmail() : calId;
+
+  let payload;
+  try {
+    // FreeBusy API - virker for alle delte kalendere på domænet
+    const fb = Calendar.Freebusy.query({
+      timeMin: start.toISOString(),
+      timeMax: end.toISOString(),
+      items: [{ id: realId }]
+    });
+    const cal = fb.calendars[realId] || Object.values(fb.calendars)[0];
+    if (cal && cal.errors && cal.errors.length) {
+      payload = { error: cal.errors[0].reason + " (" + realId + ")" };
+    } else {
+      const busy = (cal &amp;&amp; cal.busy ? cal.busy : []).map(b =&gt; ({
+        start: b.start, end: b.end, summary: ""
+      }));
+      payload = { calendar: realId, count: busy.length, busy: busy };
+    }
+  } catch (err) {
+    payload = { error: "Script fejl: " + String(err) };
+  }
+
+  if (callback) {
+    return ContentService.createTextOutput(callback + "(" + JSON.stringify(payload) + ")")
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+  return ContentService.createTextOutput(JSON.stringify(payload))
+    .setMimeType(ContentService.MimeType.JSON);
+}</pre>
+      <p style="color: var(--muted); font-size: 11px; margin-top: 8px;">
+        <strong>Sikkerhed:</strong> URL'en giver enhver med linket adgang til at læse de kalendere du har givet scriptet adgang til. Hold den privat.
+      </p>
+    </details>
+  </div>
+
+  <!-- ICS section (fallback) -->
+  <div class="cal-section">
+    <h2>Manuel ICS upload <span class="status-pill">Fallback / supplerende</span></h2>
+    <p style="color: var(--muted); font-size: 12px; margin: 0 0 4px;">Alternativ til Apps Script: træk .ics filer hertil. Statisk snapshot — re-upload når kalendere ændres.</p>
+    <div class="ics-grid">
+      <div>
+        <h3>Manager kalendere</h3>
+        <div class="drop-zone" id="drop-mgr">
+          <div class="label">Træk .ics fil(er) hertil</div>
+          <div class="hint">eller klik for at vælge</div>
+          <input type="file" id="file-mgr" accept=".ics" multiple style="display:none;">
+        </div>
+        <div class="uploaded-list" id="list-mgr"></div>
+      </div>
+      <div>
+        <h3>Medarbejder kalendere</h3>
+        <div class="drop-zone" id="drop-emp">
+          <div class="label">Træk .ics fil(er) hertil</div>
+          <div class="hint">eller klik for at vælge</div>
+          <input type="file" id="file-emp" accept=".ics" multiple style="display:none;">
+        </div>
+        <div class="uploaded-list" id="list-emp"></div>
+      </div>
+    </div>
+    <div class="work-hours">
+      <label>Arbejdstid:</label>
+      <input type="time" id="wh-start" step="900">
+      <span style="color: var(--muted);">–</span>
+      <input type="time" id="wh-end" step="900">
+      <label><input type="checkbox" id="wh-lunch" style="width:auto; margin: 0 4px 0 12px;"> Spring frokost (12–13) over</label>
+      <label><input type="checkbox" id="wh-weekdays" style="width:auto; margin: 0 4px 0 12px;" checked> Kun hverdage</label>
+    </div>
+  </div>
+
+</div>
+
+<!-- Modal: create/edit project -->
+<div class="modal-bg" id="modal-project-bg">
+  <div class="modal">
+    <h2 id="proj-modal-title">Nyt projekt</h2>
+    <div class="form-grid">
+      <div class="full">
+        <label>Projektnavn *</label>
+        <input type="text" id="pj-name" placeholder="fx Apollo">
+      </div>
+      <div class="full">
+        <label>Beskrivelse (valgfri)</label>
+        <textarea id="pj-description" rows="2" placeholder="kort beskrivelse af projektet…"></textarea>
+      </div>
+      <div class="full">
+        <label>Medlemmer <span style="text-transform: none; letter-spacing: 0; font-weight: 400;">(en person kan være på flere projekter)</span></label>
+        <div class="member-grid" id="pj-members"></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="danger" id="pj-delete" style="display:none;">Slet projekt</button>
+      <div class="right">
+        <button class="ghost" id="pj-cancel">Annullér</button>
+        <button class="primary" id="pj-save">Gem</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: create check-in event -->
+<div class="modal-bg" id="modal-event-bg">
+  <div class="modal event-modal">
+    <h2>Opret check-in møde</h2>
+    <div class="form-grid">
+      <div class="full">
+        <label>Titel</label>
+        <input type="text" id="ev-title" value="Check-in samtale">
+      </div>
+      <div>
+        <label>Dato</label>
+        <input type="date" id="ev-date">
+      </div>
+      <div>
+        <label>Tidspunkt</label>
+        <input type="time" id="ev-time" step="900">
+      </div>
+      <div>
+        <label>Varighed</label>
+        <select id="ev-duration">
+          <option value="15">15 min</option>
+          <option value="30">30 min</option>
+          <option value="45">45 min</option>
+          <option value="60">1 time</option>
+        </select>
+      </div>
+      <div>
+        <label>Med</label>
+        <input type="text" id="ev-attendee" disabled>
+      </div>
+      <div class="full">
+        <label>Agenda / noter (valgfri)</label>
+        <textarea id="ev-agenda" rows="5" placeholder="fx Opfølgning fra sidste check-in, mål for næste periode, udfordringer…"></textarea>
+      </div>
+    </div>
+    <div class="ev-info">
+      <strong>Opret i Google Calendar</strong> åbner Google's event-vindue i en ny tab med alle felter prefyldt — du klikker bare <strong>Save</strong> for at sende invitationen. Mødet oprettes i <em>din</em> kalender med medarbejderen som inviteret deltager.
+    </div>
+    <div class="modal-actions">
+      <div></div>
+      <div class="right">
+        <button class="ghost" id="ev-cancel">Annullér</button>
+        <button class="ghost" id="ev-save-only">Gem tid (uden booking)</button>
+        <button class="primary" id="ev-create">Opret i Google Calendar →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: add/edit person -->
+<div class="modal-bg" id="modal-bg">
+  <div class="modal">
+    <h2 id="modal-title">Tilføj medarbejder</h2>
+    <div class="form-grid">
+      <div class="full">
+        <label>Navn *</label>
+        <input type="text" id="f-name" placeholder="Fulde navn">
+      </div>
+      <div>
+        <label>Titel</label>
+        <input type="text" id="f-title" placeholder="fx Software Developer">
+      </div>
+      <div>
+        <label>Funktion</label>
+        <select id="f-fn">
+          <option value="Engineering">Engineering</option>
+          <option value="Business Development">Business Development</option>
+          <option value="Marketing">Marketing</option>
+          <option value="Management">Management</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <div>
+        <label>Org. unit</label>
+        <input type="text" id="f-org" value="BCT" placeholder="BCT / BCG">
+      </div>
+      <div>
+        <label>Office location</label>
+        <input type="text" id="f-loc" value="Aalborg Denmark" placeholder="fx Aalborg Denmark">
+      </div>
+      <div>
+        <label>Myers-Briggs</label>
+        <input type="text" id="f-mbti" placeholder="fx INTJ-A">
+      </div>
+      <div>
+        <label>Email</label>
+        <input type="email" id="f-email" placeholder="navn@blackcapitaltechnology.com">
+      </div>
+      <div>
+        <label>Telefon</label>
+        <input type="text" id="f-phone" placeholder="(+45) ...">
+      </div>
+      <div>
+        <label>LinkedIn</label>
+        <input type="text" id="f-linkedin" placeholder="linkedin.com/in/...">
+      </div>
+      <div class="full">
+        <label>Favorite Dessert</label>
+        <input type="text" id="f-dessert" placeholder="fx Brownie">
+      </div>
+      <div class="full">
+        <label>Projekter (komma-separeret)</label>
+        <input type="text" id="f-projects" placeholder="fx Apollo, Phoenix, Beta">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="danger" id="modal-delete" style="display:none;">Slet medarbejder</button>
+      <div class="right">
+        <button class="ghost" id="modal-cancel">Annullér</button>
+        <button class="primary" id="modal-save">Gem</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================
+// DEFAULT DATA
+// ============================================
+const SEED_PEOPLE = [
+  { id: "skj", name: "Stefan Konrad Johansen", mbti: "ESTJ-A", title: "Managing Director", org: "BCG", fn: "Management", loc: "Oslo Norway", email: "skj@blackcapitalventures.com", phone: "(+45) 60 92 80 03", linkedin: "linkedin.com/in/k-bak/", dessert: "Ice cream", projects: [] },
+  { id: "mr",  name: "Malthe Reipurth", mbti: "ENTJ-A", title: "Managing Director", org: "BCT", fn: "Management", loc: "Aalborg Denmark", email: "mr@blackcapitalventures.com", phone: "(+45) 52 25 50 55", linkedin: "linkedin.com/in/57192/", dessert: "Créme Brûlée og portvin fra Aarstová Torshavn", projects: [] },
+  { id: "tor", name: "Tor Duerlund Emanuelssen", mbti: "", title: "Business Developer", org: "BCT", fn: "Business Development", loc: "Aalborg Denmark", email: "tor@blackcapitaltechnology.com", phone: "", linkedin: "linkedin.com/in/elsen/", dessert: "", projects: [] },
+  { id: "cdo", name: "Charlie Østergaard", mbti: "ENFJ-A", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "cdo@blackcapitaltechnology.com", phone: "(+45) 52 22 66 13", linkedin: "linkedin.com/in/gaard/", dessert: "Créme Brûlée / Pancakes with ice cream", projects: [] },
+  { id: "jbr", name: "Jonas Blendstrup Rasmussen", mbti: "INFJ-T", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "jbr@blackcapitaltechnology.com", phone: "", linkedin: "linkedin.com/in/73200/", dessert: "Ice cream", projects: [] },
+  { id: "jo",  name: "Jonas Vestergård Olsen", mbti: "INTP-T", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "jo@blackcapitaltechnology.com", phone: "", linkedin: "linkedin.com/in/jvolsen/", dessert: "", projects: [] },
+  { id: "jl",  name: "Jesper Luff Olesen", mbti: "", title: "Business Developer", org: "BCT", fn: "Business Development", loc: "Aalborg Denmark", email: "jl@blackcapitaltechnology.com", phone: "", linkedin: "linkedin.com/in/rluff/", dessert: "Gammeldags æblekage", projects: [] },
+  { id: "csv", name: "Christian Skou Vendelbjerg", mbti: "", title: "Studentermedhjælper", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "csv@blackcapitaltechnology.com", phone: "(+45) 31 67 30 77", linkedin: "linkedin.com/in/77339/", dessert: "Brownie", projects: [] },
+  { id: "ab",  name: "Astrid Bak", mbti: "INFJ-T", title: "Marketing assistant", org: "BCT", fn: "Marketing", loc: "Aalborg Denmark", email: "ab@blackcapitaltechnology.com", phone: "(+45) 52 30 25 71", linkedin: "linkedin.com/in/b42b4/", dessert: "Brunsviger", projects: [] },
+  { id: "czr", name: "Casper Zacho Roskær", mbti: "", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "czr@blackcapitaltechnology.com", phone: "(+45) 61 60 12 22", linkedin: "linkedin.com/in/99222/", dessert: "Flæskesvær", projects: [] },
+  { id: "lnp", name: "Lars Nyborg Pedersen", mbti: "INTJ-T", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "lnp@blackcapitalventures.com", phone: "(+45) 22 55 55 03", linkedin: "linkedin.com/in/ersen/", dessert: "Chocolate mousse", projects: [] },
+  { id: "jkm", name: "Julie Krause Madsen", mbti: "", title: "Graphic Designer", org: "BCT", fn: "Marketing", loc: "Aalborg Denmark", email: "jkm@blackcapitaltechnology.com", phone: "(+45) 25 37 20 90", linkedin: "linkedin.com/in/adsen/", dessert: "Bland selv slik (surt vandmelonsslik)", projects: [] },
+  { id: "mkk", name: "Martin Kenth Knudsen", mbti: "", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "mkk@blackcapitaltechnology.com", phone: "", linkedin: "linkedin.com/in/kenth/", dessert: "", projects: [] },
+  { id: "rfh", name: "Rasmus Frydenlund Hansen", mbti: "ENFJ-A", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "Rasmusfrydenlund@hotmail.com", phone: "(+45) 28 70 38 62", linkedin: "linkedin.com/in/ansen/", dessert: "Japansk, Buffet", projects: [] },
+  { id: "dip", name: "Daniel Prior", mbti: "", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "dip@blackcapitaltechnology.com", phone: "(+54) 26 83 40 88", linkedin: "linkedin.com/in/79195/", dessert: "Citronmåne - en god en", projects: [] },
+  { id: "bej", name: "Benjamin Jensen", mbti: "", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "bej@blackcapitaltechnology.com", phone: "", linkedin: "linkedin.com/in/jamin/", dessert: "", projects: [] },
+  { id: "tmg", name: "Trond Magnus Gulbrandsen", mbti: "INTJ-A", title: "Business Developer", org: "BCT", fn: "Business Development", loc: "Oslo Norway", email: "tmg@blackcapitaltechnology.com", phone: "(+47) 90 70 08 63", linkedin: "linkedin.com/in/andsen", dessert: "Anything m mørk sjokolade", projects: [] },
+  { id: "jgk", name: "Jesper Guldhammer Klötzl", mbti: "", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "jgk@blackcapitaltechnology.com", phone: "(+45) 20 82 78 85", linkedin: "linkedin.com/in/b8582/", dessert: "Gateau Marcel", projects: [] },
+  { id: "ndn", name: "Niklas Due Nim", mbti: "", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "ndn@blackcapital.com", phone: "(+45) 31 77 15 38", linkedin: "", dessert: "Pepsi Max", projects: [] },
+  { id: "amm", name: "Aleksander Mosekjær Møller", mbti: "", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "amm@blackcapitaltechnology.com", phone: "(+45) 31785513", linkedin: "", dessert: "Nutella", projects: [] },
+  { id: "trd", name: "Thomas Ranum Damsgaard", mbti: "", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "trd@blackcapitaltechnology.com", phone: "27850234", linkedin: "linkedin.com/in/03202/", dessert: "Tiramisu", projects: [] },
+];
+
+const DEFAULT_MGRS = ["tor", "mr", "skj"];
+const DEFAULT_TEAMS = {
+  "team-1": ["cdo", "jbr", "jl",  "ab",  "lnp", "dip"],
+  "team-2": ["jo",  "czr", "jkm", "rfh", "bej", "ndn"],
+  "team-3": ["csv", "mkk", "tmg", "jgk", "amm", "trd"],
+  "pool":   []
+};
+const STORAGE_KEY = "bct-checkin-planner-v4";
+
+// ============================================
+// STATE
+// ============================================
+let state = loadState() || defaultState();
+let activeProjectFilter = null;
+let liveAutoTimer = null;
+
+function defaultState() {
+  return {
+    people: JSON.parse(JSON.stringify(SEED_PEOPLE)),
+    mgrs: [...DEFAULT_MGRS],
+    teams: JSON.parse(JSON.stringify(DEFAULT_TEAMS)),
+    startDate: nextMonday().toISOString().slice(0,10),
+    customDates: {},
+    ics: {
+      managers: {}, employees: {},
+      files: { mgr: [], emp: [] },
+    },
+    workHours: { start: "09:00", end: "17:00", excludeLunch: true, weekdaysOnly: true },
+    liveCal: { scripts: {}, lastFetch: null, busy: {}, autoRefresh: false },
+    viewedMgrFilter: "all",
+    weekOffset: 0,  // 0 = upcoming session week 1; 1 = upcoming session week 2; 2 = next session week 1; -1 = previous session week 2; ...
+    projects: []     // [{ name, description }]
+  };
+}
+
+function nextMonday() {
+  const d = new Date();
+  const day = d.getDay();
+  const diff = (day === 0 ? 1 : (day === 1 ? 0 : 8 - day));
+  d.setDate(d.getDate() + diff);
+  d.setHours(0,0,0,0);
+  return d;
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    if (!s.people || !s.teams || !s.mgrs) return null;
+    if (!s.customDates) s.customDates = {};
+    if (!s.ics) s.ics = { managers: {}, employees: {}, files: { mgr: [], emp: [] } };
+    if (!s.workHours) s.workHours = { start: "09:00", end: "17:00", excludeLunch: true, weekdaysOnly: true };
+    if (!s.liveCal) s.liveCal = { scripts: {}, lastFetch: null, busy: {}, autoRefresh: false };
+    // Migrate old single-URL state to multi-script
+    if (s.liveCal.url && !s.liveCal.scripts) {
+      s.liveCal.scripts = {};
+      const firstMgr = (s.mgrs && s.mgrs[0]) || "tor";
+      s.liveCal.scripts[firstMgr] = s.liveCal.url;
+    }
+    if (!s.liveCal.scripts) s.liveCal.scripts = {};
+    delete s.liveCal.url;
+    if (s.viewedMgrFilter == null) s.viewedMgrFilter = "all";
+    if (s.weekOffset == null) s.weekOffset = (s.viewedWeek != null) ? s.viewedWeek : 0;
+    delete s.viewedWeek;
+    if (!s.projects) s.projects = [];
+    s.people.forEach(p => { if (!p.projects) p.projects = []; });
+    // Auto-derive project entries from existing person tags (for old data)
+    const knownNames = new Set(s.projects.map(pj => pj.name));
+    s.people.forEach(p => {
+      (p.projects || []).forEach(name => {
+        if (!knownNames.has(name)) {
+          s.projects.push({ name, description: "" });
+          knownNames.add(name);
+        }
+      });
+    });
+    return s;
+  } catch { return null; }
+}
+
+function saveState() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+}
+
+function findPerson(id) { return state.people.find(p => p.id === id); }
+function genId(name) {
+  const base = (name || "").toLowerCase().replace(/[^a-zæøå0-9]/g, "").slice(0,3) || "x";
+  let id = base; let i = 2;
+  while (state.people.some(p => p.id === id)) { id = base + i; i++; }
+  return id;
+}
+function initials(name) {
+  return name.split(" ").filter(Boolean).slice(0,2).map(s => s[0]).join("").toUpperCase();
+}
+function fnBadge(p) {
+  const cls = p.fn === "Engineering" ? "eng"
+            : p.fn === "Business Development" ? "bd"
+            : p.fn === "Marketing" ? "mkt"
+            : p.fn === "Management" ? "oth" : "oth";
+  const txt = p.fn === "Engineering" ? "ENG"
+            : p.fn === "Business Development" ? "BD"
+            : p.fn === "Marketing" ? "MKT"
+            : p.fn === "Management" ? "MGMT" : (p.fn || "—").slice(0,3).toUpperCase();
+  return `<span class="badge ${cls}">${txt}</span>`;
+}
+function locBadge(p) {
+  if ((p.loc || "").includes("Oslo")) return `<span class="badge oslo">OSLO</span>`;
+  return "";
+}
+
+// Stable color from project name
+function projectColor(name) {
+  const palette = [
+    "#6ea8fe", "#f5a97f", "#a6da95", "#c6a0f6", "#ee99a0",
+    "#91d7e3", "#eed49f", "#8aadf4", "#f0c6c6", "#94e2d5",
+    "#cba6f7", "#f5bde6", "#fab387"
+  ];
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return palette[h % palette.length];
+}
+function projectDots(p) {
+  if (!p.projects?.length) return "";
+  return `<span class="project-dots">${p.projects.slice(0,5).map(name =>
+    `<span class="project-dot" style="background:${projectColor(name)}" title="${name}"></span>`
+  ).join("")}</span>`;
+}
+function getAllProjects() {
+  const memberMap = new Map();
+  state.people.forEach(p => {
+    (p.projects || []).forEach(name => {
+      if (!memberMap.has(name)) memberMap.set(name, []);
+      memberMap.get(name).push(p.id);
+    });
+  });
+  // Combine state.projects (so empty projects appear) + auto-detected names
+  const combined = new Map();
+  (state.projects || []).forEach(proj => {
+    combined.set(proj.name, { name: proj.name, description: proj.description || "", members: memberMap.get(proj.name) || [] });
+  });
+  memberMap.forEach((members, name) => {
+    if (!combined.has(name)) combined.set(name, { name, description: "", members });
+  });
+  return [...combined.values()].sort((a, b) => b.members.length - a.members.length);
+}
+
+// ============================================
+// POOL/TEAM HELPERS
+// ============================================
+function getEligiblePeople() {
+  return state.people.filter(p => !state.mgrs.includes(p.id));
+}
+function getAssignedIds() {
+  return [...state.teams["team-1"], ...state.teams["team-2"], ...state.teams["team-3"]];
+}
+function syncPool() {
+  const eligible = getEligiblePeople().map(p => p.id);
+  const assigned = new Set(getAssignedIds());
+  const inPool = state.teams["pool"].filter(id => eligible.includes(id) && !assigned.has(id));
+  eligible.forEach(id => { if (!assigned.has(id) && !inPool.includes(id)) inPool.push(id); });
+  state.teams["pool"] = inPool;
+  ["team-1","team-2","team-3"].forEach(t => {
+    state.teams[t] = state.teams[t].filter(id => eligible.includes(id));
+  });
+  Object.keys(state.customDates).forEach(pid => {
+    if (!findPerson(pid)) delete state.customDates[pid];
+  });
+}
+function getTeamForPerson(pid) {
+  for (const t of ["pool","team-1","team-2","team-3"]) {
+    if (state.teams[t].includes(pid)) return t;
+  }
+  return null;
+}
+
+// ============================================
+// RENDERING
+// ============================================
+function renderPersonCard(id) {
+  const p = findPerson(id);
+  if (!p) return "";
+  const isHL = activeProjectFilter && p.projects?.includes(activeProjectFilter);
+  const isDim = activeProjectFilter && !isHL;
+  const cls = "person" + (isHL ? " highlight" : "") + (isDim ? " dim" : "");
+  return `
+    <div class="${cls}" data-id="${p.id}" title="${p.email}${p.phone ? "\n" + p.phone : ""}${p.projects?.length ? "\nProjekter: " + p.projects.join(", ") : ""}">
+      <div class="avatar">${initials(p.name)}</div>
+      <div class="person-meta">
+        <div class="person-name">${p.name}${projectDots(p)}</div>
+        <div class="person-title">${fnBadge(p)}${locBadge(p)}${p.title || ""}</div>
+      </div>
+      <div class="person-actions">
+        <button class="icon-btn edit" data-act="edit" data-id="${p.id}" title="Redigér">✎</button>
+        <button class="icon-btn del" data-act="delete" data-id="${p.id}" title="Slet">×</button>
+      </div>
+    </div>`;
+}
+
+function renderLists() {
+  const search = (document.getElementById("search").value || "").toLowerCase();
+  const matches = id => {
+    if (!search) return true;
+    const p = findPerson(id);
+    if (!p) return false;
+    const hay = (p.name + " " + (p.title||"") + " " + (p.fn||"") + " " + (p.email||"") + " " + (p.projects||[]).join(" ")).toLowerCase();
+    return hay.includes(search);
+  };
+  const pool = document.getElementById("pool");
+  pool.innerHTML = state.teams["pool"].filter(matches).map(renderPersonCard).join("");
+  pool.classList.toggle("empty", state.teams["pool"].length === 0);
+  document.getElementById("pool-count").textContent = state.teams["pool"].length || "";
+  ["team-1","team-2","team-3"].forEach(t => {
+    const el = document.getElementById(t);
+    el.innerHTML = state.teams[t].filter(matches).map(renderPersonCard).join("");
+    el.classList.toggle("empty", state.teams[t].length === 0);
+    document.getElementById(t + "-count").textContent = state.teams[t].length;
+  });
+}
+
+function renderProjects() {
+  const list = document.getElementById("projects-list");
+  const projects = getAllProjects();
+  document.getElementById("projects-count").textContent = projects.length || "";
+  if (!projects.length) {
+    list.innerHTML = `<div style="color: var(--muted); font-size: 12px; font-style: italic;">Ingen projekter endnu — klik <strong>+ Tilføj projekt</strong> for at oprette ét.</div>`;
+    return;
+  }
+  list.innerHTML = projects.map(proj => {
+    const spread = { "pool": 0, "team-1": 0, "team-2": 0, "team-3": 0 };
+    proj.members.forEach(id => { const t = getTeamForPerson(id); if (t) spread[t]++; });
+    const spreadHtml = ["team-1","team-2","team-3","pool"]
+      .filter(t => spread[t] > 0)
+      .map(t => `<span class="ts t-${t === "pool" ? "pool" : t.split("-")[1]}">${t === "pool" ? "Ikke tildelt" : "T" + t.split("-")[1]} ${spread[t]}</span>`)
+      .join("");
+    const isActive = activeProjectFilter === proj.name;
+    const escapedName = proj.name.replace(/"/g, "&quot;");
+    return `
+      <div class="project-row ${isActive ? "active" : ""}" data-pname="${escapedName}">
+        <span class="pswatch" style="background:${projectColor(proj.name)}"></span>
+        <div style="flex:1; min-width: 0;">
+          <div class="pname">${proj.name}</div>
+          <div class="ptags">${proj.members.length} ${proj.members.length === 1 ? "person" : "personer"}</div>
+          ${proj.description ? `<div class="pdesc" title="${proj.description.replace(/"/g, "&quot;")}">${proj.description}</div>` : ""}
+        </div>
+        <div class="project-spread">${spreadHtml}</div>
+        <div class="project-actions">
+          <button data-pact="edit" data-pname="${escapedName}" title="Redigér">✎</button>
+          <button class="del" data-pact="delete" data-pname="${escapedName}" title="Slet">×</button>
+        </div>
+      </div>`;
+  }).join("");
+  list.querySelectorAll(".project-row").forEach(row => {
+    row.addEventListener("click", e => {
+      if (e.target.closest(".project-actions")) return;
+      const name = row.dataset.pname;
+      activeProjectFilter = (activeProjectFilter === name) ? null : name;
+      renderLists();
+      renderProjects();
+    });
+  });
+  list.querySelectorAll(".project-actions button").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      const name = btn.dataset.pname;
+      const action = btn.dataset.pact;
+      if (action === "edit") openProjectModal(name);
+      else if (action === "delete") deleteProject(name);
+    });
+  });
+}
+
+// ============================================
+// CALENDAR / ROTATION
+// ============================================
+const ROTATION = [
+  ["team-1", "team-2", "team-3"],
+  ["team-2", "team-3", "team-1"],
+  ["team-3", "team-1", "team-2"],
+];
+function fmtDate(d) { return d.toLocaleDateString("da-DK", { day: "2-digit", month: "short" }); }
+function isoWeek(d) {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - dayNum + 3);
+  const firstThursday = new Date(Date.UTC(date.getUTCFullYear(),0,4));
+  const diff = (date - firstThursday) / 86400000;
+  return 1 + Math.round(diff / 7);
+}
+function teamBadge(teamId) { const n = teamId.split("-")[1]; return `<span class="week-pill pill-t${n}">Team ${n}</span>`; }
+function getManagerForSession(teamId, sessionIdx) {
+  const phase = sessionIdx % 3;
+  const mgrIdx = ROTATION[phase].findIndex(t => t === teamId);
+  return state.mgrs[mgrIdx];
+}
+function sessionDate(idx) {
+  const start = new Date(state.startDate);
+  const d = new Date(start); d.setDate(start.getDate() + idx*14);
+  return d;
+}
+
+function renderCalendar(numSessions = 4) {
+  const tbody = document.getElementById("cal-body");
+  const start = new Date(state.startDate);
+  if (isNaN(start)) { tbody.innerHTML = `<tr><td colspan="5">Vælg en startdato</td></tr>`; return; }
+  const today = new Date(); today.setHours(0,0,0,0);
+  const startIdx = getCurrentSessionIdx();
+  const rows = [];
+  for (let offset = 0; offset < numSessions; offset++) {
+    const i = startIdx + offset;
+    const sd = sessionDate(i);
+    const sessionEnd = new Date(sd); sessionEnd.setDate(sd.getDate() + 13);
+    const phase = i % 3;
+    const isNow = today >= sd && today <= sessionEnd;
+    const isNext = !isNow && offset === 0 && today < sd;
+    const tag = isNow ? `<span class="session-tag now">I gang</span>`
+              : isNext ? `<span class="session-tag next">Næste</span>`
+              : "";
+    const rowCls = isNow ? "current-session" : (isNext ? "upcoming" : "");
+    const mgrCell = (mgrIdx, teamId) => {
+      const mgrId = state.mgrs[mgrIdx];
+      const mgr = findPerson(mgrId);
+      const members = state.teams[teamId].map(id => findPerson(id)?.name.split(" ")[0]).filter(Boolean);
+      const mgrName = mgr ? mgr.name.split(" ")[0] + " " + (mgr.name.split(" ").slice(-1)[0] || "").slice(0,1) + "." : "—";
+      return `
+        <td>
+          <div class="manager-cell">
+            <div class="mgr">${mgrName} → ${teamBadge(teamId)}</div>
+            <div class="members-row">${members.join(", ") || "<i>tom</i>"}</div>
+          </div>
+        </td>`;
+    };
+    rows.push(`
+      <tr class="${rowCls}">
+        <td><strong>Uge ${isoWeek(sd)}</strong>${tag}</td>
+        <td>${fmtDate(sd)}<br><span style="color:var(--muted); font-size:11px;">${["Søn","Man","Tir","Ons","Tor","Fre","Lør"][sd.getDay()]}</span></td>
+        ${mgrCell(0, ROTATION[phase][0])}
+        ${mgrCell(1, ROTATION[phase][1])}
+        ${mgrCell(2, ROTATION[phase][2])}
+      </tr>
+    `);
+  }
+  tbody.innerHTML = rows.join("");
+}
+
+function getNextSessionIdx(numSessions = 24) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  for (let i = 0; i < numSessions; i++) {
+    const d = sessionDate(i);
+    if (d >= today) return i;
+  }
+  return 0;
+}
+
+// The session whose 2-week window contains today (or 0 if before everything)
+function getCurrentSessionIdx() {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const start = new Date(state.startDate); start.setHours(0,0,0,0);
+  const daysFromStart = Math.floor((today - start) / 86400000);
+  return Math.max(0, Math.floor(daysFromStart / 14));
+}
+
+function getViewedSessionAndWeek() {
+  const baseIdx = getNextSessionIdx();
+  const offset = state.weekOffset || 0;
+  const sessionIdx = baseIdx + Math.floor(offset / 2);
+  const weekInSession = ((offset % 2) + 2) % 2;
+  return { sessionIdx, weekInSession, baseIdx, offset };
+}
+
+function renderByPerson() {
+  const tbody = document.getElementById("byperson-body");
+  const start = new Date(state.startDate);
+  if (isNaN(start)) { tbody.innerHTML = ""; return; }
+  const view = getViewedSessionAndWeek();
+  const sessionIdx = view.sessionIdx;
+  const filter = state.viewedMgrFilter || "all";
+  const rows = [];
+  let totalShown = 0, totalAll = 0;
+  ["team-1","team-2","team-3"].forEach(teamId => {
+    state.teams[teamId].forEach(id => {
+      const p = findPerson(id);
+      if (!p) return;
+      const mgrId = getManagerForSession(teamId, sessionIdx);
+      totalAll++;
+      if (filter !== "all" && mgrId !== filter) return;
+      totalShown++;
+      const mgr = findPerson(mgrId);
+      const sd = sessionDate(sessionIdx);
+      const customDate = state.customDates[id]?.[sessionIdx];
+      const defaultDateValue = customDate || (sd.toISOString().slice(0,10) + "T10:00");
+      const allSlots = suggestSlots(mgrId, id, sessionIdx);
+      const dayGridHTML = renderDayGrid(id, sessionIdx, allSlots, customDate || null, view.weekInSession);
+      rows.push(`
+        <tr>
+          <td><strong>${p.name}</strong>${projectDots(p)}<br><span style="color:var(--muted); font-size:11px;">${p.title || ""}</span></td>
+          <td>${teamBadge(teamId)}</td>
+          <td class="schedule-mgr">${mgr ? mgr.name.split(" ")[0] : "—"}</td>
+          <td class="slot-cell">
+            <div class="date-input-cell" style="margin-bottom: 8px;">
+              <input type="datetime-local" data-pid="${id}" data-sidx="${sessionIdx}" value="${defaultDateValue}" class="custom-date">
+              ${customDate ? `<button class="icon-btn" data-act="clear-date" data-pid="${id}" data-sidx="${sessionIdx}" title="Nulstil">↺</button>` : ""}
+              <span class="slot-source-info">${mgr ? mgr.name.split(" ")[0] : "Manager"} ↔ ${p.name.split(" ")[0]}</span>
+            </div>
+            ${dayGridHTML}
+          </td>
+        </tr>
+      `);
+    });
+  });
+
+  // Update filter count display
+  const fc = document.getElementById("filter-count");
+  if (fc) {
+    fc.textContent = filter === "all"
+      ? `${totalAll} medarbejdere`
+      : `${totalShown} af ${totalAll} medarbejdere`;
+  }
+
+  // Update week-nav label + Now button visibility
+  const sd = sessionDate(sessionIdx);
+  const wStart = new Date(sd); wStart.setDate(sd.getDate() + view.weekInSession * 7);
+  const wEnd = new Date(wStart); wEnd.setDate(wStart.getDate() + 6);
+  const wkLabel = document.getElementById("wk-label");
+  if (wkLabel) {
+    const tag = view.offset === 0 ? `<span class="upcoming-tag">Næste check-in</span>` : "";
+    wkLabel.innerHTML = `Uge ${isoWeek(wStart)}${tag}<span class="sub">${fmtDate(wStart)} – ${fmtDate(wEnd)}</span>`;
+  }
+  const nowBtn = document.getElementById("wk-now");
+  if (nowBtn) nowBtn.style.display = view.offset === 0 ? "none" : "inline-block";
+
+  tbody.innerHTML = rows.join("") || `<tr><td colspan="4" style="text-align:center; color:var(--muted); padding: 20px;">${filter === "all" ? "Ingen tildelte medarbejdere endnu" : "Ingen check-ins for denne manager i denne session"}</td></tr>`;
+
+  tbody.querySelectorAll("input.custom-date").forEach(inp => {
+    inp.addEventListener("change", () => {
+      const pid = inp.dataset.pid, sidx = inp.dataset.sidx;
+      if (!state.customDates[pid]) state.customDates[pid] = {};
+      state.customDates[pid][sidx] = inp.value;
+      saveState();
+      renderByPerson();
+    });
+  });
+  tbody.querySelectorAll("button[data-act='clear-date']").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const pid = btn.dataset.pid, sidx = btn.dataset.sidx;
+      if (state.customDates[pid]) delete state.customDates[pid][sidx];
+      saveState();
+      renderByPerson();
+    });
+  });
+  tbody.querySelectorAll(".slot-tile").forEach(tile => {
+    tile.addEventListener("click", () => {
+      const pid = tile.dataset.pid, sidx = parseInt(tile.dataset.sidx, 10);
+      const d = new Date(tile.dataset.iso);
+      openEventModal(pid, sidx, d);
+    });
+  });
+}
+
+// ============================================
+// EVENT MODAL — Google Calendar booking
+// ============================================
+function openEventModal(personId, sessionIdx, slotDate) {
+  const p = findPerson(personId);
+  if (!p) return;
+  const teamId = getTeamForPerson(personId);
+  const mgrId = getManagerForSession(teamId, sessionIdx);
+  const mgr = findPerson(mgrId);
+
+  document.getElementById("ev-title").value = "Check-in samtale";
+  document.getElementById("ev-date").value = dayKey(slotDate);
+  document.getElementById("ev-time").value = fmtTime(slotDate);
+  document.getElementById("ev-duration").value = "15";
+  document.getElementById("ev-attendee").value = p.email
+    ? `${p.name} <${p.email}>`
+    : p.name + " (mangler email)";
+  document.getElementById("ev-agenda").value = "";
+
+  const bg = document.getElementById("modal-event-bg");
+  bg.dataset.pid = personId;
+  bg.dataset.sidx = sessionIdx;
+  bg.dataset.email = p.email || "";
+  bg.classList.add("active");
+  setTimeout(() => document.getElementById("ev-title").focus(), 50);
+}
+function closeEventModal() {
+  document.getElementById("modal-event-bg").classList.remove("active");
+}
+function buildCalendarUrl({ title, dateStr, timeStr, durationMin, attendeeEmail, agenda }) {
+  const startDt = new Date(dateStr + "T" + timeStr);
+  const endDt = new Date(startDt.getTime() + durationMin * 60000);
+  const fmtCalDate = d =>
+    d.getFullYear() +
+    String(d.getMonth() + 1).padStart(2, "0") +
+    String(d.getDate()).padStart(2, "0") + "T" +
+    String(d.getHours()).padStart(2, "0") +
+    String(d.getMinutes()).padStart(2, "0") + "00";
+  const params = new URLSearchParams();
+  params.set("action", "TEMPLATE");
+  params.set("text", title || "Check-in samtale");
+  params.set("dates", `${fmtCalDate(startDt)}/${fmtCalDate(endDt)}`);
+  if (agenda && agenda.trim()) params.set("details", agenda);
+  if (attendeeEmail) params.set("add", attendeeEmail);
+  return "https://calendar.google.com/calendar/render?" + params.toString();
+}
+function getEventModalData() {
+  const bg = document.getElementById("modal-event-bg");
+  return {
+    pid: bg.dataset.pid,
+    sidx: bg.dataset.sidx,
+    title: document.getElementById("ev-title").value.trim() || "Check-in samtale",
+    dateStr: document.getElementById("ev-date").value,
+    timeStr: document.getElementById("ev-time").value,
+    durationMin: parseInt(document.getElementById("ev-duration").value, 10) || 15,
+    attendeeEmail: bg.dataset.email,
+    agenda: document.getElementById("ev-agenda").value,
+  };
+}
+function evSaveOnly() {
+  const d = getEventModalData();
+  if (!d.dateStr || !d.timeStr) { alert("Udfyld dato og tid."); return; }
+  if (!state.customDates[d.pid]) state.customDates[d.pid] = {};
+  state.customDates[d.pid][d.sidx] = d.dateStr + "T" + d.timeStr;
+  saveState();
+  closeEventModal();
+  renderByPerson();
+}
+function evCreateInCalendar() {
+  const d = getEventModalData();
+  if (!d.dateStr || !d.timeStr) { alert("Udfyld dato og tid."); return; }
+  const url = buildCalendarUrl(d);
+  if (!state.customDates[d.pid]) state.customDates[d.pid] = {};
+  state.customDates[d.pid][d.sidx] = d.dateStr + "T" + d.timeStr;
+  saveState();
+  window.open(url, "_blank", "noopener,noreferrer");
+  closeEventModal();
+  renderByPerson();
+}
+
+function formatSlotLabel(d) {
+  const day = d.toLocaleDateString("da-DK", { weekday: "short", day: "2-digit", month: "short" });
+  const time = d.toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" });
+  return `${day} ${time}`;
+}
+
+// ============================================
+// MANAGER DROPDOWNS
+// ============================================
+function renderMgrDropdowns() {
+  [0,1,2].forEach(i => {
+    const sel = document.getElementById("mgr" + (i+1));
+    sel.innerHTML = state.people.map(p =>
+      `<option value="${p.id}" ${state.mgrs[i] === p.id ? "selected" : ""}>${p.name}</option>`
+    ).join("");
+    sel.onchange = () => {
+      state.mgrs[i] = sel.value;
+      const unique = new Set(state.mgrs);
+      if (unique.size < 3) { alert("Hver manager skal være unik. Vælg en anden person."); renderMgrDropdowns(); return; }
+      syncPool();
+      renderAll();
+      saveState();
+    };
+  });
+}
+
+// ============================================
+// MODAL
+// ============================================
+let editingId = null;
+function openModal(personId = null) {
+  editingId = personId;
+  document.getElementById("modal-title").textContent = personId ? "Redigér medarbejder" : "Tilføj medarbejder";
+  const p = personId ? findPerson(personId) : { name:"", title:"", fn:"Engineering", org:"BCT", loc:"Aalborg Denmark", mbti:"", email:"", phone:"", linkedin:"", dessert:"", projects:[] };
+  ["name","title","org","loc","mbti","email","phone","linkedin","dessert"].forEach(k => {
+    document.getElementById("f-"+k).value = p[k] || "";
+  });
+  document.getElementById("f-fn").value = p.fn || "Engineering";
+  document.getElementById("f-projects").value = (p.projects || []).join(", ");
+  document.getElementById("modal-delete").style.display = personId ? "inline-block" : "none";
+  document.getElementById("modal-bg").classList.add("active");
+  setTimeout(() => document.getElementById("f-name").focus(), 50);
+}
+function closeModal() { editingId = null; document.getElementById("modal-bg").classList.remove("active"); }
+function saveModal() {
+  const name = document.getElementById("f-name").value.trim();
+  if (!name) { alert("Navn er påkrævet."); return; }
+  const projects = document.getElementById("f-projects").value
+    .split(",").map(s => s.trim()).filter(Boolean);
+  const data = {
+    name,
+    title:    document.getElementById("f-title").value.trim(),
+    fn:       document.getElementById("f-fn").value,
+    org:      document.getElementById("f-org").value.trim() || "BCT",
+    loc:      document.getElementById("f-loc").value.trim() || "Aalborg Denmark",
+    mbti:     document.getElementById("f-mbti").value.trim(),
+    email:    document.getElementById("f-email").value.trim(),
+    phone:    document.getElementById("f-phone").value.trim(),
+    linkedin: document.getElementById("f-linkedin").value.trim(),
+    dessert:  document.getElementById("f-dessert").value.trim(),
+    projects
+  };
+  if (editingId) {
+    const p = findPerson(editingId);
+    if (p) Object.assign(p, data);
+  } else {
+    const id = genId(name);
+    state.people.push({ id, ...data });
+    state.teams["pool"].push(id);
+  }
+  // Auto-create project entries for any new project names typed in person edit
+  if (!state.projects) state.projects = [];
+  const known = new Set(state.projects.map(pj => pj.name));
+  projects.forEach(name => {
+    if (!known.has(name)) {
+      state.projects.push({ name, description: "" });
+      known.add(name);
+    }
+  });
+  saveState();
+  closeModal();
+  renderAll();
+}
+function deletePerson(id) {
+  const p = findPerson(id);
+  if (!p) return;
+  if (state.mgrs.includes(id)) { alert("Kan ikke slette en valgt manager. Vælg en anden manager først."); return; }
+  if (!confirm(`Slet ${p.name}?`)) return;
+  state.people = state.people.filter(x => x.id !== id);
+  ["pool","team-1","team-2","team-3"].forEach(t => state.teams[t] = state.teams[t].filter(x => x !== id));
+  delete state.customDates[id];
+  delete state.ics.employees[id];
+  delete state.liveCal.busy[id];
+  saveState();
+  if (editingId === id) closeModal();
+  renderAll();
+}
+
+// ============================================
+// PROJECT MODAL
+// ============================================
+let editingProject = null;
+
+function openProjectModal(name = null) {
+  editingProject = name;
+  const proj = name
+    ? (state.projects.find(p => p.name === name) || { name, description: "" })
+    : { name: "", description: "" };
+  document.getElementById("proj-modal-title").textContent = name ? "Redigér projekt" : "Nyt projekt";
+  document.getElementById("pj-name").value = proj.name;
+  document.getElementById("pj-description").value = proj.description || "";
+  document.getElementById("pj-delete").style.display = name ? "inline-block" : "none";
+
+  const grid = document.getElementById("pj-members");
+  grid.innerHTML = state.people.map(p => {
+    const checked = name ? (p.projects || []).includes(name) : false;
+    const isMgr = state.mgrs.includes(p.id);
+    return `
+      <label class="member-checkbox">
+        <input type="checkbox" data-id="${p.id}" ${checked ? "checked" : ""}>
+        <span>${p.name}${isMgr ? ` <span class="meta">(mgr)</span>` : ""}</span>
+      </label>`;
+  }).join("");
+
+  document.getElementById("modal-project-bg").classList.add("active");
+  setTimeout(() => document.getElementById("pj-name").focus(), 50);
+}
+
+function closeProjectModal() {
+  editingProject = null;
+  document.getElementById("modal-project-bg").classList.remove("active");
+}
+
+function saveProject() {
+  const name = document.getElementById("pj-name").value.trim();
+  if (!name) { alert("Projektnavn er påkrævet."); return; }
+  const description = document.getElementById("pj-description").value.trim();
+  const oldName = editingProject;
+
+  // Rename: update all references if name changed
+  if (oldName && oldName !== name) {
+    if (state.projects.some(pj => pj.name === name)) {
+      alert(`Et projekt ved navn "${name}" findes allerede.`);
+      return;
+    }
+    state.people.forEach(p => {
+      if (!p.projects) return;
+      const idx = p.projects.indexOf(oldName);
+      if (idx >= 0) p.projects[idx] = name;
+    });
+    const idx = state.projects.findIndex(pj => pj.name === oldName);
+    if (idx >= 0) state.projects[idx].name = name;
+    if (activeProjectFilter === oldName) activeProjectFilter = name;
+  }
+
+  // Find or create project entry
+  let proj = state.projects.find(pj => pj.name === name);
+  if (!proj) {
+    proj = { name, description: "" };
+    state.projects.push(proj);
+  }
+  proj.description = description;
+
+  // Update memberships from checkboxes
+  const checkedIds = new Set();
+  document.querySelectorAll("#pj-members input:checked").forEach(cb => checkedIds.add(cb.dataset.id));
+  state.people.forEach(p => {
+    if (!p.projects) p.projects = [];
+    const has = p.projects.includes(name);
+    if (checkedIds.has(p.id) && !has) p.projects.push(name);
+    else if (!checkedIds.has(p.id) && has) p.projects = p.projects.filter(x => x !== name);
+  });
+
+  saveState();
+  closeProjectModal();
+  renderAll();
+}
+
+function deleteProject(name) {
+  if (!confirm(`Slet projekt "${name}"? Tag fjernes fra alle medarbejdere.`)) return;
+  state.projects = (state.projects || []).filter(pj => pj.name !== name);
+  state.people.forEach(p => {
+    if (p.projects) p.projects = p.projects.filter(x => x !== name);
+  });
+  if (activeProjectFilter === name) activeProjectFilter = null;
+  saveState();
+  if (editingProject === name) closeProjectModal();
+  renderAll();
+}
+
+// ============================================
+// ICS PARSER
+// ============================================
+function parseICS(text) {
+  text = text.replace(/\r\n[ \t]/g, "").replace(/\n[ \t]/g, "");
+  const lines = text.split(/\r?\n/);
+  const events = [];
+  let cur = null;
+  for (const raw of lines) {
+    if (raw === "BEGIN:VEVENT") cur = {};
+    else if (raw === "END:VEVENT") {
+      if (cur && cur.start && cur.end) {
+        if (cur.transp !== "TRANSPARENT" && cur.status !== "CANCELLED") {
+          events.push({ start: cur.start, end: cur.end, summary: cur.summary || "" });
+        }
+      }
+      cur = null;
+    } else if (cur) {
+      const colonIdx = raw.indexOf(":");
+      if (colonIdx === -1) continue;
+      const keyPart = raw.slice(0, colonIdx);
+      const val = raw.slice(colonIdx + 1);
+      const keyName = keyPart.split(";")[0];
+      if (keyName === "DTSTART") cur.start = parseICSDate(val);
+      else if (keyName === "DTEND") cur.end = parseICSDate(val);
+      else if (keyName === "STATUS") cur.status = val;
+      else if (keyName === "TRANSP") cur.transp = val;
+      else if (keyName === "SUMMARY") cur.summary = val;
+    }
+  }
+  return events;
+}
+function parseICSDate(val) {
+  if (/^\d{8}$/.test(val)) return new Date(val.slice(0,4) + "-" + val.slice(4,6) + "-" + val.slice(6,8) + "T00:00");
+  const m = val.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)/);
+  if (!m) return null;
+  return new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}${m[7] === "Z" ? "Z" : ""}`);
+}
+
+function hasICS(pid) { return !!(state.ics.managers[pid]?.length || state.ics.employees[pid]?.length); }
+function hasLive(pid) { return !!(state.liveCal.busy?.[pid]?.length); }
+function getBusy(pid) {
+  return [
+    ...(state.ics.managers[pid] || []),
+    ...(state.ics.employees[pid] || []),
+    ...(state.liveCal.busy?.[pid] || []),
+  ].map(e => ({ start: new Date(e.start), end: new Date(e.end) }));
+}
+
+// ============================================
+// SLOT FINDER
+// ============================================
+function suggestSlots(mgrId, empId, sessionIdx, slotMin = 15, maxResults = null) {
+  const mgrHas = hasICS(mgrId) || hasLive(mgrId);
+  const empHas = hasICS(empId) || hasLive(empId);
+  if (!mgrHas && !empHas) return [];
+  const sd = sessionDate(sessionIdx);
+  const start = new Date(sd); start.setHours(0,0,0,0);
+  const end = new Date(start); end.setDate(start.getDate() + 14);
+  const busy = [...getBusy(mgrId), ...getBusy(empId)];
+
+  const wh = state.workHours;
+  const [whSh, whSm] = wh.start.split(":").map(Number);
+  const [whEh, whEm] = wh.end.split(":").map(Number);
+
+  const slots = [];
+  const cursor = new Date(start);
+  cursor.setHours(whSh, whSm, 0, 0);
+  while (cursor < end) {
+    const dow = cursor.getDay();
+    if (wh.weekdaysOnly && (dow === 0 || dow === 6)) {
+      cursor.setDate(cursor.getDate() + 1); cursor.setHours(whSh, whSm, 0, 0); continue;
+    }
+    const slotEnd = new Date(cursor.getTime() + slotMin * 60000);
+    const dayEnd = new Date(cursor); dayEnd.setHours(whEh, whEm, 0, 0);
+    if (slotEnd > dayEnd) {
+      cursor.setDate(cursor.getDate() + 1); cursor.setHours(whSh, whSm, 0, 0); continue;
+    }
+    if (wh.excludeLunch) {
+      const lunchStart = new Date(cursor); lunchStart.setHours(12,0,0,0);
+      const lunchEnd = new Date(cursor); lunchEnd.setHours(13,0,0,0);
+      if (cursor < lunchEnd && slotEnd > lunchStart) {
+        cursor.setMinutes(cursor.getMinutes() + 15); continue;
+      }
+    }
+    if (cursor < new Date()) { cursor.setMinutes(cursor.getMinutes() + 15); continue; }
+    const conflict = busy.some(e => cursor < e.end && slotEnd > e.start);
+    if (!conflict) slots.push(new Date(cursor));
+    cursor.setMinutes(cursor.getMinutes() + 15);
+  }
+  return maxResults ? slots.slice(0, maxResults) : slots;
+}
+
+function getSessionWeekdays(sessionIdx) {
+  const sd = sessionDate(sessionIdx);
+  const days = [];
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(sd); d.setDate(sd.getDate() + i);
+    if (d.getDay() >= 1 && d.getDay() <= 5) days.push(d);
+  }
+  return days;
+}
+function groupSlotsByDay(slots) {
+  const map = new Map();
+  slots.forEach(s => {
+    const key = s.getFullYear() + "-" + String(s.getMonth()+1).padStart(2,"0") + "-" + String(s.getDate()).padStart(2,"0");
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(s);
+  });
+  return map;
+}
+function dayKey(d) {
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+}
+function fmtTime(d) {
+  return String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
+}
+function dtLocalValue(d) {
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0") + "T" + String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
+}
+
+function renderDayGrid(personId, sessionIdx, slots, customDateStr, weekInSession) {
+  if (!slots.length) {
+    const mgrId = getManagerForSession(getTeamForPerson(personId), sessionIdx);
+    const hasAny = hasICS(mgrId) || hasLive(mgrId) || hasICS(personId) || hasLive(personId);
+    return `<div class="no-slots-msg">${hasAny ? "Ingen ledige slots fundet i sessionsvinduet" : "Forbind kalender for slot-forslag"}</div>`;
+  }
+  const weekdays = getSessionWeekdays(sessionIdx);
+  const slotsByDay = groupSlotsByDay(slots);
+  const todayKey = dayKey(new Date());
+  const selectedKey = customDateStr ? customDateStr.slice(0,10) : null;
+  const selectedTime = customDateStr ? customDateStr.slice(11,16) : null;
+
+  const renderWeek = (weekDays, label) => {
+    const cols = weekDays.map(day => {
+      const k = dayKey(day);
+      const daySlots = slotsByDay.get(k) || [];
+      const isToday = k === todayKey;
+      const dow = ["Søn","Man","Tir","Ons","Tor","Fre","Lør"][day.getDay()];
+      const monthShort = day.toLocaleDateString("da-DK", { month: "short" }).replace(".","");
+      const tiles = daySlots.length
+        ? daySlots.map(s => {
+            const tStr = fmtTime(s);
+            const isSel = (k === selectedKey && tStr === selectedTime);
+            return `<div class="slot-tile ${isSel ? "selected" : ""}" data-pid="${personId}" data-sidx="${sessionIdx}" data-iso="${s.toISOString()}">${tStr}</div>`;
+          }).join("")
+        : `<div class="day-col-empty">—</div>`;
+      return `
+        <div class="day-col ${isToday ? "today" : ""}">
+          <div class="day-col-header">
+            <span class="dow">${dow}</span>
+            <span class="num">${day.getDate()}. ${monthShort}</span>
+          </div>
+          ${tiles}
+        </div>`;
+    }).join("");
+    return `
+      <div class="day-grid-week">
+        <div class="day-grid-week-label">${label}</div>
+        <div class="day-grid">${cols}</div>
+      </div>`;
+  };
+
+  // Show only the currently selected week (weekInSession = 0 or 1)
+  const week1 = weekdays.slice(0, Math.min(5, weekdays.length));
+  const week2 = weekdays.slice(5);
+  const sd = sessionDate(sessionIdx);
+  const showWeek = weekInSession || 0;
+  const days = showWeek === 0 ? week1 : week2;
+  const wStart = new Date(sd); wStart.setDate(sd.getDate() + showWeek * 7);
+  const wEnd = new Date(wStart); wEnd.setDate(wStart.getDate() + 6);
+  const label = `Uge ${isoWeek(wStart)} — ${fmtDate(wStart)} til ${fmtDate(wEnd)}`;
+  if (!days.length) {
+    return `<div class="no-slots-msg">Ingen hverdage i uge ${showWeek + 1} af denne session</div>`;
+  }
+  return renderWeek(days, label);
+}
+
+// ============================================
+// LIVE GOOGLE CALENDAR (Apps Script)
+// ============================================
+function setLiveStatus(text, kind) {
+  const el = document.getElementById("live-status");
+  el.textContent = text;
+  el.className = "status-pill" + (kind === "ok" ? " ok" : kind === "err" ? " err" : "");
+}
+
+// JSONP — omgår CORS for file:// origin
+function jsonpFetch(url, params) {
+  return new Promise((resolve, reject) => {
+    const cb = "cwjsonp_" + Math.random().toString(36).slice(2,10) + "_" + Date.now();
+    const timeout = setTimeout(() => { cleanup(); reject(new Error("Timeout (15s) - tjek URL og at scriptet er deployet med 'Anyone' access")); }, 15000);
+    function cleanup() {
+      try { delete window[cb]; } catch (_) { window[cb] = undefined; }
+      if (script.parentNode) script.parentNode.removeChild(script);
+      clearTimeout(timeout);
+    }
+    window[cb] = (data) => { cleanup(); resolve(data); };
+    const qs = new URLSearchParams({...params, callback: cb}).toString();
+    const script = document.createElement("script");
+    script.src = url + (url.includes("?") ? "&" : "?") + qs;
+    script.onerror = () => { cleanup(); reject(new Error("Script load fejl - tjek URL slutter på /exec og at deployment er 'Anyone'")); };
+    document.head.appendChild(script);
+  });
+}
+
+function renderScriptUrls() {
+  const container = document.getElementById("script-urls");
+  if (!container) return;
+  container.innerHTML = state.mgrs.map(id => {
+    const p = findPerson(id);
+    const url = (state.liveCal.scripts || {})[id] || "";
+    const safe = url.replace(/"/g, "&quot;");
+    return `
+      <div class="row">
+        <label>${p ? p.name.split(" ")[0] : id}'s script</label>
+        <input type="url" data-mgr="${id}" value="${safe}" placeholder="https://script.google.com/macros/s/.../exec">
+      </div>`;
+  }).join("");
+  container.querySelectorAll("input").forEach(inp => {
+    inp.addEventListener("change", () => {
+      if (!state.liveCal.scripts) state.liveCal.scripts = {};
+      state.liveCal.scripts[inp.dataset.mgr] = inp.value.trim();
+      saveState();
+    });
+  });
+}
+
+function getConfiguredScripts() {
+  const scripts = state.liveCal.scripts || {};
+  return Object.entries(scripts).filter(([_, url]) => url && url.trim());
+}
+
+async function liveTest() {
+  const entries = getConfiguredScripts();
+  if (!entries.length) { alert("Indsæt mindst én Apps Script URL først."); return; }
+  setLiveStatus("Tester…", "");
+  const results = [];
+  for (const [mgrId, url] of entries) {
+    const p = findPerson(mgrId);
+    const calId = p?.email || "primary";
+    const label = p ? p.name.split(" ")[0] : mgrId;
+    const start = new Date(); start.setHours(0,0,0,0);
+    const end = new Date(start); end.setDate(start.getDate() + 7);
+    try {
+      const data = await jsonpFetch(url, {
+        calendar: calId,
+        start: start.toISOString(),
+        end: end.toISOString(),
+      });
+      if (data.error) results.push(`${label}: ❌ ${data.error}`);
+      else results.push(`${label}: ✅ OK (${data.count ?? 0} events)`);
+    } catch (err) {
+      results.push(`${label}: ❌ ${err.message}`);
+    }
+  }
+  const okCount = results.filter(r => r.includes("✅")).length;
+  setLiveStatus(`${okCount}/${entries.length} scripts OK`, okCount === entries.length ? "ok" : "err");
+  alert("Test resultat:\n\n" + results.join("\n"));
+}
+
+async function liveRefresh(silent = false) {
+  const entries = getConfiguredScripts();
+  if (!entries.length) {
+    if (!silent) alert("Konfigurér mindst én Apps Script URL først.");
+    return;
+  }
+  if (!silent) setLiveStatus("Henter…", "");
+  const peopleToFetch = [...new Set([...state.mgrs, ...getAssignedIds()])];
+  const today = new Date(); today.setHours(0,0,0,0);
+  const sd = new Date(state.startDate); sd.setHours(0,0,0,0);
+  const start = today < sd ? today : sd;
+  const end = new Date(start); end.setDate(start.getDate() + 56);
+
+  // For each person, try every script in order. Take first that succeeds.
+  const newBusy = {};
+  const errorDetails = [];
+  let okCount = 0, errCount = 0;
+
+  await Promise.all(peopleToFetch.map(async pid => {
+    const p = findPerson(pid);
+    if (!p?.email) {
+      errCount++; errorDetails.push(`${p?.name || pid}: mangler email`); return;
+    }
+    let succeeded = false;
+    let lastErr = "";
+    for (const [mgrId, url] of entries) {
+      try {
+        const data = await jsonpFetch(url, {
+          calendar: p.email,
+          start: start.toISOString(),
+          end: end.toISOString(),
+        });
+        if (!data.error) {
+          newBusy[pid] = data.busy;
+          succeeded = true;
+          break;
+        }
+        lastErr = data.error;
+      } catch (err) { lastErr = err.message; }
+    }
+    if (succeeded) okCount++;
+    else { errCount++; errorDetails.push(`${p.name}: ingen scripts kunne tilgå (${lastErr || "unknown"})`); }
+  }));
+
+  state.liveCal.busy = newBusy;
+  state.liveCal.lastFetch = Date.now();
+  state.liveCal.lastErrors = errorDetails;
+  saveState();
+  renderByPerson();
+  const ts = new Date().toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" });
+  setLiveStatus(`Opdateret ${ts} · ${okCount} OK${errCount ? " · " + errCount + " fejl (klik)" : ""}`, errCount ? "err" : "ok");
+  if (errCount && !silent) {
+    document.getElementById("live-status").style.cursor = "pointer";
+    document.getElementById("live-status").onclick = () => {
+      alert("Fejldetaljer:\n\n" + errorDetails.join("\n"));
+    };
+  }
+}
+
+function setupLiveAuto() {
+  if (liveAutoTimer) { clearInterval(liveAutoTimer); liveAutoTimer = null; }
+  if (state.liveCal.autoRefresh && getConfiguredScripts().length) {
+    liveAutoTimer = setInterval(() => liveRefresh(true), 10 * 60 * 1000);
+  }
+}
+
+// ============================================
+// ICS UPLOAD
+// ============================================
+function setupDropZone(zoneId, fileInputId, kind) {
+  const zone = document.getElementById(zoneId);
+  const input = document.getElementById(fileInputId);
+  zone.addEventListener("click", () => input.click());
+  zone.addEventListener("dragover", e => { e.preventDefault(); zone.classList.add("dragover"); });
+  zone.addEventListener("dragleave", () => zone.classList.remove("dragover"));
+  zone.addEventListener("drop", e => {
+    e.preventDefault(); zone.classList.remove("dragover");
+    handleICSFiles(e.dataTransfer.files, kind);
+  });
+  input.addEventListener("change", () => handleICSFiles(input.files, kind));
+}
+function handleICSFiles(fileList, kind) {
+  Array.from(fileList).forEach(file => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const events = parseICS(reader.result);
+      attachICS(file.name, events, kind);
+      saveState(); renderICSList(); renderByPerson();
+    };
+    reader.readAsText(file);
+  });
+}
+function attachICS(filename, events, kind) {
+  const norm = filename.toLowerCase().replace(/\.ics$/, "").replace(/[_\-\.]/g, " ");
+  const pool = kind === "mgr" ? state.mgrs : state.people.map(p => p.id).filter(id => !state.mgrs.includes(id));
+  let matchedId = null;
+  for (const id of pool) {
+    const p = findPerson(id); if (!p) continue;
+    const tokens = p.name.toLowerCase().split(/\s+/);
+    const emailLocal = (p.email || "").split("@")[0].toLowerCase();
+    if (tokens.some(t => t.length > 2 && norm.includes(t))) { matchedId = id; break; }
+    if (emailLocal && norm.includes(emailLocal)) { matchedId = id; break; }
+    if (norm.includes(p.id)) { matchedId = id; break; }
+  }
+  if (!matchedId) {
+    const choices = pool.map(id => `${id}: ${findPerson(id)?.name}`).join("\n");
+    const ans = prompt(`Kunne ikke matche "${filename}". Indtast person-id:\n\n${choices}`);
+    if (!ans) return;
+    if (!findPerson(ans.trim())) { alert("Ukendt id."); return; }
+    matchedId = ans.trim();
+  }
+  const bucket = kind === "mgr" ? state.ics.managers : state.ics.employees;
+  bucket[matchedId] = events.map(e => ({ start: e.start, end: e.end, summary: e.summary }));
+  state.ics.files[kind] = state.ics.files[kind].filter(f => f.personId !== matchedId);
+  state.ics.files[kind].push({ filename, personId: matchedId, count: events.length });
+}
+function renderICSList() {
+  ["mgr","emp"].forEach(kind => {
+    const ul = document.getElementById("list-" + kind);
+    const list = state.ics.files[kind] || [];
+    if (!list.length) { ul.innerHTML = `<div style="color: var(--muted); font-style: italic; margin-top: 6px;">Intet uploadet</div>`; return; }
+    ul.innerHTML = list.map(f => {
+      const p = findPerson(f.personId);
+      return `<div class="item"><span><strong>${p ? p.name : f.personId}</strong> · ${f.count} events <span style="color: var(--muted);">(${f.filename})</span></span><span class="x" data-kind="${kind}" data-pid="${f.personId}" title="Fjern">×</span></div>`;
+    }).join("");
+    ul.querySelectorAll(".x").forEach(x => {
+      x.addEventListener("click", () => {
+        const k = x.dataset.kind, pid = x.dataset.pid;
+        const bucket = k === "mgr" ? state.ics.managers : state.ics.employees;
+        delete bucket[pid];
+        state.ics.files[k] = state.ics.files[k].filter(f => f.personId !== pid);
+        saveState(); renderICSList(); renderByPerson();
+      });
+    });
+  });
+}
+
+// ============================================
+// DRAG & DROP
+// ============================================
+function setupSortable() {
+  const opts = {
+    group: "people", animation: 150,
+    ghostClass: "sortable-ghost", chosenClass: "sortable-chosen",
+    filter: ".person-actions, .person-actions *, .icon-btn",
+    preventOnFilter: false,
+    onEnd: () => {
+      ["pool","team-1","team-2","team-3"].forEach(id => {
+        const el = document.getElementById(id);
+        const ids = Array.from(el.querySelectorAll(".person")).map(c => c.dataset.id);
+        state.teams[id] = ids;
+      });
+      saveState();
+      renderCalendar(); renderByPerson(); renderProjects();
+      ["pool","team-1","team-2","team-3"].forEach(id => {
+        const el = document.getElementById(id);
+        el.classList.toggle("empty", state.teams[id].length === 0);
+        const cnt = id === "pool" ? "pool-count" : (id + "-count");
+        document.getElementById(cnt).textContent = state.teams[id].length || (id === "pool" ? "" : 0);
+      });
+    }
+  };
+  ["pool","team-1","team-2","team-3"].forEach(id => new Sortable(document.getElementById(id), opts));
+}
+
+// ============================================
+// EVENTS
+// ============================================
+document.getElementById("startDate").addEventListener("change", e => {
+  state.startDate = e.target.value;
+  saveState(); renderCalendar(); renderByPerson();
+});
+document.getElementById("search").addEventListener("input", () => renderLists());
+document.getElementById("btn-reset").addEventListener("click", () => {
+  if (!confirm("Nulstil ALT til standard?")) return;
+  state = defaultState(); activeProjectFilter = null;
+  saveState(); renderAll();
+});
+document.getElementById("btn-shuffle").addEventListener("click", () => {
+  if (!confirm("Bland alle medarbejdere tilfældigt i 3 teams?")) return;
+  const all = getEligiblePeople().map(p => p.id);
+  for (let i = all.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [all[i], all[j]] = [all[j], all[i]];
+  }
+  const per = Math.ceil(all.length / 3);
+  state.teams["team-1"] = all.slice(0, per);
+  state.teams["team-2"] = all.slice(per, per * 2);
+  state.teams["team-3"] = all.slice(per * 2);
+  state.teams["pool"] = [];
+  saveState(); renderAll();
+});
+document.getElementById("btn-export-csv").addEventListener("click", () => {
+  const rows = [["Uge","Sessions-dato","Manager","Team","Medarbejder","Custom dato/tid","Projekter"]];
+  for (let i = 0; i < 12; i++) {
+    const sd = sessionDate(i);
+    const phase = i % 3;
+    [0,1,2].forEach(mgrIdx => {
+      const teamId = ROTATION[phase][mgrIdx];
+      const mgr = findPerson(state.mgrs[mgrIdx]);
+      state.teams[teamId].forEach(pid => {
+        const p = findPerson(pid);
+        rows.push([
+          "Uge " + isoWeek(sd),
+          sd.toISOString().slice(0,10),
+          mgr?.name || "",
+          "Team " + teamId.split("-")[1],
+          p?.name || "",
+          state.customDates[pid]?.[i] || "",
+          (p?.projects || []).join(", ")
+        ]);
+      });
+    });
+  }
+  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(";")).join("\n");
+  const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href = url; a.download = "bct-checkin-kalender.csv"; a.click();
+  URL.revokeObjectURL(url);
+});
+document.getElementById("btn-print").addEventListener("click", () => window.print());
+
+document.querySelectorAll(".tab").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("panel-" + btn.dataset.tab).classList.add("active");
+  });
+});
+
+document.body.addEventListener("click", e => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const id = btn.dataset.id;
+  if (btn.dataset.act === "edit") openModal(id);
+  else if (btn.dataset.act === "delete") deletePerson(id);
+});
+
+document.getElementById("btn-add-person").addEventListener("click", () => openModal());
+
+// Project modal
+document.getElementById("btn-add-project").addEventListener("click", () => openProjectModal());
+document.getElementById("pj-cancel").addEventListener("click", closeProjectModal);
+document.getElementById("pj-save").addEventListener("click", saveProject);
+document.getElementById("pj-delete").addEventListener("click", () => { if (editingProject) deleteProject(editingProject); });
+document.getElementById("modal-project-bg").addEventListener("click", e => {
+  if (e.target.id === "modal-project-bg") closeProjectModal();
+});
+document.getElementById("modal-cancel").addEventListener("click", closeModal);
+document.getElementById("modal-save").addEventListener("click", saveModal);
+document.getElementById("modal-delete").addEventListener("click", () => { if (editingId) deletePerson(editingId); });
+document.getElementById("modal-bg").addEventListener("click", e => { if (e.target.id === "modal-bg") closeModal(); });
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  if (document.getElementById("modal-bg").classList.contains("active")) closeModal();
+  if (document.getElementById("modal-event-bg").classList.contains("active")) closeEventModal();
+  if (document.getElementById("modal-project-bg").classList.contains("active")) closeProjectModal();
+});
+
+function renderMgrFilter() {
+  const sel = document.getElementById("mgr-filter");
+  if (!sel) return;
+  sel.innerHTML = `<option value="all">Alle managers</option>` +
+    state.mgrs.map(id => {
+      const p = findPerson(id);
+      return `<option value="${id}" ${state.viewedMgrFilter === id ? "selected" : ""}>${p ? p.name.split(" ")[0] : id}</option>`;
+    }).join("");
+  sel.value = state.viewedMgrFilter || "all";
+}
+
+// By-person filter
+document.getElementById("mgr-filter").addEventListener("change", e => {
+  state.viewedMgrFilter = e.target.value;
+  saveState();
+  renderByPerson();
+});
+document.getElementById("wk-prev").addEventListener("click", () => {
+  state.weekOffset = (state.weekOffset || 0) - 1;
+  saveState();
+  renderByPerson();
+});
+document.getElementById("wk-next").addEventListener("click", () => {
+  state.weekOffset = (state.weekOffset || 0) + 1;
+  saveState();
+  renderByPerson();
+});
+document.getElementById("wk-now").addEventListener("click", () => {
+  state.weekOffset = 0;
+  saveState();
+  renderByPerson();
+});
+
+// Event modal
+document.getElementById("ev-cancel").addEventListener("click", closeEventModal);
+document.getElementById("ev-save-only").addEventListener("click", evSaveOnly);
+document.getElementById("ev-create").addEventListener("click", evCreateInCalendar);
+document.getElementById("modal-event-bg").addEventListener("click", e => {
+  if (e.target.id === "modal-event-bg") closeEventModal();
+});
+
+// Live calendar events
+document.getElementById("btn-live-test").addEventListener("click", liveTest);
+document.getElementById("btn-live-refresh").addEventListener("click", () => liveRefresh(false));
+document.getElementById("live-auto").addEventListener("change", e => {
+  state.liveCal.autoRefresh = e.target.checked; saveState(); setupLiveAuto();
+});
+
+function bindWorkHours() {
+  document.getElementById("wh-start").value = state.workHours.start;
+  document.getElementById("wh-end").value = state.workHours.end;
+  document.getElementById("wh-lunch").checked = state.workHours.excludeLunch;
+  document.getElementById("wh-weekdays").checked = state.workHours.weekdaysOnly;
+  ["wh-start","wh-end","wh-lunch","wh-weekdays"].forEach(id => {
+    document.getElementById(id).addEventListener("change", () => {
+      state.workHours.start = document.getElementById("wh-start").value;
+      state.workHours.end = document.getElementById("wh-end").value;
+      state.workHours.excludeLunch = document.getElementById("wh-lunch").checked;
+      state.workHours.weekdaysOnly = document.getElementById("wh-weekdays").checked;
+      saveState(); renderByPerson();
+    });
+  });
+}
+
+setupDropZone("drop-mgr", "file-mgr", "mgr");
+setupDropZone("drop-emp", "file-emp", "emp");
+
+// ============================================
+// INIT
+// ============================================
+function renderAll() {
+  syncPool();
+  document.getElementById("startDate").value = state.startDate;
+  document.getElementById("live-auto").checked = !!state.liveCal.autoRefresh;
+  const hasAnyScript = getConfiguredScripts().length > 0;
+  if (state.liveCal.lastFetch) {
+    const ts = new Date(state.liveCal.lastFetch).toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" });
+    setLiveStatus(`Sidste hent ${ts}`, "ok");
+  } else if (hasAnyScript) {
+    setLiveStatus("Konfigureret · ikke hentet endnu", "");
+  }
+  renderMgrDropdowns();
+  renderMgrFilter();
+  renderScriptUrls();
+  renderLists();
+  renderProjects();
+  renderCalendar();
+  renderByPerson();
+  renderICSList();
+}
+renderAll();
+setupSortable();
+bindWorkHours();
+setupLiveAuto();
+</script>
+</body>
+</html>
