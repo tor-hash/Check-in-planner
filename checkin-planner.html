@@ -334,6 +334,126 @@
   }
   .week-nav .now-btn:hover { background: rgba(110,168,254,0.22); }
 
+  /* Person modal tabs */
+  .modal-tabs {
+    display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--border);
+  }
+  .modal-tabs .tab {
+    padding: 7px 14px; background: transparent; border: none; color: var(--muted);
+    cursor: pointer; font-size: 13px; font-weight: 500; border-bottom: 2px solid transparent;
+    margin-bottom: -1px; font-family: inherit;
+  }
+  .modal-tabs .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .modal-tab-panel { display: none; }
+  .modal-tab-panel.active { display: block; }
+
+  /* Trivsel score badge on person cards */
+  .trivsel-badge {
+    display: inline-block; font-size: 10px; font-weight: 700;
+    padding: 1px 5px; border-radius: 3px; margin-left: 4px;
+    vertical-align: middle;
+  }
+  .trivsel-badge.t-green { background: rgba(166,218,149,0.18); color: var(--ok); }
+  .trivsel-badge.t-yellow { background: rgba(238,212,143,0.18); color: #eed49f; }
+  .trivsel-badge.t-red { background: rgba(237,135,150,0.18); color: var(--danger); }
+
+  /* Journal entries */
+  .journal-list { max-height: 60vh; overflow-y: auto; padding-right: 4px; }
+  .journal-entry {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 14px; margin-bottom: 8px;
+  }
+  .journal-entry-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    cursor: pointer;
+  }
+  .journal-entry-head .left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .journal-entry-date { font-weight: 600; font-size: 13px; }
+  .journal-entry-meta { color: var(--muted); font-size: 11px; }
+  .trivsel-pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 4px; font-weight: 700;
+    font-size: 11px;
+  }
+  .trivsel-pill.t-green { background: rgba(166,218,149,0.18); color: var(--ok); }
+  .trivsel-pill.t-yellow { background: rgba(238,212,143,0.18); color: #eed49f; }
+  .trivsel-pill.t-red { background: rgba(237,135,150,0.18); color: var(--danger); }
+  .journal-entry-actions { display: flex; gap: 4px; }
+  .journal-entry-actions button {
+    padding: 3px 7px; font-size: 11px; opacity: 0.85;
+    background: transparent; border: 1px solid transparent; cursor: pointer;
+    color: var(--text); font-family: inherit;
+  }
+  .journal-entry-actions button:hover { background: var(--border); border-color: var(--border); }
+  .journal-entry-body { margin-top: 10px; display: none; }
+  .journal-entry.expanded .journal-entry-body { display: block; }
+  .journal-entry-body .field { margin-bottom: 8px; }
+  .journal-entry-body .field-label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted); font-weight: 600; margin-bottom: 2px;
+  }
+  .journal-entry-body .field-content {
+    font-size: 13px; white-space: pre-wrap; line-height: 1.5;
+  }
+  .journal-entry-body .field-content.empty { color: var(--muted); font-style: italic; font-size: 12px; }
+  .journal-entry-body .files-row {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;
+  }
+  .file-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 4px; padding: 4px 8px; font-size: 11px;
+    cursor: pointer; max-width: 200px; color: var(--text);
+    text-decoration: none;
+  }
+  .file-chip:hover { background: var(--border); }
+  .file-chip .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-chip .fsize { color: var(--muted); font-size: 10px; }
+
+  /* Trivsel sparkline */
+  .trivsel-trend {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 14px; margin-bottom: 14px;
+  }
+  .trivsel-trend .label-block { display: flex; flex-direction: column; min-width: 80px; }
+  .trivsel-trend .label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .trivsel-trend .value { font-size: 22px; font-weight: 700; line-height: 1.1; }
+  .trivsel-trend .avg { font-size: 11px; color: var(--muted); }
+  .sparkline { flex: 1; height: 36px; }
+  .sparkline-empty { color: var(--muted); font-size: 11px; font-style: italic; flex: 1; text-align: center; }
+
+  /* Entry edit modal */
+  .entry-modal { width: 720px; max-width: 96vw; }
+  .trivsel-input { display: flex; align-items: center; gap: 12px; }
+  .trivsel-input input[type="range"] { flex: 1; padding: 0; background: transparent; border: none; }
+  .trivsel-input .score {
+    font-size: 22px; font-weight: 700; min-width: 56px;
+    padding: 4px 10px; border-radius: 6px; text-align: center;
+  }
+  .file-drop {
+    border: 2px dashed var(--border); border-radius: 8px;
+    padding: 14px; text-align: center; cursor: pointer;
+    transition: all .15s;
+  }
+  .file-drop:hover, .file-drop.dragover {
+    border-color: var(--accent); background: rgba(110,168,254,0.05);
+  }
+  .file-drop .label-text { font-size: 12px; font-weight: 500; }
+  .file-drop .hint { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .file-list {
+    display: flex; flex-direction: column; gap: 4px; margin-top: 8px;
+  }
+  .file-list .item {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 4px; padding: 4px 8px; font-size: 12px;
+  }
+  .file-list .item .x {
+    cursor: pointer; color: var(--danger); padding: 0 6px;
+    background: none; border: none; font-size: 14px;
+  }
+
   /* Project actions */
   .project-row { position: relative; }
   .project-actions {
@@ -833,8 +953,14 @@ function doGet(e) {
 
 <!-- Modal: add/edit person -->
 <div class="modal-bg" id="modal-bg">
-  <div class="modal">
+  <div class="modal" style="width: 720px; max-width: 96vw;">
     <h2 id="modal-title">Tilføj medarbejder</h2>
+    <div class="modal-tabs" id="person-tabs" style="display:none;">
+      <button class="tab active" data-mtab="info">Info</button>
+      <button class="tab" data-mtab="journal">Journal & historik</button>
+    </div>
+
+    <div class="modal-tab-panel active" id="mpanel-info">
     <div class="form-grid">
       <div class="full">
         <label>Navn *</label>
@@ -887,11 +1013,86 @@ function doGet(e) {
         <input type="text" id="f-projects" placeholder="fx Apollo, Phoenix, Beta">
       </div>
     </div>
+    </div><!-- /info panel -->
+
+    <div class="modal-tab-panel" id="mpanel-journal">
+      <div class="trivsel-trend" id="trivsel-trend"></div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <h3 style="margin: 0;">Tidligere check-ins</h3>
+        <button class="primary" id="btn-add-entry">+ Log ny check-in</button>
+      </div>
+      <div class="journal-list" id="journal-list"></div>
+    </div>
+
     <div class="modal-actions">
       <button class="danger" id="modal-delete" style="display:none;">Slet medarbejder</button>
       <div class="right">
         <button class="ghost" id="modal-cancel">Annullér</button>
         <button class="primary" id="modal-save">Gem</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: journal entry -->
+<div class="modal-bg" id="modal-entry-bg">
+  <div class="modal entry-modal">
+    <h2 id="entry-modal-title">Log check-in</h2>
+    <div class="form-grid">
+      <div>
+        <label>Dato</label>
+        <input type="date" id="je-date">
+      </div>
+      <div>
+        <label>Manager</label>
+        <select id="je-manager"></select>
+      </div>
+      <div class="full">
+        <label>Trivsel (1–10)</label>
+        <div class="trivsel-input">
+          <input type="range" id="je-trivsel" min="1" max="10" step="1" value="7">
+          <span class="score" id="je-trivsel-display">7</span>
+        </div>
+      </div>
+      <div class="full">
+        <label>Faglig udvikling</label>
+        <textarea id="je-faglig" rows="2" placeholder="Hvad arbejder de med fagligt? Læring, certificeringer, projekter…"></textarea>
+      </div>
+      <div class="full">
+        <label>Personlig udvikling</label>
+        <textarea id="je-personlig" rows="2" placeholder="Personlige mål, soft skills, ledelseserfaring…"></textarea>
+      </div>
+      <div class="full">
+        <label>Udfordringer</label>
+        <textarea id="je-udfordringer" rows="2" placeholder="Hvor sidder det fast? Blokkere, frustrationer, manglende ressourcer…"></textarea>
+      </div>
+      <div class="full">
+        <label>Mål næste periode</label>
+        <textarea id="je-maal" rows="2" placeholder="Konkrete mål til næste check-in…"></textarea>
+      </div>
+      <div class="full">
+        <label>Noter</label>
+        <textarea id="je-noter" rows="3" placeholder="Generelle noter fra samtalen…"></textarea>
+      </div>
+      <div class="full">
+        <label>Opfølgning</label>
+        <textarea id="je-opfolgning" rows="2" placeholder="Hvad skal du gøre inden næste gang?"></textarea>
+      </div>
+      <div class="full">
+        <label>Filer (valgfri)</label>
+        <div class="file-drop" id="je-file-drop">
+          <div class="label-text">Klik eller træk filer hertil</div>
+          <div class="hint">Max 1 MB pr. fil. Gemmes lokalt i din browser.</div>
+          <input type="file" id="je-file-input" multiple style="display:none;">
+        </div>
+        <div class="file-list" id="je-file-list"></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="danger" id="je-delete" style="display:none;">Slet entry</button>
+      <div class="right">
+        <button class="ghost" id="je-cancel">Annullér</button>
+        <button class="primary" id="je-save">Gem</button>
       </div>
     </div>
   </div>
@@ -956,7 +1157,8 @@ function defaultState() {
     liveCal: { scripts: {}, lastFetch: null, busy: {}, autoRefresh: false },
     viewedMgrFilter: "all",
     weekOffset: 0,  // 0 = upcoming session week 1; 1 = upcoming session week 2; 2 = next session week 1; -1 = previous session week 2; ...
-    projects: []     // [{ name, description }]
+    projects: [],    // [{ name, description }]
+    journal: {}      // { [personId]: [{ id, date, managerId, trivsel, faglig, personlig, udfordringer, maal, noter, opfolgning, files: [{name, type, size, dataUrl}], createdAt, updatedAt }] }
   };
 }
 
@@ -991,6 +1193,7 @@ function loadState() {
     if (s.weekOffset == null) s.weekOffset = (s.viewedWeek != null) ? s.viewedWeek : 0;
     delete s.viewedWeek;
     if (!s.projects) s.projects = [];
+    if (!s.journal) s.journal = {};
     s.people.forEach(p => { if (!p.projects) p.projects = []; });
     // Auto-derive project entries from existing person tags (for old data)
     const knownNames = new Set(s.projects.map(pj => pj.name));
@@ -1114,11 +1317,11 @@ function renderPersonCard(id) {
     <div class="${cls}" data-id="${p.id}" title="${p.email}${p.phone ? "\n" + p.phone : ""}${p.projects?.length ? "\nProjekter: " + p.projects.join(", ") : ""}">
       <div class="avatar">${initials(p.name)}</div>
       <div class="person-meta">
-        <div class="person-name">${p.name}${projectDots(p)}</div>
+        <div class="person-name">${p.name}${projectDots(p)}${trivselBadge(p.id)}</div>
         <div class="person-title">${fnBadge(p)}${locBadge(p)}${p.title || ""}</div>
       </div>
       <div class="person-actions">
-        <button class="icon-btn edit" data-act="edit" data-id="${p.id}" title="Redigér">✎</button>
+        <button class="icon-btn edit" data-act="edit" data-id="${p.id}" title="Redigér / Journal">✎</button>
         <button class="icon-btn del" data-act="delete" data-id="${p.id}" title="Slet">×</button>
       </div>
     </div>`;
@@ -1496,7 +1699,7 @@ function renderMgrDropdowns() {
 let editingId = null;
 function openModal(personId = null) {
   editingId = personId;
-  document.getElementById("modal-title").textContent = personId ? "Redigér medarbejder" : "Tilføj medarbejder";
+  document.getElementById("modal-title").textContent = personId ? "Medarbejder" : "Tilføj medarbejder";
   const p = personId ? findPerson(personId) : { name:"", title:"", fn:"Engineering", org:"BCT", loc:"Aalborg Denmark", mbti:"", email:"", phone:"", linkedin:"", dessert:"", projects:[] };
   ["name","title","org","loc","mbti","email","phone","linkedin","dessert"].forEach(k => {
     document.getElementById("f-"+k).value = p[k] || "";
@@ -1504,8 +1707,17 @@ function openModal(personId = null) {
   document.getElementById("f-fn").value = p.fn || "Engineering";
   document.getElementById("f-projects").value = (p.projects || []).join(", ");
   document.getElementById("modal-delete").style.display = personId ? "inline-block" : "none";
+  // Show/hide tabs based on whether we're editing existing person
+  document.getElementById("person-tabs").style.display = personId ? "flex" : "none";
+  // Always start on info tab
+  switchPersonTab("info");
+  if (personId) renderJournalTab(personId);
   document.getElementById("modal-bg").classList.add("active");
   setTimeout(() => document.getElementById("f-name").focus(), 50);
+}
+function switchPersonTab(name) {
+  document.querySelectorAll("#person-tabs .tab").forEach(t => t.classList.toggle("active", t.dataset.mtab === name));
+  document.querySelectorAll(".modal-tab-panel").forEach(p => p.classList.toggle("active", p.id === "mpanel-" + name));
 }
 function closeModal() { editingId = null; document.getElementById("modal-bg").classList.remove("active"); }
 function saveModal() {
@@ -1560,6 +1772,293 @@ function deletePerson(id) {
   saveState();
   if (editingId === id) closeModal();
   renderAll();
+}
+
+// ============================================
+// JOURNAL
+// ============================================
+function trivselClass(score) {
+  if (score == null) return "";
+  if (score >= 7) return "t-green";
+  if (score >= 4) return "t-yellow";
+  return "t-red";
+}
+function trivselSpan(score) {
+  if (score == null) return `<span class="trivsel-pill">–</span>`;
+  return `<span class="trivsel-pill ${trivselClass(score)}">${score}/10</span>`;
+}
+function getJournal(personId) {
+  return state.journal?.[personId] || [];
+}
+function getLatestTrivsel(personId) {
+  const entries = getJournal(personId);
+  if (!entries.length) return null;
+  const sorted = [...entries].sort((a,b) => (b.date || "").localeCompare(a.date || ""));
+  return sorted[0].trivsel;
+}
+function trivselBadge(personId) {
+  const score = getLatestTrivsel(personId);
+  if (score == null) return "";
+  return `<span class="trivsel-badge ${trivselClass(score)}" title="Senest registrerede trivsel">${score}</span>`;
+}
+
+function renderSparkline(scores) {
+  if (!scores.length) return `<div class="sparkline-empty">Ingen registrering endnu</div>`;
+  const w = 200, h = 36, pad = 4;
+  const max = 10, min = 1;
+  const step = scores.length === 1 ? 0 : (w - 2*pad) / (scores.length - 1);
+  const pts = scores.map((s, i) => {
+    const x = pad + i * step;
+    const y = h - pad - ((s - min) / (max - min)) * (h - 2*pad);
+    return [x, y];
+  });
+  const path = pts.map((p, i) => (i === 0 ? "M" : "L") + p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
+  const dots = pts.map((p, i) => {
+    const cls = trivselClass(scores[i]);
+    const color = cls === "t-green" ? "#a6da95" : cls === "t-yellow" ? "#eed49f" : "#ed8796";
+    return `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" fill="${color}"/>`;
+  }).join("");
+  return `<svg class="sparkline" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">
+    <path d="${path}" fill="none" stroke="#6ea8fe" stroke-width="1.5" opacity="0.7"/>
+    ${dots}
+  </svg>`;
+}
+
+function renderJournalTab(personId) {
+  const entries = [...getJournal(personId)].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  // Trend block
+  const trendEl = document.getElementById("trivsel-trend");
+  if (entries.length === 0) {
+    trendEl.innerHTML = `
+      <div class="label-block"><span class="label">Trivsel</span><span class="value" style="color:var(--muted)">–</span></div>
+      <div class="sparkline-empty">Ingen check-ins logget endnu</div>`;
+  } else {
+    const scores = entries.slice(0, 12).reverse().map(e => e.trivsel).filter(s => s != null);
+    const latest = entries[0].trivsel;
+    const avg = scores.length ? (scores.reduce((a,b) => a+b, 0) / scores.length).toFixed(1) : "–";
+    const cls = trivselClass(latest);
+    trendEl.innerHTML = `
+      <div class="label-block">
+        <span class="label">Senest</span>
+        <span class="value ${cls === "t-green" ? "" : ""}" style="color: ${cls === "t-green" ? "var(--ok)" : cls === "t-yellow" ? "#eed49f" : "var(--danger)"}">${latest != null ? latest + "/10" : "–"}</span>
+        <span class="avg">Snit: ${avg}/10 · ${entries.length} ${entries.length === 1 ? "entry" : "entries"}</span>
+      </div>
+      ${renderSparkline(scores)}`;
+  }
+  // List
+  const list = document.getElementById("journal-list");
+  if (entries.length === 0) {
+    list.innerHTML = `<div style="color: var(--muted); font-size: 12px; font-style: italic; padding: 16px; text-align: center;">Ingen check-ins logget endnu. Klik <strong>+ Log ny check-in</strong> for at starte.</div>`;
+    return;
+  }
+  list.innerHTML = entries.map(e => {
+    const mgr = findPerson(e.managerId);
+    const dateLabel = e.date ? new Date(e.date).toLocaleDateString("da-DK", { day: "2-digit", month: "long", year: "numeric" }) : "Ingen dato";
+    const fields = [
+      ["Faglig udvikling", e.faglig],
+      ["Personlig udvikling", e.personlig],
+      ["Udfordringer", e.udfordringer],
+      ["Mål næste periode", e.maal],
+      ["Noter", e.noter],
+      ["Opfølgning", e.opfolgning],
+    ];
+    const fieldsHtml = fields.map(([label, content]) => `
+      <div class="field">
+        <div class="field-label">${label}</div>
+        <div class="field-content ${content ? "" : "empty"}">${content ? escapeHtml(content) : "—"}</div>
+      </div>`).join("");
+    const filesHtml = (e.files || []).length
+      ? `<div class="field">
+          <div class="field-label">Filer</div>
+          <div class="files-row">${(e.files || []).map((f, idx) => `
+            <a class="file-chip" data-eid="${e.id}" data-fidx="${idx}" download="${escapeHtml(f.name)}" href="${f.dataUrl}">
+              <span class="fname">📎 ${escapeHtml(f.name)}</span>
+              <span class="fsize">${formatBytes(f.size)}</span>
+            </a>`).join("")}</div>
+        </div>`
+      : "";
+    return `
+      <div class="journal-entry" data-eid="${e.id}">
+        <div class="journal-entry-head" data-eid="${e.id}">
+          <div class="left">
+            <span class="journal-entry-date">${dateLabel}</span>
+            <span class="journal-entry-meta">${mgr ? mgr.name.split(" ")[0] : "Ukendt manager"}</span>
+            ${trivselSpan(e.trivsel)}
+          </div>
+          <div class="journal-entry-actions">
+            <button data-jact="edit" data-eid="${e.id}" title="Redigér">✎</button>
+            <button data-jact="delete" data-eid="${e.id}" title="Slet">×</button>
+          </div>
+        </div>
+        <div class="journal-entry-body">
+          ${fieldsHtml}
+          ${filesHtml}
+        </div>
+      </div>`;
+  }).join("");
+
+  // Wire up click handlers
+  list.querySelectorAll(".journal-entry-head").forEach(head => {
+    head.addEventListener("click", e => {
+      if (e.target.closest("button")) return;
+      head.parentElement.classList.toggle("expanded");
+    });
+  });
+  list.querySelectorAll("button[data-jact]").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      const eid = btn.dataset.eid;
+      if (btn.dataset.jact === "edit") openEntryModal(personId, eid);
+      else if (btn.dataset.jact === "delete") deleteEntry(personId, eid);
+    });
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function formatBytes(b) {
+  if (b < 1024) return b + " B";
+  if (b < 1024*1024) return (b/1024).toFixed(0) + " KB";
+  return (b/1024/1024).toFixed(1) + " MB";
+}
+
+// Entry modal
+let editingEntryPid = null;
+let editingEntryId = null;
+let entryFiles = [];
+
+function openEntryModal(personId, entryId = null) {
+  editingEntryPid = personId;
+  editingEntryId = entryId;
+  const p = findPerson(personId);
+  const existing = entryId ? getJournal(personId).find(e => e.id === entryId) : null;
+  document.getElementById("entry-modal-title").textContent =
+    existing ? `Redigér check-in · ${p?.name}` : `Log check-in · ${p?.name}`;
+  // Populate fields
+  if (existing) {
+    document.getElementById("je-date").value = existing.date ? existing.date.slice(0,10) : new Date().toISOString().slice(0,10);
+    document.getElementById("je-manager").value = existing.managerId || state.mgrs[0];
+    document.getElementById("je-trivsel").value = existing.trivsel ?? 7;
+    document.getElementById("je-faglig").value = existing.faglig || "";
+    document.getElementById("je-personlig").value = existing.personlig || "";
+    document.getElementById("je-udfordringer").value = existing.udfordringer || "";
+    document.getElementById("je-maal").value = existing.maal || "";
+    document.getElementById("je-noter").value = existing.noter || "";
+    document.getElementById("je-opfolgning").value = existing.opfolgning || "";
+    entryFiles = (existing.files || []).map(f => ({ ...f }));
+  } else {
+    document.getElementById("je-date").value = new Date().toISOString().slice(0,10);
+    document.getElementById("je-manager").value = state.mgrs[0] || "";
+    document.getElementById("je-trivsel").value = 7;
+    ["faglig","personlig","udfordringer","maal","noter","opfolgning"].forEach(k => {
+      document.getElementById("je-" + k).value = "";
+    });
+    entryFiles = [];
+  }
+  // Manager dropdown options
+  const mgrSel = document.getElementById("je-manager");
+  mgrSel.innerHTML = state.mgrs.map(id => {
+    const m = findPerson(id);
+    return `<option value="${id}">${m ? m.name : id}</option>`;
+  }).join("");
+  if (existing && existing.managerId) mgrSel.value = existing.managerId;
+
+  updateTrivselDisplay();
+  renderEntryFiles();
+  document.getElementById("je-delete").style.display = entryId ? "inline-block" : "none";
+  document.getElementById("modal-entry-bg").classList.add("active");
+  setTimeout(() => document.getElementById("je-noter").focus(), 50);
+}
+function closeEntryModal() {
+  editingEntryPid = null; editingEntryId = null; entryFiles = [];
+  document.getElementById("modal-entry-bg").classList.remove("active");
+}
+function updateTrivselDisplay() {
+  const v = parseInt(document.getElementById("je-trivsel").value, 10);
+  const display = document.getElementById("je-trivsel-display");
+  display.textContent = v;
+  const cls = trivselClass(v);
+  display.style.background = cls === "t-green" ? "rgba(166,218,149,0.18)"
+                          : cls === "t-yellow" ? "rgba(238,212,143,0.18)"
+                          : "rgba(237,135,150,0.18)";
+  display.style.color = cls === "t-green" ? "var(--ok)"
+                     : cls === "t-yellow" ? "#eed49f"
+                     : "var(--danger)";
+}
+function renderEntryFiles() {
+  const list = document.getElementById("je-file-list");
+  list.innerHTML = entryFiles.map((f, i) => `
+    <div class="item">
+      <span>📎 ${escapeHtml(f.name)} <span style="color:var(--muted); font-size:11px;">${formatBytes(f.size)}</span></span>
+      <button class="x" data-fidx="${i}" title="Fjern">×</button>
+    </div>`).join("");
+  list.querySelectorAll("button.x").forEach(b => {
+    b.addEventListener("click", () => {
+      entryFiles.splice(parseInt(b.dataset.fidx, 10), 1);
+      renderEntryFiles();
+    });
+  });
+}
+function handleEntryFiles(fileList) {
+  Array.from(fileList).forEach(file => {
+    if (file.size > 1024 * 1024) {
+      alert(`"${file.name}" er for stor (${formatBytes(file.size)}). Max 1 MB pr. fil. Brug evt. en Google Drive link i Noter-feltet i stedet.`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      entryFiles.push({ name: file.name, type: file.type, size: file.size, dataUrl: reader.result });
+      renderEntryFiles();
+    };
+    reader.readAsDataURL(file);
+  });
+}
+function saveEntry() {
+  if (!editingEntryPid) return;
+  const data = {
+    id: editingEntryId || ("e_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8)),
+    date: document.getElementById("je-date").value,
+    managerId: document.getElementById("je-manager").value,
+    trivsel: parseInt(document.getElementById("je-trivsel").value, 10),
+    faglig: document.getElementById("je-faglig").value.trim(),
+    personlig: document.getElementById("je-personlig").value.trim(),
+    udfordringer: document.getElementById("je-udfordringer").value.trim(),
+    maal: document.getElementById("je-maal").value.trim(),
+    noter: document.getElementById("je-noter").value.trim(),
+    opfolgning: document.getElementById("je-opfolgning").value.trim(),
+    files: entryFiles.map(f => ({ name: f.name, type: f.type, size: f.size, dataUrl: f.dataUrl })),
+    updatedAt: Date.now(),
+  };
+  if (!state.journal[editingEntryPid]) state.journal[editingEntryPid] = [];
+  if (editingEntryId) {
+    const arr = state.journal[editingEntryPid];
+    const idx = arr.findIndex(e => e.id === editingEntryId);
+    if (idx >= 0) arr[idx] = { ...arr[idx], ...data };
+  } else {
+    data.createdAt = Date.now();
+    state.journal[editingEntryPid].push(data);
+  }
+  try {
+    saveState();
+  } catch (err) {
+    alert("Kunne ikke gemme — sandsynligvis localStorage fyldt op af filer. Slet gamle entries eller fjern store filer.");
+    return;
+  }
+  const pid = editingEntryPid;
+  closeEntryModal();
+  renderJournalTab(pid);
+  renderLists();  // Update trivsel badges
+}
+function deleteEntry(personId, entryId) {
+  if (!confirm("Slet denne check-in entry?")) return;
+  if (state.journal[personId]) {
+    state.journal[personId] = state.journal[personId].filter(e => e.id !== entryId);
+  }
+  saveState();
+  if (editingEntryPid === personId) closeEntryModal();
+  renderJournalTab(personId);
+  renderLists();
 }
 
 // ============================================
@@ -2156,6 +2655,39 @@ document.body.addEventListener("click", e => {
 
 document.getElementById("btn-add-person").addEventListener("click", () => openModal());
 
+// Person tabs
+document.querySelectorAll("#person-tabs .tab").forEach(btn => {
+  btn.addEventListener("click", () => switchPersonTab(btn.dataset.mtab));
+});
+
+// Journal: add entry
+document.getElementById("btn-add-entry").addEventListener("click", () => {
+  if (editingId) openEntryModal(editingId);
+});
+
+// Entry modal
+document.getElementById("je-cancel").addEventListener("click", closeEntryModal);
+document.getElementById("je-save").addEventListener("click", saveEntry);
+document.getElementById("je-delete").addEventListener("click", () => {
+  if (editingEntryPid && editingEntryId) deleteEntry(editingEntryPid, editingEntryId);
+});
+document.getElementById("modal-entry-bg").addEventListener("click", e => {
+  if (e.target.id === "modal-entry-bg") closeEntryModal();
+});
+document.getElementById("je-trivsel").addEventListener("input", updateTrivselDisplay);
+
+// File drop in entry modal
+const fileDrop = document.getElementById("je-file-drop");
+const fileInput = document.getElementById("je-file-input");
+fileDrop.addEventListener("click", () => fileInput.click());
+fileDrop.addEventListener("dragover", e => { e.preventDefault(); fileDrop.classList.add("dragover"); });
+fileDrop.addEventListener("dragleave", () => fileDrop.classList.remove("dragover"));
+fileDrop.addEventListener("drop", e => {
+  e.preventDefault(); fileDrop.classList.remove("dragover");
+  handleEntryFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener("change", () => handleEntryFiles(fileInput.files));
+
 // Project modal
 document.getElementById("btn-add-project").addEventListener("click", () => openProjectModal());
 document.getElementById("pj-cancel").addEventListener("click", closeProjectModal);
@@ -2170,6 +2702,7 @@ document.getElementById("modal-delete").addEventListener("click", () => { if (ed
 document.getElementById("modal-bg").addEventListener("click", e => { if (e.target.id === "modal-bg") closeModal(); });
 document.addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
+  if (document.getElementById("modal-entry-bg").classList.contains("active")) { closeEntryModal(); return; }
   if (document.getElementById("modal-bg").classList.contains("active")) closeModal();
   if (document.getElementById("modal-event-bg").classList.contains("active")) closeEventModal();
   if (document.getElementById("modal-project-bg").classList.contains("active")) closeProjectModal();
