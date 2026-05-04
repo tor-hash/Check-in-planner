@@ -683,18 +683,6 @@
   }
   .status-pill.ok { background: rgba(166,218,149,0.18); color: var(--ok); }
   .status-pill.err { background: rgba(237,135,150,0.18); color: var(--danger); }
-  .live-config {
-    display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; margin-top: 8px;
-  }
-  .script-urls { display: grid; gap: 6px; margin-top: 8px; }
-  .script-urls .row {
-    display: grid; grid-template-columns: 140px 1fr; gap: 8px; align-items: center;
-  }
-  .script-urls .row label {
-    font-size: 12px; color: var(--text); text-transform: none; letter-spacing: 0;
-    margin: 0; font-weight: 500;
-  }
-  .script-actions { display: flex; gap: 8px; margin-top: 12px; }
   .oauth-config { display: grid; gap: 10px; margin-top: 8px; }
   .oauth-config .row {
     display: grid; grid-template-columns: 140px 1fr; gap: 8px; align-items: center;
@@ -704,13 +692,13 @@
     margin: 0; font-weight: 500;
   }
   .oauth-actions { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
-  details.script-help { margin-top: 10px; }
-  details.script-help summary {
+  details.oauth-help { margin-top: 10px; }
+  details.oauth-help summary {
     cursor: pointer; padding: 6px 10px; background: var(--panel-2);
     border-radius: 6px; font-size: 12px; user-select: none;
   }
-  details.script-help summary:hover { background: #262b3a; }
-  details.script-help[open] summary { margin-bottom: 8px; }
+  details.oauth-help summary:hover { background: #262b3a; }
+  details.oauth-help[open] summary { margin-bottom: 8px; }
   pre.code {
     background: #0a0c11; border: 1px solid var(--border); border-radius: 8px;
     padding: 12px; font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
@@ -964,91 +952,16 @@
         <span id="oauth-user" style="color: var(--muted); font-size: 12px; margin-left: 8px;"></span>
       </div>
     </div>
-    <details class="script-help">
-      <summary>Første gang du logger ind ser du en Google advarselsskærm — sådan kommer du videre</summary>
+    <details class="oauth-help">
+      <summary>Hvis noget ikke virker — klik her</summary>
       <p style="margin: 8px 0;">
-        Fordi appen er internt BCT-værktøj og ikke gået gennem Googles offentlige verification-proces, viser Google denne advarsel første gang du logger ind:
-      </p>
-      <p style="margin: 8px 0; color: var(--muted);">
-        <strong>"Google hasn't verified this app"</strong> → klik <strong>Advanced</strong> (lille link i bunden) → klik <strong>Go to BCT Check-in Planner (unsafe)</strong> → accepter Calendar permissions.
+        <strong>"access_denied"</strong> — du er logget ind med en konto udenfor <code>@blackcapitaltechnology.com</code>. Skift til din BCT-konto.
       </p>
       <p style="margin: 8px 0;">
-        Det er ufarligt — appen kører i din browser, og kun de scopes du ser bliver givet. Næste login vises advarslen ikke.
+        <strong>Login-vinduet lukker uden at logge ind</strong> — tredjeparts-cookies blokeres i browseren. Tillad <code>accounts.google.com</code> eller skift browser.
       </p>
-      <p style="color: var(--muted); font-size: 11px; margin-top: 8px;">
-        Hvis du får "access_denied" så er din email ikke tilføjet som test user endnu — kontakt Tor.
-      </p>
-    </details>
-  </div>
-
-  <!-- LIVE Apps Script section (LEGACY — bliver fjernet når OAuth er testet) -->
-  <div class="cal-section">
-    <div class="head">
-      <h2>Live Google Calendar (Apps Script) <span class="status-pill" style="background:#3a2f1a; color:#e8b15c;">Legacy</span> <span class="status-pill" id="live-status">Ikke konfigureret</span></h2>
-      <div>
-        <label style="color: var(--muted); font-size: 12px; margin-right: 10px;"><input type="checkbox" id="live-auto" style="width:auto; margin-right: 4px;"> Auto-refresh hver 10 min</label>
-        <button class="ghost" id="btn-live-refresh">Refresh nu</button>
-      </div>
-    </div>
-    <p style="color: var(--muted); font-size: 12px; margin: 0 0 8px;">
-      Hver manager deployer sit eget Apps Script og indsætter sin egen URL nedenfor. Du behøver kun udfylde din egen — andre managers indsætter deres URL i deres egen browser.<br>
-      Medarbejdere skal <strong>ikke</strong> deploye noget — de skal blot dele deres Google Calendar med dig (Calendar settings → Share with specific people → "See only free/busy").
-    </p>
-    <div id="script-urls" class="script-urls"></div>
-    <div class="script-actions">
-      <button class="primary" id="btn-live-test">Test alle URLs</button>
-    </div>
-
-    <details class="script-help">
-      <summary>Sådan opretter du Apps Script (klik for guide)</summary>
-      <ol class="steps">
-        <li>Gå til <a href="https://script.google.com/home/projects/create" target="_blank" style="color: var(--accent);">script.google.com</a> og opret et nyt projekt.</li>
-        <li>Slet det tomme <code>function myFunction()</code> og indsæt koden nedenfor.</li>
-        <li><strong>Aktivér Calendar API:</strong> i venstre sidebar, klik <code>Services</code> (+ ikon). Find <code>Google Calendar API</code>, lad identifier være <code>Calendar</code>, klik <code>Add</code>. Det er nødvendigt for FreeBusy API'et — uden det får du 0 OK · 21 fejl.</li>
-        <li>Klik <code>Deploy → New deployment → Web app</code>. Sæt <code>Execute as: Me</code> og <code>Who has access: Anyone</code>. Klik Deploy. Autorisér scope første gang (Calendar read).</li>
-        <li>Kopiér <code>Web app URL</code> (slutter på <code>/exec</code>) og indsæt i feltet her på siden. Klik Test forbindelse, så Refresh.</li>
-        <li>Hvis du har en eksisterende deployment: <code>Deploy → Manage deployments → ✎ → New version → Deploy</code>. URL'en kan forblive den samme.</li>
-        <li><strong>Domæne-deling:</strong> i Google Workspace er free/busy som standard delt internt på domænet. Hvis nogle medarbejdere stadig fejler, skal de manuelt dele deres kalender (<code>Calendar Settings → Share with specific people → See all event details</code> til din email).</li>
-      </ol>
-      <pre class="code">// Kræver: Services → Google Calendar API tilføjet (identifier: Calendar)
-function doGet(e) {
-  const params = e.parameter;
-  const callback = params.callback;
-  const calId = params.calendar || "primary";
-  const start = new Date(params.start || new Date());
-  const end = new Date(params.end || new Date(Date.now() + 14*864e5));
-  const realId = (calId === "primary") ? Session.getActiveUser().getEmail() : calId;
-
-  let payload;
-  try {
-    // FreeBusy API - virker for alle delte kalendere på domænet
-    const fb = Calendar.Freebusy.query({
-      timeMin: start.toISOString(),
-      timeMax: end.toISOString(),
-      items: [{ id: realId }]
-    });
-    const cal = fb.calendars[realId] || Object.values(fb.calendars)[0];
-    if (cal && cal.errors && cal.errors.length) {
-      payload = { error: cal.errors[0].reason + " (" + realId + ")" };
-    } else {
-      const busy = (cal &amp;&amp; cal.busy ? cal.busy : []).map(b =&gt; ({
-        start: b.start, end: b.end, summary: ""
-      }));
-      payload = { calendar: realId, count: busy.length, busy: busy };
-    }
-  } catch (err) {
-    payload = { error: "Script fejl: " + String(err) };
-  }
-
-  if (callback) {
-    return ContentService.createTextOutput(callback + "(" + JSON.stringify(payload) + ")")
-      .setMimeType(ContentService.MimeType.JAVASCRIPT);
-  }
-  return ContentService.createTextOutput(JSON.stringify(payload))
-    .setMimeType(ContentService.MimeType.JSON);
-}</pre>
-      <p style="color: var(--muted); font-size: 11px; margin-top: 8px;">
-        <strong>Sikkerhed:</strong> URL'en giver enhver med linket adgang til at læse de kalendere du har givet scriptet adgang til. Hold den privat.
+      <p style="margin: 8px 0;">
+        <strong>"Hent free/busy" viser fejl på en medarbejder</strong> — den person har ikke delt sin kalender med dig. Bed dem om at tilføje dig under Calendar settings → Share with specific people → "See only free/busy".
       </p>
     </details>
   </div>
@@ -1056,7 +969,7 @@ function doGet(e) {
   <!-- ICS section (fallback) -->
   <div class="cal-section">
     <h2>Manuel ICS upload <span class="status-pill">Fallback / supplerende</span></h2>
-    <p style="color: var(--muted); font-size: 12px; margin: 0 0 4px;">Alternativ til Apps Script: træk .ics filer hertil. Statisk snapshot — re-upload når kalendere ændres.</p>
+    <p style="color: var(--muted); font-size: 12px; margin: 0 0 4px;">Alternativ til OAuth-login: træk .ics filer hertil. Statisk snapshot — re-upload når kalendere ændres.</p>
     <div class="ics-grid">
       <div>
         <h3>Manager kalendere</h3>
@@ -1388,7 +1301,6 @@ const STORAGE_KEY = "bct-checkin-planner-v4";
 // ============================================
 let state = loadState() || defaultState();
 let activeProjectFilter = null;
-let liveAutoTimer = null;
 
 function defaultState() {
   return {
@@ -1402,7 +1314,6 @@ function defaultState() {
       files: { mgr: [], emp: [] },
     },
     workHours: { start: "09:00", end: "17:00", excludeLunch: true, weekdaysOnly: true },
-    liveCal: { scripts: {}, lastFetch: null, busy: {}, autoRefresh: false },
     oauth: { clientId: "", lastFetch: null, busy: {}, autoRefresh: false, lastErrors: [] },
     viewedMgrFilter: "all",
     weekOffset: 0,  // 0 = upcoming session week 1; 1 = upcoming session week 2; 2 = next session week 1; -1 = previous session week 2; ...
@@ -1429,18 +1340,11 @@ function loadState() {
     if (!s.customDates) s.customDates = {};
     if (!s.ics) s.ics = { managers: {}, employees: {}, files: { mgr: [], emp: [] } };
     if (!s.workHours) s.workHours = { start: "09:00", end: "17:00", excludeLunch: true, weekdaysOnly: true };
-    if (!s.liveCal) s.liveCal = { scripts: {}, lastFetch: null, busy: {}, autoRefresh: false };
     if (!s.oauth) s.oauth = { clientId: "", lastFetch: null, busy: {}, autoRefresh: false, lastErrors: [] };
     if (!s.oauth.busy) s.oauth.busy = {};
     if (!s.oauth.lastErrors) s.oauth.lastErrors = [];
-    // Migrate old single-URL state to multi-script
-    if (s.liveCal.url && !s.liveCal.scripts) {
-      s.liveCal.scripts = {};
-      const firstMgr = (s.mgrs && s.mgrs[0]) || "tor";
-      s.liveCal.scripts[firstMgr] = s.liveCal.url;
-    }
-    if (!s.liveCal.scripts) s.liveCal.scripts = {};
-    delete s.liveCal.url;
+    // Drop legacy Apps Script state if it exists in old localStorage data.
+    delete s.liveCal;
     if (s.viewedMgrFilter == null) s.viewedMgrFilter = "all";
     if (s.weekOffset == null) s.weekOffset = (s.viewedWeek != null) ? s.viewedWeek : 0;
     delete s.viewedWeek;
@@ -2045,7 +1949,7 @@ function deletePerson(id) {
   ["pool","team-1","team-2","team-3"].forEach(t => state.teams[t] = state.teams[t].filter(x => x !== id));
   delete state.customDates[id];
   delete state.ics.employees[id];
-  delete state.liveCal.busy[id];
+  if (state.oauth?.busy) delete state.oauth.busy[id];
   saveState();
   if (editingId === id) closeModal();
   renderAll();
@@ -2911,19 +2815,12 @@ function parseICSDate(val) {
 }
 
 function hasICS(pid) { return !!(state.ics.managers[pid]?.length || state.ics.employees[pid]?.length); }
-function hasLive(pid) {
-  return !!(state.oauth?.busy?.[pid]?.length || state.liveCal.busy?.[pid]?.length);
-}
+function hasLive(pid) { return !!(state.oauth?.busy?.[pid]?.length); }
 function getBusy(pid) {
-  // OAuth (Calendar API) trumps Apps Script for the same person — if both exist for pid,
-  // we only use OAuth data so we don't double-count the same events.
-  const liveSource = state.oauth?.busy?.[pid]?.length
-    ? (state.oauth.busy[pid] || [])
-    : (state.liveCal.busy?.[pid] || []);
   return [
     ...(state.ics.managers[pid] || []),
     ...(state.ics.employees[pid] || []),
-    ...liveSource,
+    ...(state.oauth?.busy?.[pid] || []),
   ].map(e => ({ start: new Date(e.start), end: new Date(e.end) }));
 }
 
@@ -3054,155 +2951,6 @@ function renderDayGrid(personId, sessionIdx, slots, customDateStr, weekInSession
     return `<div class="no-slots-msg">Ingen hverdage i uge ${showWeek + 1} af denne session</div>`;
   }
   return renderWeek(days, label);
-}
-
-// ============================================
-// LIVE GOOGLE CALENDAR (Apps Script)
-// ============================================
-function setLiveStatus(text, kind) {
-  const el = document.getElementById("live-status");
-  el.textContent = text;
-  el.className = "status-pill" + (kind === "ok" ? " ok" : kind === "err" ? " err" : "");
-}
-
-// JSONP — omgår CORS for file:// origin
-function jsonpFetch(url, params) {
-  return new Promise((resolve, reject) => {
-    const cb = "cwjsonp_" + Math.random().toString(36).slice(2,10) + "_" + Date.now();
-    const timeout = setTimeout(() => { cleanup(); reject(new Error("Timeout (15s) - tjek URL og at scriptet er deployet med 'Anyone' access")); }, 15000);
-    function cleanup() {
-      try { delete window[cb]; } catch (_) { window[cb] = undefined; }
-      if (script.parentNode) script.parentNode.removeChild(script);
-      clearTimeout(timeout);
-    }
-    window[cb] = (data) => { cleanup(); resolve(data); };
-    const qs = new URLSearchParams({...params, callback: cb}).toString();
-    const script = document.createElement("script");
-    script.src = url + (url.includes("?") ? "&" : "?") + qs;
-    script.onerror = () => { cleanup(); reject(new Error("Script load fejl - tjek URL slutter på /exec og at deployment er 'Anyone'")); };
-    document.head.appendChild(script);
-  });
-}
-
-function renderScriptUrls() {
-  const container = document.getElementById("script-urls");
-  if (!container) return;
-  container.innerHTML = state.mgrs.map(id => {
-    const p = findPerson(id);
-    const url = (state.liveCal.scripts || {})[id] || "";
-    const safe = url.replace(/"/g, "&quot;");
-    return `
-      <div class="row">
-        <label>${p ? p.name.split(" ")[0] : id}'s script</label>
-        <input type="url" data-mgr="${id}" value="${safe}" placeholder="https://script.google.com/macros/s/.../exec">
-      </div>`;
-  }).join("");
-  container.querySelectorAll("input").forEach(inp => {
-    inp.addEventListener("change", () => {
-      if (!state.liveCal.scripts) state.liveCal.scripts = {};
-      state.liveCal.scripts[inp.dataset.mgr] = inp.value.trim();
-      saveState();
-    });
-  });
-}
-
-function getConfiguredScripts() {
-  const scripts = state.liveCal.scripts || {};
-  return Object.entries(scripts).filter(([_, url]) => url && url.trim());
-}
-
-async function liveTest() {
-  const entries = getConfiguredScripts();
-  if (!entries.length) { alert("Indsæt mindst én Apps Script URL først."); return; }
-  setLiveStatus("Tester…", "");
-  const results = [];
-  for (const [mgrId, url] of entries) {
-    const p = findPerson(mgrId);
-    const calId = p?.email || "primary";
-    const label = p ? p.name.split(" ")[0] : mgrId;
-    const start = new Date(); start.setHours(0,0,0,0);
-    const end = new Date(start); end.setDate(start.getDate() + 7);
-    try {
-      const data = await jsonpFetch(url, {
-        calendar: calId,
-        start: start.toISOString(),
-        end: end.toISOString(),
-      });
-      if (data.error) results.push(`${label}: ❌ ${data.error}`);
-      else results.push(`${label}: ✅ OK (${data.count ?? 0} events)`);
-    } catch (err) {
-      results.push(`${label}: ❌ ${err.message}`);
-    }
-  }
-  const okCount = results.filter(r => r.includes("✅")).length;
-  setLiveStatus(`${okCount}/${entries.length} scripts OK`, okCount === entries.length ? "ok" : "err");
-  alert("Test resultat:\n\n" + results.join("\n"));
-}
-
-async function liveRefresh(silent = false) {
-  const entries = getConfiguredScripts();
-  if (!entries.length) {
-    if (!silent) alert("Konfigurér mindst én Apps Script URL først.");
-    return;
-  }
-  if (!silent) setLiveStatus("Henter…", "");
-  const peopleToFetch = [...new Set([...state.mgrs, ...getAssignedIds()])];
-  const today = new Date(); today.setHours(0,0,0,0);
-  const sd = new Date(state.startDate); sd.setHours(0,0,0,0);
-  const start = today < sd ? today : sd;
-  const end = new Date(start); end.setDate(start.getDate() + 56);
-
-  // For each person, try every script in order. Take first that succeeds.
-  const newBusy = {};
-  const errorDetails = [];
-  let okCount = 0, errCount = 0;
-
-  await Promise.all(peopleToFetch.map(async pid => {
-    const p = findPerson(pid);
-    if (!p?.email) {
-      errCount++; errorDetails.push(`${p?.name || pid}: mangler email`); return;
-    }
-    let succeeded = false;
-    let lastErr = "";
-    for (const [mgrId, url] of entries) {
-      try {
-        const data = await jsonpFetch(url, {
-          calendar: p.email,
-          start: start.toISOString(),
-          end: end.toISOString(),
-        });
-        if (!data.error) {
-          newBusy[pid] = data.busy;
-          succeeded = true;
-          break;
-        }
-        lastErr = data.error;
-      } catch (err) { lastErr = err.message; }
-    }
-    if (succeeded) okCount++;
-    else { errCount++; errorDetails.push(`${p.name}: ingen scripts kunne tilgå (${lastErr || "unknown"})`); }
-  }));
-
-  state.liveCal.busy = newBusy;
-  state.liveCal.lastFetch = Date.now();
-  state.liveCal.lastErrors = errorDetails;
-  saveState();
-  renderByPerson();
-  const ts = new Date().toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" });
-  setLiveStatus(`Opdateret ${ts} · ${okCount} OK${errCount ? " · " + errCount + " fejl (klik)" : ""}`, errCount ? "err" : "ok");
-  if (errCount && !silent) {
-    document.getElementById("live-status").style.cursor = "pointer";
-    document.getElementById("live-status").onclick = () => {
-      alert("Fejldetaljer:\n\n" + errorDetails.join("\n"));
-    };
-  }
-}
-
-function setupLiveAuto() {
-  if (liveAutoTimer) { clearInterval(liveAutoTimer); liveAutoTimer = null; }
-  if (state.liveCal.autoRefresh && getConfiguredScripts().length) {
-    liveAutoTimer = setInterval(() => liveRefresh(true), 10 * 60 * 1000);
-  }
 }
 
 // ============================================
@@ -3404,7 +3152,7 @@ async function oauthRefresh(silent = false) {
     return;
   }
   setOauthStatus("Henter…", "");
-  // Same windowing logic as liveRefresh — covers the upcoming 8 weeks (4 sessions).
+  // Window covers upcoming 8 weeks (4 biweekly sessions).
   const peopleToFetch = [...new Set([...state.mgrs, ...getAssignedIds()])];
   const today = new Date(); today.setHours(0,0,0,0);
   const sd = new Date(state.startDate); sd.setHours(0,0,0,0);
@@ -3787,13 +3535,6 @@ document.getElementById("modal-event-bg").addEventListener("click", e => {
   if (e.target.id === "modal-event-bg") closeEventModal();
 });
 
-// Live calendar events
-document.getElementById("btn-live-test").addEventListener("click", liveTest);
-document.getElementById("btn-live-refresh").addEventListener("click", () => liveRefresh(false));
-document.getElementById("live-auto").addEventListener("change", e => {
-  state.liveCal.autoRefresh = e.target.checked; saveState(); setupLiveAuto();
-});
-
 // OAuth (Calendar API) events
 document.getElementById("oauth-client-id").addEventListener("change", e => {
   state.oauth.clientId = e.target.value.trim();
@@ -3833,17 +3574,8 @@ setupDropZone("drop-emp", "file-emp", "emp");
 function renderAll() {
   syncPool();
   document.getElementById("startDate").value = state.startDate;
-  document.getElementById("live-auto").checked = !!state.liveCal.autoRefresh;
-  const hasAnyScript = getConfiguredScripts().length > 0;
-  if (state.liveCal.lastFetch) {
-    const ts = new Date(state.liveCal.lastFetch).toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" });
-    setLiveStatus(`Sidste hent ${ts}`, "ok");
-  } else if (hasAnyScript) {
-    setLiveStatus("Konfigureret · ikke hentet endnu", "");
-  }
   renderMgrDropdowns();
   renderMgrFilter();
-  renderScriptUrls();
   oauthRenderConfig();
   renderLists();
   renderProjects();
@@ -3855,7 +3587,6 @@ function renderAll() {
 renderAll();
 setupSortable();
 bindWorkHours();
-setupLiveAuto();
 setupOauthAuto();
 </script>
 </body>
