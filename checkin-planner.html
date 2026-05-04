@@ -3657,8 +3657,9 @@ async function journalUpsertEntry(entry, personId) {
       );
     } else {
       // Append new row, then read back the resulting range to capture the row index.
+      // Sheets API requires the ":append" suffix on the path for the append endpoint.
       const res = await sheetsApi(
-        "/values/" + encodeURIComponent(JOURNAL_SHEET_TAB + "!A:O") +
+        "/values/" + encodeURIComponent(JOURNAL_SHEET_TAB + "!A:O") + ":append" +
         "?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
         { method: "POST", body: JSON.stringify({ values: [row] }) }
       );

@@ -77,6 +77,13 @@ Journal og rapport-data deles på tværs af de 3 managers via en Google Sheet i 
 
 **OAuth scopes (i `OAUTH_SCOPES`):** `calendar.freebusy` + `calendar.events` + `spreadsheets` + `drive.file`. Eksisterende brugere skal re-consent én gang fordi vi har tilføjet to nye scopes.
 
+**GCP API enablement (engangs, gjort 2026-05-04):** Følgende APIs skal være aktiveret i `BCT Internal Tools`-projektet (project number 895573577859) før koden virker:
+- Google Calendar API (allerede slået til ved kalender-implementation)
+- Google Sheets API → https://console.cloud.google.com/apis/library/sheets.googleapis.com?project=895573577859
+- Google Drive API → https://console.cloud.google.com/apis/library/drive.googleapis.com?project=895573577859
+
+Glemmes en API, returnerer kaldet HTTP 403 med "API has not been used in project ... or it is disabled". Aktivering tager ~30 sek effekt. Næste interne tool (Onboarding Planner / PA) under samme projekt arver allerede aktiveringerne.
+
 **Sheet-skema (én række per entry, header i row 1):**
 `id | personId | managerId | date | trivsel | faglig | personlig | udfordringer | maal | noter | opfolgning | files | createdAt | updatedAt | deletedAt`
 `files` er JSON-array `[{name, type, size, driveId, webViewLink}]`. Sletninger er soft (deletedAt = epoch ms) så row indices forbliver stabile.
