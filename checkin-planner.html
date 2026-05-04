@@ -856,6 +856,19 @@
     </div>
   </header>
 
+  <!-- Shared master-data sync bar: visible on all tabs so any manager can see
+       at a glance whether their employee list, projects, etc. are in sync
+       with the other managers. See SHARED MASTER DATA module in the JS. -->
+  <div class="sync-bar" style="margin: 6px 0 12px;">
+    <div class="sync-bar-left">
+      <span class="sync-pill" id="master-sync-status" style="display:none"></span>
+    </div>
+    <div class="sync-bar-right">
+      <button class="ghost" id="btn-master-pull" title="Hent seneste medarbejdere/managers/projekter/datoer fra delt sheet">⟳ Hent delt data</button>
+      <button class="ghost" id="btn-master-migrate" title="Push din lokale master-data til delt sheet (engangs-import — bruges efter første deploy)">⤴ Importér lokal master-data</button>
+    </div>
+  </div>
+
   <div class="config">
     <div>
       <label>Manager 1</label>
@@ -1908,6 +1921,7 @@ function renderByPerson() {
       if (!state.customDates[pid]) state.customDates[pid] = {};
       state.customDates[pid][sidx] = inp.value;
       saveState();
+      syncCustomDates();
       renderByPerson();
     });
   });
@@ -1916,6 +1930,7 @@ function renderByPerson() {
       const pid = btn.dataset.pid, sidx = btn.dataset.sidx;
       if (state.customDates[pid]) delete state.customDates[pid][sidx];
       saveState();
+      syncCustomDates();
       renderByPerson();
     });
   });
@@ -1993,6 +2008,7 @@ function evSaveOnly() {
   if (!state.customDates[d.pid]) state.customDates[d.pid] = {};
   state.customDates[d.pid][d.sidx] = d.dateStr + "T" + d.timeStr;
   saveState();
+  syncCustomDates();
   closeEventModal();
   renderByPerson();
 }
@@ -2010,6 +2026,7 @@ async function evCreateInCalendar() {
       if (!state.customDates[d.pid]) state.customDates[d.pid] = {};
       state.customDates[d.pid][d.sidx] = d.dateStr + "T" + d.timeStr;
       saveState();
+      syncCustomDates();
       closeEventModal();
       renderByPerson();
       // Refresh free/busy in the background so the new event shows up immediately.
@@ -2023,6 +2040,7 @@ async function evCreateInCalendar() {
       if (!state.customDates[d.pid]) state.customDates[d.pid] = {};
       state.customDates[d.pid][d.sidx] = d.dateStr + "T" + d.timeStr;
       saveState();
+      syncCustomDates();
       window.open(url, "_blank", "noopener,noreferrer");
       closeEventModal();
       renderByPerson();
@@ -2037,6 +2055,7 @@ async function evCreateInCalendar() {
   if (!state.customDates[d.pid]) state.customDates[d.pid] = {};
   state.customDates[d.pid][d.sidx] = d.dateStr + "T" + d.timeStr;
   saveState();
+  syncCustomDates();
   window.open(url, "_blank", "noopener,noreferrer");
   closeEventModal();
   renderByPerson();
@@ -2064,6 +2083,8 @@ function renderMgrDropdowns() {
       syncPool();
       renderAll();
       saveState();
+      syncMgrs();
+      syncTeams(); // syncPool() can move people between pool and teams
     };
   });
 }
@@ -2128,13 +2149,19 @@ function saveModal() {
   // Auto-create project entries for any new project names typed in person edit
   if (!state.projects) state.projects = [];
   const known = new Set(state.projects.map(pj => pj.name));
+  let newProjectAdded = false;
   projects.forEach(name => {
     if (!known.has(name)) {
       state.projects.push({ name, description: "" });
       known.add(name);
+      newProjectAdded = true;
     }
   });
+  const isNewPerson = !editingId;
   saveState();
+  syncPeople();
+  if (isNewPerson) syncTeams(); // new person was pushed into pool
+  if (newProjectAdded) syncProjects();
   closeModal();
   renderAll();
 }
@@ -2149,6 +2176,9 @@ function deletePerson(id) {
   delete state.ics.employees[id];
   if (state.oauth?.busy) delete state.oauth.busy[id];
   saveState();
+  syncPeople();
+  syncTeams();
+  syncCustomDates();
   if (editingId === id) closeModal();
   renderAll();
 }
@@ -3119,6 +3149,8 @@ function saveProject() {
   });
 
   saveState();
+  syncProjects();
+  syncPeople(); // membership changes (and possibly rename) live on people too
   closeProjectModal();
   renderAll();
 }
@@ -3131,6 +3163,8 @@ function deleteProject(name) {
   });
   if (activeProjectFilter === name) activeProjectFilter = null;
   saveState();
+  syncProjects();
+  syncPeople();
   if (editingProject === name) closeProjectModal();
   renderAll();
 }
@@ -3247,13 +3281,16 @@ function saveFnTags() {
       renames[oldT.displayName] = newT.displayName;
     }
   });
-  if (Object.keys(renames).length > 0) {
+  const peopleWereRenamed = Object.keys(renames).length > 0;
+  if (peopleWereRenamed) {
     state.people.forEach(p => {
       if (p.fn && renames[p.fn]) p.fn = renames[p.fn];
     });
   }
   state.fnTags = cleaned;
   saveState();
+  syncFnTags();
+  if (peopleWereRenamed) syncPeople();
   closeFnTagsModal();
   renderAll();
 }
@@ -3478,6 +3515,13 @@ const JOURNAL_SHEET_HEADER = [
   "obs", // Attention point for next check-in (column P, index 15) — added 2026-05-04
 ];
 
+// Shared master-data tab — see "SHARED MASTER DATA" module below.
+// Stores employees, managers, teams, projects, fnTags, customDates, startDate
+// as one row per key with JSON payload. All 3 managers share the same view.
+const MASTER_SHEET_TAB = "MasterData";
+const MASTER_SHEET_HEADER = ["key", "json", "updatedAt", "updatedBy"];
+const MASTER_KEYS = ["people", "mgrs", "teams", "projects", "fnTags", "customDates", "startDate"];
+
 // Resolve the active Client ID: hardcoded constant wins, localStorage override
 // is fallback (useful for testing against a different project before committing).
 function getOauthClientId() {
@@ -3578,6 +3622,15 @@ function oauthInitTokenClient() {
         });
       } else {
         refreshJournalSyncIndicator();
+      }
+      // And the shared master data (employees, managers, teams, projects, ...).
+      // First-time signin → full pull. After that, manual refresh button.
+      if (!masterSync.loaded) {
+        masterLoadAll().catch(err => {
+          console.error("[master sync] initial load failed", err);
+        });
+      } else {
+        refreshMasterSyncIndicator();
       }
     },
   });
@@ -4128,6 +4181,340 @@ async function migrateLocalJournal() {
 }
 
 
+// =====================================================================
+// SHARED MASTER DATA — Google Sheet sync (people, managers, teams, etc.)
+// =====================================================================
+// Up to 2026-05-04 the only data shared across managers was the journal.
+// Master data (employee list incl. emails, managers, team rotation, projects,
+// function tags, custom dates, start date) lived in each browser's
+// localStorage — so when Tor fixed Lars' email locally, Stefan still saw the
+// old wrong email. This module pushes master data through the same Google
+// Sheet (different tab) so all 3 managers share one source of truth.
+//
+// Schema: tab "MasterData", one row per logical key. Header row 1.
+//   key | json | updatedAt | updatedBy
+// Keys (see MASTER_KEYS constant): people, mgrs, teams, projects, fnTags,
+// customDates, startDate. JSON column holds the full payload for that key.
+//
+// Sync model:
+//   - On OAuth signin → masterLoadAll() pulls all rows, replaces the
+//     corresponding state.* fields, saves to localStorage as offline cache.
+//   - Every save-point that mutates master data calls masterUpsertKey(key).
+//   - Pre-write: GET the row's updatedAt and compare to our last-synced
+//     timestamp. If sheet is newer, ask the user to confirm overwrite or
+//     refresh first ("data ændret af X. Vil du overskrive eller hente først?").
+//   - Manual "⟳ Hent delt data" button forces a full refresh.
+//   - Migration button "⤴ Importér lokal master-data" pushes the local
+//     state up as the initial snapshot (one-time, used by the first manager
+//     after deploy whose state is the canonical source of truth).
+//
+// LocalStorage stays as offline cache so the app still loads without OAuth.
+
+const masterSync = {
+  loaded: false,
+  inFlight: 0,
+  lastError: null,
+  lastSyncAt: null,
+  keysSyncedAt: {},  // { key: epoch ms — when WE last loaded that row from sheet }
+  rowIndex: {},      // { key: 1-based row index in sheet }
+};
+
+function setMasterSyncStatus(kind, msg) {
+  const el = document.getElementById("master-sync-status");
+  if (!el) return;
+  el.className = "sync-pill " + (kind || "");
+  el.textContent = msg || "";
+  el.style.display = msg ? "" : "none";
+}
+
+function refreshMasterSyncIndicator() {
+  if (!isOauthSignedIn()) {
+    setMasterSyncStatus("warn", "⚪ Delt data: ikke logget ind");
+    return;
+  }
+  if (masterSync.inFlight > 0) {
+    setMasterSyncStatus("", "🟡 Synkroniserer delt data…");
+    return;
+  }
+  if (masterSync.lastError) {
+    setMasterSyncStatus("err", "🔴 Sync-fejl: " + masterSync.lastError);
+    return;
+  }
+  if (masterSync.lastSyncAt) {
+    const ts = new Date(masterSync.lastSyncAt).toLocaleTimeString("da-DK", { hour:"2-digit", minute:"2-digit" });
+    setMasterSyncStatus("ok", "🟢 Delt data · sidst synced " + ts);
+  } else {
+    setMasterSyncStatus("", "Klar til at hente delt data");
+  }
+}
+
+function masterBeginRequest() { masterSync.inFlight++; refreshMasterSyncIndicator(); }
+function masterEndRequest(err) {
+  masterSync.inFlight = Math.max(0, masterSync.inFlight - 1);
+  if (err) masterSync.lastError = (err.message || String(err)).slice(0, 120);
+  else { masterSync.lastError = null; masterSync.lastSyncAt = Date.now(); }
+  refreshMasterSyncIndicator();
+}
+
+// Make sure the MasterData tab exists with the right header.
+async function masterEnsureHeader() {
+  const meta = await sheetsApi("?fields=sheets(properties(sheetId,title))");
+  const tab = (meta.sheets || []).find(s => s.properties?.title === MASTER_SHEET_TAB);
+  if (!tab) {
+    await sheetsApi(":batchUpdate", {
+      method: "POST",
+      body: JSON.stringify({
+        requests: [{ addSheet: { properties: { title: MASTER_SHEET_TAB } } }],
+      }),
+    });
+  }
+  const existing = await sheetsApi(
+    "/values/" + encodeURIComponent(MASTER_SHEET_TAB + "!A1:D1")
+  );
+  const have = (existing.values && existing.values[0]) || [];
+  if (have.length < MASTER_SHEET_HEADER.length) {
+    await sheetsApi(
+      "/values/" + encodeURIComponent(MASTER_SHEET_TAB + "!A1") +
+      "?valueInputOption=RAW",
+      {
+        method: "PUT",
+        body: JSON.stringify({ values: [MASTER_SHEET_HEADER] }),
+      }
+    );
+  }
+}
+
+// Read all master rows from sheet → replace corresponding state.* fields.
+// Hooked to OAuth signin. Caller can pass { silent: true } to skip alert
+// dialogs on conflict (used by initial load).
+async function masterLoadAll() {
+  masterBeginRequest();
+  try {
+    await masterEnsureHeader();
+    const data = await sheetsApi(
+      "/values/" + encodeURIComponent(MASTER_SHEET_TAB + "!A2:D")
+    );
+    const rows = data.values || [];
+    masterSync.rowIndex = {};
+    masterSync.keysSyncedAt = {};
+    rows.forEach((row, i) => {
+      if (!row || !row[0]) return;
+      const key = row[0];
+      const jsonRaw = row[1] || "";
+      const updatedAt = parseInt(row[2], 10) || 0;
+      masterSync.rowIndex[key] = i + 2;
+      masterSync.keysSyncedAt[key] = updatedAt;
+      if (!MASTER_KEYS.includes(key)) return;
+      let parsed;
+      try { parsed = JSON.parse(jsonRaw); } catch { return; }
+      applyMasterKey(key, parsed);
+    });
+    masterSync.loaded = true;
+    saveState();
+    if (typeof renderAll === "function") renderAll();
+    masterEndRequest();
+  } catch (err) {
+    masterEndRequest(err);
+    throw err;
+  }
+}
+
+// Assign a parsed value from sheet to state.* — keeps state shape stable
+// (e.g. teams object always has team-1/2/3/pool keys).
+function applyMasterKey(key, value) {
+  if (key === "people" && Array.isArray(value)) {
+    state.people = value.map(p => ({ ...p, projects: Array.isArray(p.projects) ? p.projects : [] }));
+  } else if (key === "mgrs" && Array.isArray(value)) {
+    state.mgrs = value.slice(0, 3);
+  } else if (key === "teams" && value && typeof value === "object") {
+    state.teams = {
+      "team-1": Array.isArray(value["team-1"]) ? value["team-1"] : [],
+      "team-2": Array.isArray(value["team-2"]) ? value["team-2"] : [],
+      "team-3": Array.isArray(value["team-3"]) ? value["team-3"] : [],
+      "pool":   Array.isArray(value["pool"])   ? value["pool"]   : [],
+    };
+  } else if (key === "projects" && Array.isArray(value)) {
+    state.projects = value.map(pj => ({
+      name: pj.name,
+      description: pj.description || "",
+      color: pj.color || autoProjectColor(pj.name),
+    }));
+  } else if (key === "fnTags" && Array.isArray(value) && value.length) {
+    state.fnTags = value;
+  } else if (key === "customDates" && value && typeof value === "object") {
+    state.customDates = value;
+  } else if (key === "startDate" && typeof value === "string") {
+    state.startDate = value;
+  }
+}
+
+// Build the JSON payload for a given key.
+function buildMasterPayload(key) {
+  switch (key) {
+    case "people":      return JSON.stringify(state.people || []);
+    case "mgrs":        return JSON.stringify(state.mgrs || []);
+    case "teams":       return JSON.stringify(state.teams || {});
+    case "projects":    return JSON.stringify(state.projects || []);
+    case "fnTags":      return JSON.stringify(state.fnTags || []);
+    case "customDates": return JSON.stringify(state.customDates || {});
+    case "startDate":   return JSON.stringify(state.startDate || "");
+    default:            return "null";
+  }
+}
+
+// Push a single key's current state to sheet. Pre-write conflict check:
+// if the sheet's updatedAt for this key is newer than what we loaded, prompt
+// the user to choose between overwrite, refresh first, or cancel.
+// Mutations: writes lastSyncedAt + rowIndex back into masterSync on success.
+async function masterUpsertKey(key, opts = {}) {
+  if (!MASTER_KEYS.includes(key)) return;
+  if (!isOauthSignedIn()) {
+    // Offline mode — saveState() has already cached locally. Do nothing.
+    return;
+  }
+  if (!masterSync.loaded) {
+    // First time pushing without ever having loaded — load first to learn
+    // existing rowIndex so we update instead of duplicating rows.
+    try { await masterLoadAll(); }
+    catch (err) { console.error("[master] preload failed", err); }
+  }
+  masterBeginRequest();
+  try {
+    // Conflict check: read current updatedAt for this key.
+    const rowIdx = masterSync.rowIndex[key];
+    let conflict = null;
+    if (rowIdx) {
+      const cur = await sheetsApi(
+        "/values/" + encodeURIComponent(MASTER_SHEET_TAB + "!A" + rowIdx + ":D" + rowIdx)
+      );
+      const r = (cur.values && cur.values[0]) || [];
+      const sheetUpdatedAt = parseInt(r[2], 10) || 0;
+      const sheetUpdatedBy = r[3] || "ukendt";
+      const ourSyncedAt = masterSync.keysSyncedAt[key] || 0;
+      if (sheetUpdatedAt > ourSyncedAt) {
+        conflict = { sheetUpdatedAt, sheetUpdatedBy };
+      }
+    }
+    if (conflict && !opts.force) {
+      masterEndRequest(); // release the in-flight slot before showing dialog
+      const ts = new Date(conflict.sheetUpdatedAt).toLocaleString("da-DK");
+      const choice = confirm(
+        `Delt data er ændret af ${conflict.sheetUpdatedBy} (${ts}) — efter du loadede.\n\n` +
+        `OK → hent fra sheet først (dine ændringer går tabt)\n` +
+        `Annullér → overskriv den anden persons ændringer alligevel`
+      );
+      if (choice) {
+        await masterLoadAll();
+        return;
+      }
+      // User chose to force-overwrite: re-enter request lifecycle.
+      masterBeginRequest();
+    }
+
+    const json = buildMasterPayload(key);
+    const updatedAt = Date.now();
+    const updatedBy = oauthState.userEmail || "ukendt";
+    const row = [key, json, String(updatedAt), updatedBy];
+    if (rowIdx) {
+      await sheetsApi(
+        "/values/" + encodeURIComponent(MASTER_SHEET_TAB + "!A" + rowIdx + ":D" + rowIdx) +
+        "?valueInputOption=RAW",
+        { method: "PUT", body: JSON.stringify({ values: [row] }) }
+      );
+    } else {
+      const res = await sheetsApi(
+        "/values/" + encodeURIComponent(MASTER_SHEET_TAB + "!A:D") + ":append" +
+        "?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
+        { method: "POST", body: JSON.stringify({ values: [row] }) }
+      );
+      const m = (res.updates?.updatedRange || "").match(/!A(\d+):/);
+      if (m) masterSync.rowIndex[key] = parseInt(m[1], 10);
+    }
+    masterSync.keysSyncedAt[key] = updatedAt;
+    masterEndRequest();
+  } catch (err) {
+    masterEndRequest(err);
+    console.error("[master] upsert failed for key", key, err);
+  }
+}
+
+// Convenience wrappers used by save-points throughout the app. Fire-and-forget
+// (status pill shows progress/errors). Save locally first via saveState() —
+// these only push to the cloud.
+function syncPeople()      { masterUpsertKey("people"); }
+function syncMgrs()        { masterUpsertKey("mgrs"); }
+function syncTeams()       { masterUpsertKey("teams"); }
+function syncProjects()    { masterUpsertKey("projects"); }
+function syncFnTags()      { masterUpsertKey("fnTags"); }
+function syncCustomDates() { masterUpsertKey("customDates"); }
+function syncStartDate()   { masterUpsertKey("startDate"); }
+// Convenience: push every master key. Used by the "import local data → sheet"
+// migration button on first deploy.
+async function syncAllMaster() {
+  for (const key of MASTER_KEYS) {
+    try { await masterUpsertKey(key, { force: true }); }
+    catch (err) { console.error("[master] sync-all failed for", key, err); }
+  }
+}
+
+// One-time migration: take everything currently in localStorage and push it
+// to the shared sheet as the canonical first snapshot. The first manager who
+// runs this after deploy "wins" — their state becomes the truth that other
+// managers' browsers will pull down on next signin.
+async function migrateLocalMaster() {
+  if (!isOauthSignedIn()) {
+    alert("Log ind med Google først for at importere lokal master-data.");
+    return;
+  }
+  // Check if sheet already has data — if so, prompt before overwriting.
+  try { await masterLoadAll(); } catch (err) {
+    if (!confirm("Kunne ikke læse delt data først (" + err.message + "). Fortsæt? (Risiko for konflikt)")) return;
+  }
+  const hasExisting = Object.keys(masterSync.rowIndex || {}).length > 0;
+  // After masterLoadAll, state is now whatever's in the sheet. We need the
+  // ORIGINAL local state to push. To do that we re-read from localStorage
+  // (since saveState was last called before masterLoadAll, this is safe).
+  // For first-run scenario, sheet is empty → state is unchanged → push it.
+  // For overwrite scenario, we re-read localStorage to recover local data.
+  if (hasExisting) {
+    const ok = confirm(
+      "Den delte data-fane indeholder allerede data fra en anden bruger.\n\n" +
+      "OK → din lokale state bliver IKKE pushet (sheet vinder).\n" +
+      "Annullér → fortsæt og OVERSKRIV den delte data med din lokale.\n\n" +
+      "Vælger du Annullér og fortsætter, vil andre managers' ændringer gå tabt næste gang de loader."
+    );
+    if (ok) {
+      alert("Importen blev annulleret. Din browser bruger nu den delte data.");
+      return;
+    }
+    // User wants to overwrite — re-read localStorage to recover original local state
+    const localRaw = localStorage.getItem(STORAGE_KEY);
+    if (localRaw) {
+      try {
+        const localState = JSON.parse(localRaw);
+        // Re-apply local values to state for each master key we manage.
+        if (Array.isArray(localState.people)) state.people = localState.people;
+        if (Array.isArray(localState.mgrs)) state.mgrs = localState.mgrs;
+        if (localState.teams) state.teams = localState.teams;
+        if (Array.isArray(localState.projects)) state.projects = localState.projects;
+        if (Array.isArray(localState.fnTags)) state.fnTags = localState.fnTags;
+        if (localState.customDates) state.customDates = localState.customDates;
+        if (localState.startDate) state.startDate = localState.startDate;
+      } catch (err) {
+        alert("Kunne ikke læse lokal localStorage: " + err.message);
+        return;
+      }
+    }
+  }
+  if (!confirm(`Klar til at pushe din lokale master-data til den delte sheet (${MASTER_KEYS.length} nøgler). Andre managers' browsere vil bruge dette som sandhed efter de loader. Fortsæt?`)) return;
+
+  await syncAllMaster();
+  saveState();
+  renderAll();
+  alert("Master-data importeret til delt sheet. Andre managers ser dette efter deres næste login eller når de klikker 'Hent delt data'.");
+}
+
+
 function setupDropZone(zoneId, fileInputId, kind) {
   const zone = document.getElementById(zoneId);
   const input = document.getElementById(fileInputId);
@@ -4212,6 +4599,7 @@ function setupSortable() {
         state.teams[id] = ids;
       });
       saveState();
+      syncTeams();
       renderCalendar(); renderByPerson(); renderProjects();
       ["pool","team-1","team-2","team-3"].forEach(id => {
         const el = document.getElementById(id);
@@ -4229,13 +4617,19 @@ function setupSortable() {
 // ============================================
 document.getElementById("startDate").addEventListener("change", e => {
   state.startDate = e.target.value;
-  saveState(); renderCalendar(); renderByPerson();
+  saveState(); syncStartDate(); renderCalendar(); renderByPerson();
 });
 document.getElementById("search").addEventListener("input", () => renderLists());
 document.getElementById("btn-reset").addEventListener("click", () => {
-  if (!confirm("Nulstil ALT til standard?")) return;
+  if (!confirm("Nulstil ALT til standard? Dette overskriver også den DELTE master-data for alle managers.")) return;
   state = defaultState(); activeProjectFilter = null;
-  saveState(); renderAll();
+  saveState();
+  // Reset is destructive across the team — push every key as force overwrite
+  // so all managers' browsers pick it up on next load.
+  if (isOauthSignedIn()) {
+    syncAllMaster().catch(err => console.error("[reset] sync failed", err));
+  }
+  renderAll();
 });
 document.getElementById("btn-shuffle").addEventListener("click", () => {
   if (!confirm("Bland alle medarbejdere tilfældigt i 3 teams?")) return;
@@ -4249,7 +4643,7 @@ document.getElementById("btn-shuffle").addEventListener("click", () => {
   state.teams["team-2"] = all.slice(per, per * 2);
   state.teams["team-3"] = all.slice(per * 2);
   state.teams["pool"] = [];
-  saveState(); renderAll();
+  saveState(); syncTeams(); renderAll();
 });
 document.getElementById("btn-export-csv").addEventListener("click", () => {
   const rows = [["Uge","Sessions-dato","Manager","Team","Medarbejder","Custom dato/tid","Projekter"]];
@@ -4320,6 +4714,24 @@ document.getElementById("btn-journal-pull").addEventListener("click", async () =
   }
 });
 document.getElementById("btn-journal-migrate").addEventListener("click", migrateLocalJournal);
+
+// Shared master-data sync controls (employees, managers, teams, projects, ...)
+document.getElementById("btn-master-pull").addEventListener("click", async () => {
+  if (!isOauthSignedIn()) {
+    alert("Log ind med Google først (i Kalender-fanen) — den delte data kræver login.");
+    return;
+  }
+  try {
+    await masterLoadAll();
+  } catch (err) {
+    alert("Kunne ikke hente delt data: " + err.message);
+  }
+});
+document.getElementById("btn-master-migrate").addEventListener("click", migrateLocalMaster);
+
+// Render the indicator once on page load so users see "⚪ Ikke logget ind"
+// before they even sign in.
+refreshMasterSyncIndicator();
 
 // Report modal
 document.getElementById("btn-open-report").addEventListener("click", openReportModal);
