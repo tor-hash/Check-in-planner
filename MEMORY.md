@@ -65,3 +65,45 @@ ICS upload beholdes som permanent fallback for offline / edge cases.
 - CSS variabler øverst i `<style>` for farver.
 - LocalStorage keys er prefixet (tjek koden før nye keys tilføjes).
 - OAuth Client ID hardcoded i koden (public-safe). Aldrig commit secrets.
+
+## Delt journal — Google Sheet + Drive (implementeret 2026-05-04)
+
+Journal og rapport-data deles på tværs af de 3 managers via en Google Sheet i en delt Drive-folder. Alle 3 managers ser alle entries for alle medarbejdere. Adgang afgrænses via Drive-permissions på den delte topfolder.
+
+**Resource IDs (hardcoded, public-safe — adgang styres via Drive ACL):**
+- Sheet ID: `1--rEDjYldyi7F1qRGyZWhj4pi2ADd9tG9BKazjyeZk8` (Sheet "Check-in Journal", tab "Entries")
+- Files folder ID: `11Y5HD1GOdWkAkPew6xqc8TZuWK2-KY-O` (sub-folder "Vedhæftede filer")
+- Topfolder (Drive-permissions container): `166c0_IXuiGF2D03jrStT4p0CERrLEIFw`
+
+**OAuth scopes (i `OAUTH_SCOPES`):** `calendar.freebusy` + `calendar.events` + `spreadsheets` + `drive.file`. Eksisterende brugere skal re-consent én gang fordi vi har tilføjet to nye scopes.
+
+**Sheet-skema (én række per entry, header i row 1):**
+`id | personId | managerId | date | trivsel | faglig | personlig | udfordringer | maal | noter | opfolgning | files | createdAt | updatedAt | deletedAt`
+`files` er JSON-array `[{name, type, size, driveId, webViewLink}]`. Sletninger er soft (deletedAt = epoch ms) så row indices forbliver stabile.
+
+**Sync-model:**
+- `journalLoadAll()` kaldes automatisk efter OAuth signin (kun første gang per session). Erstatter `state.journal` med sheet-indhold, filtrerer soft-deleted entries fra UI.
+- `saveEntry`/`deleteEntry` skriver lokalt først (saveState), pusher derefter til sheet via `journalUpsertEntry` (write-through). `_rowIndex` gemmes på entry-objektet så efterfølgende edits rammer rigtige række.
+- Filer: `handleEntryFiles` uploader direkte til Drive via `driveUploadFile` (multipart). Hvis bruger ikke er logget ind, fallback til base64 i localStorage (max 1MB). `fileChipHtml` håndterer begge formater ved render.
+- Status-pill `#journal-sync-status` i journal-toolbar viser 🟢/🟡/🔴/⚪. `refreshJournalSyncIndicator` kaldes på alle hooks.
+
+**UI-knapper i journal-toolbar:**
+- `⟳ Hent delt journal` — manuel refresh (ellers kun ved signin)
+- `⤴ Importér lokal historik` — engangs-migration: snapshot lokal `state.journal`, pre-flight pull, uploader base64-filer til Drive, append'er til sheet med duplikat-check på entry id
+
+**Hvor det bor i koden (`checkin-planner.html`):**
+- Constants `JOURNAL_SHEET_ID`, `JOURNAL_FILES_FOLDER_ID`, `JOURNAL_SHEET_TAB`, `JOURNAL_SHEET_HEADER` lige under `OAUTH_CLIENT_ID` (~line 2980).
+- HTML: `.sync-bar` i `panel-journal` (~line 870). CSS: `.sync-bar`, `.sync-pill` (~line 340).
+- JS-modul: kommentarblok "SHARED JOURNAL — Google Sheet + Drive upload" (~line 3450). Funktioner: `driveUploadFile`, `sheetsApi`, `journalEnsureHeader`, `rowToEntry`/`entryToRow`, `journalLoadAll`, `journalUpsertEntry`, `journalSoftDeleteEntry`, `migrateLocalJournal`.
+- `fileChipHtml`-helper (~line 2001) — håndterer både legacy `dataUrl` og nye `webViewLink`-attachments.
+- OAuth callback (~line 3070) kalder `journalLoadAll()` efter signin.
+- Event listeners for de to nye knapper i den globale init-blok (~line 3870).
+
+**Adgangskontrol:**
+Drive-permissions på topfolderen `166c0_IXuiGF2D03jrStT4p0CERrLEIFw` er sandhedslaget. De 3 managers skal være Editor på topfolderen — Sheet og sub-folder arver. Workspace-domænerestriktion + `drive.file`-scope (kun filer skabt af appen) begrænser API-adgang.
+
+**Test-flow før produktion:**
+1. Tor logger ind, ser "🟢 Delt journal" pil. Klikker "Importér lokal historik" — eksisterende lokale entries pushes op i sheet.
+2. Manager B åbner siden på sin computer, logger ind → ser Tors entries automatisk efter signin-load.
+3. B opretter en ny entry → Tor klikker "Hent delt journal" → ser B's entry.
+4. Vedhæftet fil oprettet af B kan åbnes i Drive af Tor (åbner i ny fane mod `webViewLink`).
