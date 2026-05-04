@@ -397,6 +397,10 @@
     font-size: 11px; color: var(--muted);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
+  .journal-card-head .tags-row {
+    display: flex; flex-wrap: wrap; gap: 3px;
+    margin-top: 4px;
+  }
   .journal-card-head .right {
     display: flex; gap: 6px; align-items: center; flex-shrink: 0;
   }
@@ -2416,8 +2420,9 @@ function renderJournalCard(personId) {
         <div class="left">
           <div class="avatar">${initials(p.name)}</div>
           <div style="flex: 1; min-width: 0;">
-            <div class="name">${p.name}${projectDots(p)}</div>
+            <div class="name">${p.name}</div>
             <div class="sub">${p.title || ""} · ${teamLabel}</div>
+            ${(p.projects || []).length ? `<div class="tags-row">${(p.projects || []).slice(0,8).map(projectTagPill).join("")}</div>` : ""}
           </div>
         </div>
         <div class="right">
