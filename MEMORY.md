@@ -114,3 +114,49 @@ Drive-permissions på topfolderen `166c0_IXuiGF2D03jrStT4p0CERrLEIFw` er sandhed
 2. Manager B åbner siden på sin computer, logger ind → ser Tors entries automatisk efter signin-load.
 3. B opretter en ny entry → Tor klikker "Hent delt journal" → ser B's entry.
 4. Vedhæftet fil oprettet af B kan åbnes i Drive af Tor (åbner i ny fane mod `webViewLink`).
+
+## Brugervenligheds-runde 1 (implementeret 2026-05-04 efter MVP)
+
+**1. Funktion-tags er nu redigerbare** (tidligere hardkodet ENG/BD/MKT/MGMT)
+- `state.fnTags = [{ label, displayName, color }, ...]` — seedes med samme 4 default tags i `defaultFnTags()`.
+- `loadState` migrerer ældre state ved at seede `fnTags` hvis array mangler / er tomt.
+- Ny knap **⚙ Administrér tags** under legenden i sidebar → åbner `#modal-fntags-bg`. Brugeren kan tilføje/redigere/slette og vælge farve.
+- Rename detection: ved gem opdateres alle `p.fn = oldDisplayName` → `newDisplayName` så links til personer ikke knækker.
+- `fnBadge(p)` slår nu tag op via `findFnTag(p.fn)` og bruger inline `style="background; color"` (semi-transparent bg via `hexToRgba(color, 0.18)`). Ukendte funktioner falder tilbage til `.badge.oth` styling.
+- Person-form (`#f-fn`) populeres dynamisk fra `state.fnTags` + permanent "Other"-option via `populateFnSelect()`.
+- Legenden er nu auto-genereret i `renderLegend()` ud fra `state.fnTags` (+ statisk OSLO location-tag bibeholdt).
+
+**2. Projekt-tags på person-kort: cirkel → firkantet tag med navn**
+- Ny CSS-klasse `.project-tag` (lille farvet pill, 9px font, max-width 90px, ellipsis).
+- `projectTagPill(name)` bruger `projectAbbr()` som forkorter logisk: ≤6 chars → as-is, multi-word → initialer (max 5), ellers første 5 chars. Tooltip viser fulde navn.
+- Tekstfarve auto-vælges via `pickTextOn(hex)` (luminance check, dark on light, white on dark).
+- Projekter har nu `color`-felt (`{ name, description, color }`); ny farvevælger + Auto-knap + live preview i projekt-modalen.
+- `projectColor()` returnerer brugervalgt farve hvis sat, ellers `autoProjectColor()` (samme deterministiske palette som før — backward-compat).
+- `projectDots(p)` bruger `projectTagPill` i stedet for `.project-dot`. Den gamle `.project-dot` CSS er bevaret men ubrugt — kan ryddes senere.
+- Sidebar projekt-rækker bruger stadig `.pswatch` (10×10 firkant) som status-indikator i listen.
+
+**3. OBS-felt på journal-entries**
+- Nyt felt `obs` på journal entries — fritekst, "Opmærksomhedspunkt til næste check-in".
+- Ny textarea `#je-obs` i journal-modalen (efter Opfølgning, før filer), markeret med gul OBS-badge.
+- Tydeligt callout `.obs-callout` i `renderJournalCard()` — gul venstre-bjælke, `⚠️` ikon. **OBS-callout afspejler KUN den allerseneste entry**: når en ny entry logges (uden OBS) forsvinder callout'en automatisk; logges en ny med OBS, erstattes den gamle. Meta-linjen viser dato + manager.
+- **VIGTIGT — sorterings-bug fix:** "Seneste entry" beregnes via `compareEntriesDesc` (defineret v. line 2200) som sorterer på `date` desc med `createdAt`/`updatedAt` som tiebreaker. Uden tiebreaker'en holdt stabil sort to entries fra samme dag i indsættelsesrækkefølge → den GAMLE entry endte på index 0 → ny OBS viste sig ikke i overviewet. Alle journal-sort-kald (6 steder) bruger nu denne komparator.
+- Manuel rydning: × knap (`.obs-clear`) i callout'en kalder `clearObs(personId, entryId)` som tømmer obs på den specifikke entry, gemmer lokalt og syncher til sheet via `journalUpsertEntry` hvis logget ind. Selve check-in entry'en bevares — kun OBS-noten ryddes.
+- OBS er tilføjet til alle felt-arrays i: `renderJournalCard` recent-entries (historisk visning — viser per-entry hvad OBS var), `entryCardHtml` (rapporter), `renderJournalTab` per-person fane.
+
+**Sheet-skema-ændring:** Kolonne `obs` tilføjet i kolonne P (index 15).
+- `JOURNAL_SHEET_HEADER` er nu 16 kolonner. `journalEnsureHeader` rewriter row 1 hvis eksisterende har <16 kolonner — eksisterende sheets får automatisk den nye header næste gang nogen logger ind.
+- Read range `A2:O` → `A2:P`. Header check `A1:O1` → `A1:P1`. Update range `A:O`/`A{n}:O{n}` → `A:P`/`A{n}:P{n}`.
+- `rowToEntry` læser `get(15)` → `obs`. `entryToRow` skriver `obs` som 16. element.
+
+**Hvor det bor i koden (`checkin-planner.html`):**
+- Default tags: `defaultFnTags()` (~line 1370).
+- `findFnTag`, `hexToRgba`, `fnBadge`, `pickTextOn`, `projectAbbr`, `projectTagPill`, `autoProjectColor` (~line 1430-1500).
+- Tag-modal HTML: `#modal-fntags-bg` (~line 1083).
+- Tag-modal JS: `openFnTagsModal`/`closeFnTagsModal`/`renderFnTagDraftList`/`addFnTagRow`/`saveFnTags` (~line 3090).
+- Legend: `renderLegend()` kaldes fra `renderAll()`.
+- OBS callout: `obsHtml` blok i `renderJournalCard` (~line 2207).
+- OBS i sheet schema: `JOURNAL_SHEET_HEADER`, `rowToEntry`, `entryToRow` (~line 3170, 3760).
+
+**Backward compat / migration:**
+- Eksisterende brugere med v4 localStorage får automatisk `fnTags` seedet i `loadState`. Eksisterende projekter får `color` udledt fra `autoProjectColor(name)` (samme farve som før den ændring) ved load.
+- Eksisterende sheet (15 kolonner) får automatisk header genskrevet næste gang en manager logger ind. OBS-feltet er bare tomt på gamle entries.

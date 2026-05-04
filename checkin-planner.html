@@ -124,9 +124,16 @@
   .person-meta { flex: 1; min-width: 0; }
   .person-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .person-title { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .project-dots { display: inline-flex; gap: 3px; margin-left: 4px; vertical-align: middle; }
+  .project-dots { display: inline-flex; gap: 3px; margin-left: 4px; vertical-align: middle; flex-wrap: wrap; }
   .project-dot {
     width: 7px; height: 7px; border-radius: 50%; display: inline-block;
+  }
+  .project-tag {
+    display: inline-block; padding: 1px 5px; border-radius: 3px;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.04em;
+    text-transform: uppercase; vertical-align: middle;
+    white-space: nowrap; max-width: 90px; overflow: hidden; text-overflow: ellipsis;
+    line-height: 1.4;
   }
   .person-actions {
     display: none; gap: 4px; flex-shrink: 0;
@@ -144,9 +151,6 @@
     font-size: 10px; font-weight: 600; margin-right: 4px;
     background: rgba(255,255,255,0.08); color: var(--muted);
   }
-  .badge.eng { background: rgba(110,168,254,0.15); color: var(--t1); }
-  .badge.bd  { background: rgba(245,169,127,0.15); color: var(--t2); }
-  .badge.mkt { background: rgba(166,218,149,0.15); color: var(--t3); }
   .badge.oth { background: rgba(198,160,246,0.15); color: var(--m1); }
   .badge.oslo { background: rgba(145,215,227,0.15); color: var(--m3); }
 
@@ -406,6 +410,63 @@
     padding-top: 8px; margin-top: 4px;
   }
   .journal-card .trend-row svg { flex-shrink: 0; }
+  .journal-card .obs-callout {
+    margin-top: 10px; padding: 8px 10px;
+    background: rgba(238,212,143,0.10);
+    border: 1px solid rgba(238,212,143,0.30);
+    border-left: 3px solid #eed49f;
+    border-radius: 6px; font-size: 12px;
+    display: flex; gap: 8px; align-items: flex-start;
+    position: relative;
+  }
+  .journal-card .obs-callout button.obs-clear {
+    background: transparent; border: 1px solid transparent;
+    color: var(--muted); padding: 2px 7px;
+    font-size: 14px; line-height: 1; cursor: pointer;
+    border-radius: 4px; flex-shrink: 0; align-self: flex-start;
+  }
+  .journal-card .obs-callout button.obs-clear:hover {
+    background: rgba(237,135,150,0.12); color: var(--danger);
+    border-color: rgba(237,135,150,0.30);
+  }
+  .journal-card .obs-callout .obs-icon {
+    font-size: 14px; line-height: 1.2; flex-shrink: 0;
+  }
+  .journal-card .obs-callout .obs-body { flex: 1; min-width: 0; }
+  .journal-card .obs-callout .obs-label {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: #eed49f;
+    margin-bottom: 2px;
+  }
+  .journal-card .obs-callout .obs-text {
+    color: var(--text); white-space: pre-wrap;
+  }
+  .journal-card .obs-callout .obs-meta {
+    font-size: 10px; color: var(--muted); margin-top: 4px;
+  }
+  /* Fn-tag manager modal */
+  .fntag-list { display: flex; flex-direction: column; gap: 6px; }
+  .fntag-row {
+    display: grid; grid-template-columns: 60px 1fr 90px 32px 32px;
+    gap: 8px; align-items: center;
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 8px;
+  }
+  .fntag-row input[type="text"] {
+    font-size: 12px; padding: 4px 6px;
+  }
+  .fntag-row input[type="color"] {
+    width: 32px; height: 26px; padding: 0; border-radius: 4px;
+    border: 1px solid var(--border); cursor: pointer; background: transparent;
+  }
+  .fntag-row .preview {
+    display: inline-block; padding: 1px 6px; border-radius: 4px;
+    font-size: 10px; font-weight: 600; text-align: center;
+  }
+  .fntag-row button.del {
+    padding: 4px 6px; font-size: 12px; color: var(--danger);
+  }
+  .fntag-row button.del:hover { background: rgba(237,135,150,0.12); }
   .journal-card-actions {
     display: flex; gap: 4px;
   }
@@ -820,11 +881,9 @@
         </div>
         <div id="pool" class="pool-list"></div>
         <button class="add-btn" id="btn-add-person">+ Tilføj medarbejder</button>
-        <div class="legend">
-          <div class="legend-item"><span class="badge eng">ENG</span>Engineering</div>
-          <div class="legend-item"><span class="badge bd">BD</span>Business Dev.</div>
-          <div class="legend-item"><span class="badge mkt">MKT</span>Marketing</div>
-          <div class="legend-item"><span class="badge oslo">OSLO</span>Oslo</div>
+        <div class="legend" id="legend"></div>
+        <div style="margin-top: 6px;">
+          <button class="ghost" id="btn-manage-fntags" style="font-size: 11px; padding: 4px 8px;">⚙ Administrér tags</button>
         </div>
       </div>
 
@@ -1030,14 +1089,41 @@
 
 </div>
 
+<!-- Modal: manage fn tags -->
+<div class="modal-bg" id="modal-fntags-bg">
+  <div class="modal" style="width: 520px;">
+    <h2>Funktion-tags</h2>
+    <p style="color: var(--muted); font-size: 12px; margin: 0 0 14px;">
+      Tags vises på medarbejder-kort som farvede badges. Du kan oprette dine egne, omdøbe dem, og vælge farve.
+    </p>
+    <div class="fntag-list" id="fntag-list"></div>
+    <button class="ghost" id="fntag-add" style="margin-top: 10px;">+ Tilføj tag</button>
+    <div class="modal-actions" style="margin-top: 16px;">
+      <div></div>
+      <div class="right">
+        <button class="ghost" id="fntag-cancel">Annullér</button>
+        <button class="primary" id="fntag-save">Gem</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: create/edit project -->
 <div class="modal-bg" id="modal-project-bg">
   <div class="modal">
     <h2 id="proj-modal-title">Nyt projekt</h2>
     <div class="form-grid">
-      <div class="full">
+      <div>
         <label>Projektnavn *</label>
         <input type="text" id="pj-name" placeholder="fx Apollo">
+      </div>
+      <div>
+        <label>Tag-farve</label>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <input type="color" id="pj-color" style="width: 40px; height: 32px; padding: 0; border-radius: 4px; border: 1px solid var(--border); cursor: pointer; background: transparent;">
+          <span class="project-tag" id="pj-color-preview" style="background: #6ea8fe; color: #0c1320;">TAG</span>
+          <button class="ghost" id="pj-color-auto" style="font-size: 11px; padding: 4px 8px;" type="button">Auto</button>
+        </div>
       </div>
       <div class="full">
         <label>Beskrivelse (valgfri)</label>
@@ -1268,6 +1354,13 @@
         <textarea id="je-opfolgning" rows="2" placeholder="Hvad skal du gøre inden næste gang?"></textarea>
       </div>
       <div class="full">
+        <label style="display: flex; align-items: center; gap: 6px;">
+          <span style="display: inline-block; padding: 1px 6px; border-radius: 4px; background: rgba(238,212,143,0.18); color: #eed49f; font-size: 9px; font-weight: 700; letter-spacing: 0.08em;">OBS</span>
+          <span>Opmærksomhedspunkt til næste check-in</span>
+        </label>
+        <textarea id="je-obs" rows="2" placeholder="Hvad skal du eller din kollega være særligt opmærksom på næste gang? (vises tydeligt på journal-oversigten)"></textarea>
+      </div>
+      <div class="full">
         <label>Filer (valgfri)</label>
         <div class="file-drop" id="je-file-drop">
           <div class="label-text">Klik eller træk filer hertil</div>
@@ -1345,9 +1438,19 @@ function defaultState() {
     oauth: { clientId: "", lastFetch: null, busy: {}, autoRefresh: false, lastErrors: [] },
     viewedMgrFilter: "all",
     weekOffset: 0,  // 0 = upcoming session week 1; 1 = upcoming session week 2; 2 = next session week 1; -1 = previous session week 2; ...
-    projects: [],    // [{ name, description }]
-    journal: {}      // { [personId]: [{ id, date, managerId, trivsel, faglig, personlig, udfordringer, maal, noter, opfolgning, files: [{name, type, size, dataUrl}], createdAt, updatedAt }] }
+    projects: [],    // [{ name, description, color }]
+    journal: {},     // { [personId]: [{ id, date, managerId, trivsel, faglig, personlig, udfordringer, maal, noter, opfolgning, obs, files: [{name, type, size, dataUrl}], createdAt, updatedAt }] }
+    fnTags: defaultFnTags(),
   };
+}
+
+function defaultFnTags() {
+  return [
+    { label: "ENG",  color: "#6ea8fe", displayName: "Engineering" },
+    { label: "BD",   color: "#f5a97f", displayName: "Business Development" },
+    { label: "MKT",  color: "#a6da95", displayName: "Marketing" },
+    { label: "MGMT", color: "#c6a0f6", displayName: "Management" },
+  ];
 }
 
 function nextMonday() {
@@ -1378,7 +1481,10 @@ function loadState() {
     delete s.viewedWeek;
     if (!s.projects) s.projects = [];
     if (!s.journal) s.journal = {};
+    if (!s.fnTags || !Array.isArray(s.fnTags) || s.fnTags.length === 0) s.fnTags = defaultFnTags();
     s.people.forEach(p => { if (!p.projects) p.projects = []; });
+    // Ensure each project has a stable color (auto-derive if missing)
+    s.projects.forEach(pj => { if (!pj.color) pj.color = autoProjectColor(pj.name); });
     // Auto-derive project entries from existing person tags (for old data)
     const knownNames = new Set(s.projects.map(pj => pj.name));
     s.people.forEach(p => {
@@ -1407,38 +1513,85 @@ function genId(name) {
 function initials(name) {
   return name.split(" ").filter(Boolean).slice(0,2).map(s => s[0]).join("").toUpperCase();
 }
+function findFnTag(fnName) {
+  if (!fnName) return null;
+  return (state.fnTags || []).find(t => t.displayName === fnName) || null;
+}
+// Returns a translucent rgba() string for the given hex color (for soft badge backgrounds).
+function hexToRgba(hex, alpha) {
+  if (!hex || hex[0] !== "#") return `rgba(255,255,255,${alpha})`;
+  const h = hex.slice(1);
+  const full = h.length === 3 ? h.split("").map(c => c + c).join("") : h;
+  const r = parseInt(full.slice(0,2), 16);
+  const g = parseInt(full.slice(2,4), 16);
+  const b = parseInt(full.slice(4,6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
 function fnBadge(p) {
-  const cls = p.fn === "Engineering" ? "eng"
-            : p.fn === "Business Development" ? "bd"
-            : p.fn === "Marketing" ? "mkt"
-            : p.fn === "Management" ? "oth" : "oth";
-  const txt = p.fn === "Engineering" ? "ENG"
-            : p.fn === "Business Development" ? "BD"
-            : p.fn === "Marketing" ? "MKT"
-            : p.fn === "Management" ? "MGMT" : (p.fn || "—").slice(0,3).toUpperCase();
-  return `<span class="badge ${cls}">${txt}</span>`;
+  const tag = findFnTag(p.fn);
+  if (!tag) {
+    // Fallback for unknown / "Other"
+    const txt = (p.fn || "—").slice(0,4).toUpperCase();
+    return `<span class="badge oth">${escapeHtml(txt)}</span>`;
+  }
+  const bg = hexToRgba(tag.color, 0.18);
+  return `<span class="badge" style="background:${bg}; color:${tag.color};" title="${escapeHtml(tag.displayName)}">${escapeHtml(tag.label)}</span>`;
 }
 function locBadge(p) {
   if ((p.loc || "").includes("Oslo")) return `<span class="badge oslo">OSLO</span>`;
   return "";
 }
 
-// Stable color from project name
-function projectColor(name) {
+// Stable color from project name (deterministic fallback)
+function autoProjectColor(name) {
   const palette = [
     "#6ea8fe", "#f5a97f", "#a6da95", "#c6a0f6", "#ee99a0",
     "#91d7e3", "#eed49f", "#8aadf4", "#f0c6c6", "#94e2d5",
     "#cba6f7", "#f5bde6", "#fab387"
   ];
   let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  const s = name || "";
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
   return palette[h % palette.length];
+}
+// Returns user-chosen color if set, otherwise a stable auto-color.
+function projectColor(name) {
+  const proj = (state.projects || []).find(pj => pj.name === name);
+  return (proj && proj.color) || autoProjectColor(name);
+}
+// Smart short label for a project name. Multi-word → initials (max 5).
+// Single short word (≤6 chars) → name as-is. Otherwise first 5 chars.
+function projectAbbr(name) {
+  if (!name) return "?";
+  const trimmed = String(name).trim();
+  if (trimmed.length <= 6) return trimmed;
+  const words = trimmed.split(/[\s_\-/]+/).filter(Boolean);
+  if (words.length >= 2) {
+    return words.slice(0, 5).map(w => w[0]).join("").toUpperCase();
+  }
+  return trimmed.slice(0, 5);
+}
+// Pick readable text color (dark or light) for a given hex background.
+function pickTextOn(hex) {
+  if (!hex || hex[0] !== "#") return "#0c1320";
+  const h = hex.slice(1);
+  const full = h.length === 3 ? h.split("").map(c => c + c).join("") : h;
+  const r = parseInt(full.slice(0,2), 16);
+  const g = parseInt(full.slice(2,4), 16);
+  const b = parseInt(full.slice(4,6), 16);
+  // Standard luminance check
+  const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  return lum > 0.55 ? "#0c1320" : "#ffffff";
+}
+function projectTagPill(name) {
+  const color = projectColor(name);
+  const fg = pickTextOn(color);
+  const abbr = projectAbbr(name);
+  return `<span class="project-tag" style="background:${color}; color:${fg};" title="${escapeHtml(name)}">${escapeHtml(abbr)}</span>`;
 }
 function projectDots(p) {
   if (!p.projects?.length) return "";
-  return `<span class="project-dots">${p.projects.slice(0,5).map(name =>
-    `<span class="project-dot" style="background:${projectColor(name)}" title="${name}"></span>`
-  ).join("")}</span>`;
+  return `<span class="project-dots">${p.projects.slice(0,5).map(projectTagPill).join("")}</span>`;
 }
 function getAllProjects() {
   const memberMap = new Map();
@@ -1915,14 +2068,27 @@ function renderMgrDropdowns() {
 // MODAL
 // ============================================
 let editingId = null;
+function populateFnSelect(currentValue) {
+  const sel = document.getElementById("f-fn");
+  if (!sel) return;
+  const tags = state.fnTags || [];
+  const opts = tags.map(t =>
+    `<option value="${escapeHtml(t.displayName)}">${escapeHtml(t.label)} — ${escapeHtml(t.displayName)}</option>`
+  ).join("");
+  sel.innerHTML = opts + `<option value="Other">Other</option>`;
+  // Pick the currentValue if it matches, otherwise first tag
+  const all = [...tags.map(t => t.displayName), "Other"];
+  sel.value = all.includes(currentValue) ? currentValue : (tags[0]?.displayName || "Other");
+}
 function openModal(personId = null) {
   editingId = personId;
   document.getElementById("modal-title").textContent = personId ? "Redigér medarbejder" : "Tilføj medarbejder";
-  const p = personId ? findPerson(personId) : { name:"", title:"", fn:"Engineering", org:"BCT", loc:"Aalborg Denmark", mbti:"", email:"", phone:"", linkedin:"", dessert:"", projects:[] };
+  const defaultFn = (state.fnTags && state.fnTags[0]?.displayName) || "Engineering";
+  const p = personId ? findPerson(personId) : { name:"", title:"", fn:defaultFn, org:"BCT", loc:"Aalborg Denmark", mbti:"", email:"", phone:"", linkedin:"", dessert:"", projects:[] };
   ["name","title","org","loc","mbti","email","phone","linkedin","dessert"].forEach(k => {
     document.getElementById("f-"+k).value = p[k] || "";
   });
-  document.getElementById("f-fn").value = p.fn || "Engineering";
+  populateFnSelect(p.fn || defaultFn);
   document.getElementById("f-projects").value = (p.projects || []).join(", ");
   document.getElementById("modal-delete").style.display = personId ? "inline-block" : "none";
   document.getElementById("modal-bg").classList.add("active");
@@ -2027,10 +2193,21 @@ function fileChipHtml(f, entryId) {
 function getJournal(personId) {
   return state.journal?.[personId] || [];
 }
+// Sort comparator: most-recent first by date, with createdAt/updatedAt as
+// tiebreaker so two entries on the same day always order newest-first.
+// Without the tiebreaker, stable sort keeps insertion order on equal dates,
+// which made "latest entry" return the OLD same-day entry — bug fixed 2026-05-04.
+function compareEntriesDesc(a, b) {
+  const dateCmp = (b.date || "").localeCompare(a.date || "");
+  if (dateCmp !== 0) return dateCmp;
+  const aTime = a.createdAt || a.updatedAt || 0;
+  const bTime = b.createdAt || b.updatedAt || 0;
+  return bTime - aTime;
+}
 function getLatestTrivsel(personId) {
   const entries = getJournal(personId);
   if (!entries.length) return null;
-  const sorted = [...entries].sort((a,b) => (b.date || "").localeCompare(a.date || ""));
+  const sorted = [...entries].sort(compareEntriesDesc);
   return sorted[0].trivsel;
 }
 function trivselBadge(personId) {
@@ -2134,14 +2311,36 @@ function renderJournalOverview() {
       if (action === "log") openEntryModal(pid);
       else if (action === "edit-entry") openEntryModal(pid, btn.dataset.eid);
       else if (action === "del-entry") deleteEntry(pid, btn.dataset.eid);
+      else if (action === "clear-obs") clearObs(pid, btn.dataset.eid);
     });
   });
+}
+
+// Clear the OBS field on a specific entry (typically the latest). The entry
+// itself is preserved; only the obs text is emptied. Syncs to the shared
+// sheet if signed in so other managers see it disappear too.
+function clearObs(personId, entryId) {
+  const arr = state.journal?.[personId];
+  if (!arr) return;
+  const entry = arr.find(e => e.id === entryId);
+  if (!entry) return;
+  if (!confirm("Markér OBS som håndteret? Selve check-in entry bevares — kun OBS-noten ryddes.")) return;
+  entry.obs = "";
+  entry.updatedAt = Date.now();
+  saveState();
+  renderJournalOverview();
+  if (isOauthSignedIn() && entry._rowIndex) {
+    journalUpsertEntry(entry, personId).catch(err => {
+      console.error("[journal sync] clear-obs failed", err);
+      alert("Kunne ikke synkronisere OBS-rydningen til den delte journal: " + err.message + "\n\nDen er ryddet lokalt — prøv 'Hent delt journal' senere.");
+    });
+  }
 }
 
 function renderJournalCard(personId) {
   const p = findPerson(personId);
   if (!p) return "";
-  const entries = [...getJournal(personId)].sort((a,b) => (b.date || "").localeCompare(a.date || ""));
+  const entries = [...getJournal(personId)].sort(compareEntriesDesc);
   const latest = entries[0];
   const trivsel = latest?.trivsel;
   const teamId = getTeamForPerson(personId);
@@ -2161,6 +2360,7 @@ function renderJournalCard(personId) {
           ["Mål næste periode", e.maal],
           ["Noter", e.noter],
           ["Opfølgning", e.opfolgning],
+          ["OBS — næste check-in", e.obs],
         ].filter(([_, c]) => c && c.trim());
         const fieldsHtml = fields.map(([label, content]) => `
           <div class="field" style="margin-top: 6px;">
@@ -2190,6 +2390,26 @@ function renderJournalCard(personId) {
 
   const sparkline = scores.length ? renderSparkline(scores) : `<span style="color:var(--muted); font-size:11px;">Ingen trivsel-data endnu</span>`;
 
+  // OBS reflects ONLY the latest entry. When a new check-in is logged, the
+  // previous OBS is automatically replaced (or cleared if the new entry has
+  // none). The × button on the callout lets the user manually clear it.
+  const obsEntry = (latest && latest.obs && latest.obs.trim()) ? latest : null;
+  let obsHtml = "";
+  if (obsEntry) {
+    const obsDate = obsEntry.date ? new Date(obsEntry.date).toLocaleDateString("da-DK", { day: "2-digit", month: "short", year: "numeric" }) : "";
+    const obsMgr = findPerson(obsEntry.managerId);
+    obsHtml = `
+      <div class="obs-callout">
+        <span class="obs-icon">⚠️</span>
+        <div class="obs-body">
+          <div class="obs-label">OBS — til næste check-in</div>
+          <div class="obs-text">${escapeHtml(obsEntry.obs)}</div>
+          <div class="obs-meta">Noteret ${obsDate}${obsMgr ? " af " + obsMgr.name.split(" ")[0] : ""}</div>
+        </div>
+        <button class="obs-clear" data-jact="clear-obs" data-pid="${personId}" data-eid="${obsEntry.id}" title="Markér som håndteret / ryd OBS">×</button>
+      </div>`;
+  }
+
   return `
     <div class="journal-card">
       <div class="journal-card-head">
@@ -2207,6 +2427,7 @@ function renderJournalCard(personId) {
           </div>
         </div>
       </div>
+      ${obsHtml}
       <div class="trend-row">
         ${sparkline}
         <span class="last-checkin">Sidst: ${lastDate}${entries.length > 1 ? ` · ${entries.length} entries` : ""}</span>
@@ -2280,9 +2501,9 @@ ${reportHtml}
 
 function getEntriesInPeriod(personId, cutoff) {
   const entries = getJournal(personId);
-  if (cutoff == null) return entries.slice().sort((a,b) => (b.date||"").localeCompare(a.date||""));
+  if (cutoff == null) return entries.slice().sort(compareEntriesDesc);
   return entries.filter(e => new Date(e.date).getTime() >= cutoff)
-    .sort((a,b) => (b.date||"").localeCompare(a.date||""));
+    .sort(compareEntriesDesc);
 }
 
 function periodLabel() {
@@ -2302,6 +2523,7 @@ function entryCardHtml(e, personName, includeNotes) {
     ["Mål næste periode", e.maal],
     ["Noter", e.noter],
     ["Opfølgning", e.opfolgning],
+    ["OBS — næste check-in", e.obs],
   ].filter(([_, c]) => c && c.trim()) : [];
   return `
     <div class="entry-card">
@@ -2365,7 +2587,7 @@ function buildOrgReport(cutoff, includeNotes) {
   });
 
   const detailedEntries = includeNotes
-    ? allEntries.sort((a,b) => (b.date||"").localeCompare(a.date||"")).slice(0, 50)
+    ? allEntries.sort(compareEntriesDesc).slice(0, 50)
     : [];
 
   return `
@@ -2506,7 +2728,7 @@ function buildPersonReport(personId, cutoff, includeNotes) {
 }
 
 function renderJournalTab(personId) {
-  const entries = [...getJournal(personId)].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const entries = [...getJournal(personId)].sort(compareEntriesDesc);
   // Trend block
   const trendEl = document.getElementById("trivsel-trend");
   if (entries.length === 0) {
@@ -2542,6 +2764,7 @@ function renderJournalTab(personId) {
       ["Mål næste periode", e.maal],
       ["Noter", e.noter],
       ["Opfølgning", e.opfolgning],
+      ["OBS — næste check-in", e.obs],
     ];
     const fieldsHtml = fields.map(([label, content]) => `
       <div class="field">
@@ -2623,12 +2846,13 @@ function openEntryModal(personId, entryId = null) {
     document.getElementById("je-maal").value = existing.maal || "";
     document.getElementById("je-noter").value = existing.noter || "";
     document.getElementById("je-opfolgning").value = existing.opfolgning || "";
+    document.getElementById("je-obs").value = existing.obs || "";
     entryFiles = (existing.files || []).map(f => ({ ...f }));
   } else {
     document.getElementById("je-date").value = new Date().toISOString().slice(0,10);
     document.getElementById("je-manager").value = state.mgrs[0] || "";
     document.getElementById("je-trivsel").value = 7;
-    ["faglig","personlig","udfordringer","maal","noter","opfolgning"].forEach(k => {
+    ["faglig","personlig","udfordringer","maal","noter","opfolgning","obs"].forEach(k => {
       document.getElementById("je-" + k).value = "";
     });
     entryFiles = [];
@@ -2743,6 +2967,7 @@ function saveEntry() {
     maal: document.getElementById("je-maal").value.trim(),
     noter: document.getElementById("je-noter").value.trim(),
     opfolgning: document.getElementById("je-opfolgning").value.trim(),
+    obs: document.getElementById("je-obs").value.trim(),
     // Strip dataUrl from files when we have a Drive copy — saves localStorage space.
     files: entryFiles.map(f => f.driveId
       ? { name: f.name, type: f.type, size: f.size, driveId: f.driveId, webViewLink: f.webViewLink }
@@ -2805,14 +3030,26 @@ function deleteEntry(personId, entryId) {
 // ============================================
 let editingProject = null;
 
+function updateProjectColorPreview() {
+  const color = document.getElementById("pj-color").value || "#6ea8fe";
+  const name = document.getElementById("pj-name").value.trim();
+  const preview = document.getElementById("pj-color-preview");
+  if (preview) {
+    preview.style.background = color;
+    preview.style.color = pickTextOn(color);
+    preview.textContent = projectAbbr(name || "TAG");
+  }
+}
 function openProjectModal(name = null) {
   editingProject = name;
   const proj = name
-    ? (state.projects.find(p => p.name === name) || { name, description: "" })
-    : { name: "", description: "" };
+    ? (state.projects.find(p => p.name === name) || { name, description: "", color: autoProjectColor(name) })
+    : { name: "", description: "", color: "" };
   document.getElementById("proj-modal-title").textContent = name ? "Redigér projekt" : "Nyt projekt";
   document.getElementById("pj-name").value = proj.name;
   document.getElementById("pj-description").value = proj.description || "";
+  document.getElementById("pj-color").value = proj.color || autoProjectColor(proj.name || "");
+  updateProjectColorPreview();
   document.getElementById("pj-delete").style.display = name ? "inline-block" : "none";
 
   const grid = document.getElementById("pj-members");
@@ -2860,10 +3097,11 @@ function saveProject() {
   // Find or create project entry
   let proj = state.projects.find(pj => pj.name === name);
   if (!proj) {
-    proj = { name, description: "" };
+    proj = { name, description: "", color: "" };
     state.projects.push(proj);
   }
   proj.description = description;
+  proj.color = (document.getElementById("pj-color").value || autoProjectColor(name));
 
   // Update memberships from checkboxes
   const checkedIds = new Set();
@@ -2889,6 +3127,129 @@ function deleteProject(name) {
   if (activeProjectFilter === name) activeProjectFilter = null;
   saveState();
   if (editingProject === name) closeProjectModal();
+  renderAll();
+}
+
+// ============================================
+// FUNCTION TAGS (custom badges shown on person cards)
+// ============================================
+// Working copy of the tags while the modal is open. We commit to state.fnTags
+// only when the user clicks "Gem", so cancel discards changes.
+let fnTagsDraft = null;
+
+function renderLegend() {
+  const el = document.getElementById("legend");
+  if (!el) return;
+  const tags = state.fnTags || [];
+  const items = tags.map(t => {
+    const bg = hexToRgba(t.color, 0.18);
+    return `<div class="legend-item"><span class="badge" style="background:${bg}; color:${t.color};">${escapeHtml(t.label)}</span>${escapeHtml(t.displayName)}</div>`;
+  }).join("");
+  // Keep OSLO location pill in the legend so users still see it explained.
+  const oslo = `<div class="legend-item"><span class="badge oslo">OSLO</span>Oslo</div>`;
+  el.innerHTML = items + oslo;
+}
+
+function openFnTagsModal() {
+  fnTagsDraft = JSON.parse(JSON.stringify(state.fnTags || []));
+  renderFnTagDraftList();
+  document.getElementById("modal-fntags-bg").classList.add("active");
+}
+
+function closeFnTagsModal() {
+  fnTagsDraft = null;
+  document.getElementById("modal-fntags-bg").classList.remove("active");
+}
+
+function renderFnTagDraftList() {
+  const list = document.getElementById("fntag-list");
+  if (!list || !fnTagsDraft) return;
+  list.innerHTML = fnTagsDraft.map((t, i) => {
+    const bg = hexToRgba(t.color, 0.18);
+    return `
+      <div class="fntag-row" data-idx="${i}">
+        <input type="text" class="ft-label" value="${escapeHtml(t.label)}" maxlength="6" placeholder="ENG">
+        <input type="text" class="ft-display" value="${escapeHtml(t.displayName)}" placeholder="Engineering">
+        <input type="color" class="ft-color" value="${escapeHtml(t.color)}">
+        <span class="preview" style="background:${bg}; color:${t.color};">${escapeHtml(t.label) || "?"}</span>
+        <button class="del" data-act="del-fntag" data-idx="${i}" title="Slet tag">×</button>
+      </div>`;
+  }).join("");
+  // Live-update preview as user types/picks color
+  list.querySelectorAll(".fntag-row").forEach(row => {
+    const idx = parseInt(row.dataset.idx, 10);
+    row.querySelector(".ft-label").addEventListener("input", e => {
+      fnTagsDraft[idx].label = e.target.value;
+      const prev = row.querySelector(".preview");
+      if (prev) prev.textContent = e.target.value || "?";
+    });
+    row.querySelector(".ft-display").addEventListener("input", e => {
+      fnTagsDraft[idx].displayName = e.target.value;
+    });
+    row.querySelector(".ft-color").addEventListener("input", e => {
+      fnTagsDraft[idx].color = e.target.value;
+      const prev = row.querySelector(".preview");
+      if (prev) {
+        prev.style.background = hexToRgba(e.target.value, 0.18);
+        prev.style.color = e.target.value;
+      }
+    });
+    row.querySelector("button.del").addEventListener("click", () => {
+      if (!confirm(`Slet tagget "${fnTagsDraft[idx].label || fnTagsDraft[idx].displayName}"?`)) return;
+      fnTagsDraft.splice(idx, 1);
+      renderFnTagDraftList();
+    });
+  });
+}
+
+function addFnTagRow() {
+  if (!fnTagsDraft) return;
+  // Pick an unused color from the project palette to seed the new tag.
+  const palette = ["#6ea8fe", "#f5a97f", "#a6da95", "#c6a0f6", "#ee99a0", "#91d7e3", "#eed49f", "#cba6f7"];
+  const used = new Set(fnTagsDraft.map(t => (t.color || "").toLowerCase()));
+  const next = palette.find(c => !used.has(c)) || palette[fnTagsDraft.length % palette.length];
+  fnTagsDraft.push({ label: "NY", displayName: "Nyt tag", color: next });
+  renderFnTagDraftList();
+}
+
+function saveFnTags() {
+  if (!fnTagsDraft) return;
+  // Validate: every tag must have label + displayName, and displayNames must be unique.
+  const cleaned = fnTagsDraft.map(t => ({
+    label: (t.label || "").trim().toUpperCase(),
+    displayName: (t.displayName || "").trim(),
+    color: t.color || "#6ea8fe",
+  })).filter(t => t.label && t.displayName);
+  const seen = new Set();
+  for (const t of cleaned) {
+    if (seen.has(t.displayName.toLowerCase())) {
+      alert(`Tagget "${t.displayName}" findes flere gange. Hvert displaynavn skal være unikt.`);
+      return;
+    }
+    seen.add(t.displayName.toLowerCase());
+  }
+  if (cleaned.length === 0) {
+    alert("Du skal have mindst ét tag.");
+    return;
+  }
+  // Detect renames: map oldDisplayName → newDisplayName (by position) and
+  // update p.fn for each affected person so links stay intact.
+  const oldTags = state.fnTags || [];
+  const renames = {};
+  cleaned.forEach((newT, i) => {
+    const oldT = oldTags[i];
+    if (oldT && oldT.displayName !== newT.displayName) {
+      renames[oldT.displayName] = newT.displayName;
+    }
+  });
+  if (Object.keys(renames).length > 0) {
+    state.people.forEach(p => {
+      if (p.fn && renames[p.fn]) p.fn = renames[p.fn];
+    });
+  }
+  state.fnTags = cleaned;
+  saveState();
+  closeFnTagsModal();
   renderAll();
 }
 
@@ -3109,6 +3470,7 @@ const JOURNAL_SHEET_HEADER = [
   "trivsel", "faglig", "personlig", "udfordringer", "maal", "noter", "opfolgning",
   "files", // JSON array of {name, type, size, driveId, webViewLink}
   "createdAt", "updatedAt", "deletedAt",
+  "obs", // Attention point for next check-in (column P, index 15) — added 2026-05-04
 ];
 
 // Resolve the active Client ID: hardcoded constant wins, localStorage override
@@ -3546,7 +3908,7 @@ async function journalEnsureHeader() {
   }
   // Check if row 1 already has the header.
   const existing = await sheetsApi(
-    "/values/" + encodeURIComponent(JOURNAL_SHEET_TAB + "!A1:O1")
+    "/values/" + encodeURIComponent(JOURNAL_SHEET_TAB + "!A1:P1")
   );
   const have = (existing.values && existing.values[0]) || [];
   if (have.length < JOURNAL_SHEET_HEADER.length) {
@@ -3582,6 +3944,7 @@ function rowToEntry(row, rowIndex /* 1-based, row 1 is header so entries start a
     createdAt: parseInt(get(12), 10) || 0,
     updatedAt: parseInt(get(13), 10) || 0,
     deletedAt: parseInt(get(14), 10) || 0,
+    obs: get(15),
     _rowIndex: rowIndex,
   };
 }
@@ -3606,6 +3969,7 @@ function entryToRow(entry, personId) {
     String(entry.createdAt || Date.now()),
     String(entry.updatedAt || Date.now()),
     String(entry.deletedAt || ""),
+    entry.obs || "",
   ];
 }
 
@@ -3616,7 +3980,7 @@ async function journalLoadAll() {
   try {
     await journalEnsureHeader();
     const data = await sheetsApi(
-      "/values/" + encodeURIComponent(JOURNAL_SHEET_TAB + "!A2:O")
+      "/values/" + encodeURIComponent(JOURNAL_SHEET_TAB + "!A2:P")
     );
     const rows = data.values || [];
     const grouped = {};
@@ -3651,7 +4015,7 @@ async function journalUpsertEntry(entry, personId) {
     if (entry._rowIndex && entry._rowIndex >= 2) {
       // Update existing row.
       await sheetsApi(
-        "/values/" + encodeURIComponent(JOURNAL_SHEET_TAB + "!A" + entry._rowIndex + ":O" + entry._rowIndex) +
+        "/values/" + encodeURIComponent(JOURNAL_SHEET_TAB + "!A" + entry._rowIndex + ":P" + entry._rowIndex) +
         "?valueInputOption=RAW",
         { method: "PUT", body: JSON.stringify({ values: [row] }) }
       );
@@ -3659,11 +4023,11 @@ async function journalUpsertEntry(entry, personId) {
       // Append new row, then read back the resulting range to capture the row index.
       // Sheets API requires the ":append" suffix on the path for the append endpoint.
       const res = await sheetsApi(
-        "/values/" + encodeURIComponent(JOURNAL_SHEET_TAB + "!A:O") + ":append" +
+        "/values/" + encodeURIComponent(JOURNAL_SHEET_TAB + "!A:P") + ":append" +
         "?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
         { method: "POST", body: JSON.stringify({ values: [row] }) }
       );
-      // updatedRange looks like "Entries!A7:O7" — extract row number.
+      // updatedRange looks like "Entries!A7:P7" — extract row number.
       const m = (res.updates?.updatedRange || "").match(/!A(\d+):/);
       if (m) entry._rowIndex = parseInt(m[1], 10);
     }
@@ -3995,6 +4359,24 @@ document.getElementById("pj-delete").addEventListener("click", () => { if (editi
 document.getElementById("modal-project-bg").addEventListener("click", e => {
   if (e.target.id === "modal-project-bg") closeProjectModal();
 });
+// Live preview while editing project name / color
+document.getElementById("pj-name").addEventListener("input", updateProjectColorPreview);
+document.getElementById("pj-color").addEventListener("input", updateProjectColorPreview);
+document.getElementById("pj-color-auto").addEventListener("click", () => {
+  const name = document.getElementById("pj-name").value.trim() || "TAG";
+  document.getElementById("pj-color").value = autoProjectColor(name);
+  updateProjectColorPreview();
+});
+
+// Function-tag manager
+document.getElementById("btn-manage-fntags").addEventListener("click", openFnTagsModal);
+document.getElementById("fntag-add").addEventListener("click", addFnTagRow);
+document.getElementById("fntag-cancel").addEventListener("click", closeFnTagsModal);
+document.getElementById("fntag-save").addEventListener("click", saveFnTags);
+document.getElementById("modal-fntags-bg").addEventListener("click", e => {
+  if (e.target.id === "modal-fntags-bg") closeFnTagsModal();
+});
+
 document.getElementById("modal-cancel").addEventListener("click", closeModal);
 document.getElementById("modal-save").addEventListener("click", saveModal);
 document.getElementById("modal-delete").addEventListener("click", () => { if (editingId) deletePerson(editingId); });
@@ -4003,6 +4385,7 @@ document.addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
   if (document.getElementById("modal-entry-bg").classList.contains("active")) { closeEntryModal(); return; }
   if (document.getElementById("modal-report-bg").classList.contains("active")) { closeReportModal(); return; }
+  if (document.getElementById("modal-fntags-bg").classList.contains("active")) { closeFnTagsModal(); return; }
   if (document.getElementById("modal-bg").classList.contains("active")) closeModal();
   if (document.getElementById("modal-event-bg").classList.contains("active")) closeEventModal();
   if (document.getElementById("modal-project-bg").classList.contains("active")) closeProjectModal();
@@ -4091,6 +4474,7 @@ function renderAll() {
   renderMgrDropdowns();
   renderMgrFilter();
   oauthRenderConfig();
+  renderLegend();
   renderLists();
   renderProjects();
   renderCalendar();
