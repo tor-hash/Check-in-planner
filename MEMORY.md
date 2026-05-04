@@ -7,7 +7,7 @@ Internt værktøj til BCT for at planlægge biweekly 1:1 check-ins. 3 teams × 3
 
 ## Hosting & stack
 - Static site på **GitHub Pages** (no backend).
-- Single-file HTML: `checkin-planner.html` (~3000 linjer, vanilla JS).
+- Single-file HTML: `checkin-planner.html` (~3500 linjer, vanilla JS).
 - `index.html` redirecter til `checkin-planner.html`.
 - State per-bruger via `localStorage`.
 
@@ -15,57 +15,53 @@ Internt værktøj til BCT for at planlægge biweekly 1:1 check-ins. 3 teams × 3
 - `checkin-planner.html` — hele appen (HTML/CSS/JS i én fil).
 - `index.html` — redirect-stub.
 - `README.md` — public docs.
+- `GOOGLE_CLOUD_SETUP.md` — engangsopsætning af BCT Internal Tools Cloud project.
 - `.nojekyll` — undgår Jekyll-processing på GitHub Pages.
 
-## Calendar integration — CURRENT (Apps Script per manager)
-Hver manager:
-1. Deployer sit eget Apps Script Web App (`doGet` med `Calendar.Freebusy.query`).
-2. Indsætter Web App URL i appen (felt pr. manager-navn).
-3. App kalder alle konfigurerede script URLs via JSONP for at hente free/busy.
+## Calendar integration — CURRENT (OAuth + Calendar API)
+Implementeret 2026-05-04, Apps Script-flowet fjernet samme dag efter test.
 
-Booking sker via URL prefill (`google.com/calendar/render?...`) — ingen API-skrivning.
+Manager-flow:
+1. Åbn siden → vælg dig selv i manager-dropdown
+2. Scroll til "Live Google Calendar (OAuth)" → klik **Sign in with Google**
+3. Vælg `@blackcapitaltechnology.com`-konto → accepter Calendar permissions
+4. Klik **Hent free/busy** → siden batcher alle managers + medarbejder-kalendere i ét `freeBusy`-call
+5. Klik et tomt slot → udfyld → **Opret i Google Calendar** → events.insert med medarbejder som attendee + `sendUpdates=all` (Google sender invite)
 
-ICS upload findes som statisk fallback.
+Token holdes kun i memory (`oauthState.accessToken`), aldrig i localStorage. Auto-refresh hver 10 min hvis brugeren har checkmarket det.
 
-**Smerte ved nuværende model:** hver manager skal igennem Apps Script setup, autorisere scopes, deploye, og holde URL'en hemmelig. Skalerer dårligt og er en barriere for ibrugtagning.
+ICS upload beholdes som permanent fallback for offline / edge cases.
 
-## Calendar integration — PLANNED (Calendar API + OAuth)
-Migration besluttet 2026-05-04: erstatte Apps Script med Google Identity Services (GIS) + Calendar API direkte fra browseren.
+## Cloud setup (engangs, allerede gjort 2026-05-04)
+**Project:** `BCT Internal Tools` under organisationen `blackcapitaltechnology.com` (delt project for fremtidige interne værktøjer som Onboarding Planner og PA — hver app får sin egen OAuth Client ID under samme projekt).
 
-Manager-flow bliver: "Log ind med Google" → app henter free/busy + (valgfrit) opretter events via `https://www.googleapis.com/calendar/v3/...`. Ingen Apps Script.
+**Forudsætning der nu er givet:** admin har givet Tor `roles/resourcemanager.projectCreator` på BCT-org'en.
 
-**Krav (engangsopsætning af Tor):** se `GOOGLE_CLOUD_SETUP.md`.
-- Google Cloud project under Tor's **personlige** konto (Tor er ikke Workspace-admin på BCT, så Internal-pathen er ikke tilgængelig).
-- Calendar API enabled.
-- OAuth consent screen = **External / Testing**. Loft på 100 test users — hver manager skal tilføjes manuelt.
-- Web OAuth Client ID, authorized JS origin = GitHub Pages URL (+ evt. localhost).
-- Client ID **hardcoded** som konstant `OAUTH_CLIENT_ID` øverst i scriptet (linje ~3220 i checkin-planner.html). Public, sikkert at committe. Input-feltet i UI'en er fallback for advanced override og auto-skjules når konstanten er sat.
+**Consent screen:** Internal mode → ingen verification, ingen test users, ingen advarselsskærm. App-name = "BCT Internal Tools".
 
-**Beslutninger truffet 2026-05-04:**
-- Cloud project = personligt (Tor ikke admin), External Testing-mode. Migration til Internal er muligt senere hvis admin aktiverer "Google Cloud Platform → ON for everyone" i Workspace Admin Console.
-- Engangs gul advarselsskærm pr. manager ved første login ("Google hasn't verified this app") — accepteret omkostning. Forklaret i `<details>` i OAuth-sektionen og i GOOGLE_CLOUD_SETUP.md.
-- Scopes: `calendar.freebusy` + `calendar.events`.
-- Booking opretter event direkte via API (`events.insert` med `sendUpdates=all` → automatisk invite til medarbejderen).
-- Apps Script-section beholdes side-by-side under migration; ICS-upload beholdes permanent som fallback.
-- Rollout: feature branch `feature/oauth-calendar`, side-by-side først, fjernelse af Apps Script i en senere PR når OAuth er testet.
+**Scopes:** `calendar.freebusy` + `calendar.events` (flere kan tilføjes senere når Onboarding Planner / PA kommer).
 
-**Test users — daglig opgave for Tor:**
-Når en ny manager skal have adgang: Cloud Console → APIs & Services → OAuth consent screen → Test users → + Add users → indtast email → Save.
+**OAuth Client ID for Check-in Planner:** `895573577859-h2sjmrtjhqku4dheh2nsuon4bnnm8p6t.apps.googleusercontent.com` — hardcoded i `OAUTH_CLIENT_ID`-konstanten øverst i OAuth-modulet i `checkin-planner.html`. Public, sikkert at committe. Authorized JS origins: `https://tor-hash.github.io` + `http://localhost:8000`.
 
-**Stadig krævet (samme som i dag):** medarbejdere deler deres kalender free/busy med deres manager i Google Calendar settings.
+**Når et nyt internt værktøj skal tilføjes:** spring til sektion 4 i GOOGLE_CLOUD_SETUP.md — opret nyt OAuth Client ID under samme `BCT Internal Tools` project. Engangsopsætning er færdig.
 
 ## OAuth implementation — hvor det bor i koden
-- HTML: ny `cal-section` "Live Google Calendar (OAuth)" lige over Apps Script-sektionen (~line 933).
-- CSS: `.oauth-config`, `.oauth-actions` (~line 698).
-- State: `state.oauth = { clientId, lastFetch, busy, autoRefresh, lastErrors }` (`defaultState`/`loadState`).
-- JS-modul: kommentarblok "LIVE GOOGLE CALENDAR (OAuth + Calendar API)" (~line 3217) — `oauthState`, `oauthSignIn`, `oauthEnsureToken`, `oauthFreeBusy`, `oauthRefresh`, `oauthCreateEvent`.
-- GIS script-tag: `<script src="https://accounts.google.com/gsi/client" async defer></script>` i `<head>`.
-- Booking: `evCreateInCalendar` er nu async — bruger `oauthCreateEvent` hvis logget ind, ellers fallback til `buildCalendarUrl` URL-prefill.
-- `getBusy()` foretrækker OAuth-data over Apps Script-data for samme person (ingen double-counting).
-- Token holdes kun i memory (`oauthState.accessToken`), aldrig i localStorage.
+- **GIS script-tag** i `<head>`: `<script src="https://accounts.google.com/gsi/client" async defer></script>`.
+- **CSS:** `.oauth-config`, `.oauth-actions`, `details.oauth-help` (~line 690).
+- **HTML:** `cal-section` "Live Google Calendar (OAuth)" (~line 935).
+- **State:** `state.oauth = { clientId, lastFetch, busy, autoRefresh, lastErrors }`. `loadState` har `delete s.liveCal` for at rense legacy state fra gamle browsere.
+- **JS-modul:** kommentarblok "LIVE GOOGLE CALENDAR (OAuth + Calendar API)" (~line 2972) — `OAUTH_CLIENT_ID` constant, `oauthState`, `oauthSignIn`, `oauthEnsureToken`, `oauthFreeBusy`, `oauthRefresh`, `oauthCreateEvent`.
+- **Booking:** `evCreateInCalendar` (linje ~1900) — async, bruger `oauthCreateEvent` hvis logget ind, ellers fallback til `buildCalendarUrl` URL-prefill (kun til ICS-only brugere).
+- **`getBusy(pid)`:** merger ICS managers + ICS employees + `state.oauth.busy[pid]`.
+
+## Repo
+- GitHub: `tor-hash/Check-in-planner` (https://github.com/tor-hash/Check-in-planner)
+- GitHub Pages URL: `https://tor-hash.github.io/Check-in-planner/`
+- Branches: `main` (production), `feature/oauth-calendar` (legacy migration branch — kan slettes når Apps Script-removal er pushet)
 
 ## Conventions
 - UI-tekster på dansk.
 - Vanilla JS, ingen build step, ingen npm.
 - CSS variabler øverst i `<style>` for farver.
 - LocalStorage keys er prefixet (tjek koden før nye keys tilføjes).
+- OAuth Client ID hardcoded i koden (public-safe). Aldrig commit secrets.
