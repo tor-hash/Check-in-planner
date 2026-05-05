@@ -927,7 +927,7 @@
 
       <div class="tabs">
         <button class="tab active" data-tab="cal">Kalender — pr. session</button>
-        <button class="tab" data-tab="byperson">Pr. medarbejder (datovalg + slots)</button>
+        <button class="tab" data-tab="byperson">📅 Book check-ins</button>
         <button class="tab" data-tab="journal">Journal & rapporter</button>
       </div>
 
@@ -2029,6 +2029,7 @@ function renderMgrDropdowns() {
       saveState();
       syncMgrs();
       syncTeams(); // syncPool() can move people between pool and teams
+      maybeAutoRefreshFreeBusy(); // ny manager → fetch deres kalender
     };
   });
 }
@@ -3702,6 +3703,27 @@ function setupOauthAuto() {
   }, 10 * 60 * 1000);
 }
 
+// Trigge silent free/busy-refresh hvis der er assigned personer som ikke har
+// busy-data endnu. Bruges efter drag-drop, manager-skift og person-add så
+// slot-forslag dukker op uden at brugeren behøver klikke "↻ Hent free/busy".
+// Debounce med 1 sekund så hurtige drag-drops bare trigger én refresh.
+let _autoRefreshTimer = null;
+function maybeAutoRefreshFreeBusy() {
+  if (!isOauthSignedIn()) return;
+  // Tjek om der er assigned personer uden busy-data i state.
+  const peopleWeNeed = [...new Set([...state.mgrs, ...getAssignedIds()])];
+  const missing = peopleWeNeed.filter(pid => {
+    const p = findPerson(pid);
+    return p && p.email && !state.oauth?.busy?.[pid];
+  });
+  if (missing.length === 0) return;
+  if (_autoRefreshTimer) clearTimeout(_autoRefreshTimer);
+  _autoRefreshTimer = setTimeout(() => {
+    _autoRefreshTimer = null;
+    oauthRefresh(true).catch(err => console.error("[auto-refresh] failed", err));
+  }, 1000);
+}
+
 // Programmatically create a Calendar event in the signed-in manager's primary calendar.
 // Returns the created event resource (with htmlLink). Throws on failure.
 async function oauthCreateEvent({ title, dateStr, timeStr, durationMin, attendeeEmail, agenda }) {
@@ -4567,6 +4589,11 @@ function setupSortable() {
       saveState();
       syncTeams();
       renderCalendar(); renderByPerson(); renderProjects();
+      // Free/busy bliver kun hentet for assigned medarbejdere. Når en ny
+      // person flyttes ind i et team, mangler vi deres busy-data — slot-
+      // forslag returnerer tomt indtil næste refresh. Kald oauthRefresh
+      // silent her så booking virker straks efter drag-drop.
+      maybeAutoRefreshFreeBusy();
       ["pool","team-1","team-2","team-3"].forEach(id => {
         const el = document.getElementById(id);
         el.classList.toggle("empty", state.teams[id].length === 0);
