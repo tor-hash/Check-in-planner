@@ -52,12 +52,12 @@ ICS upload beholdes som permanent fallback for offline / edge cases.
 - **State:** `state.oauth = { clientId, lastFetch, busy, autoRefresh, lastErrors }`. `loadState` har `delete s.liveCal` for at rense legacy state fra gamle browsere.
 - **JS-modul:** kommentarblok "LIVE GOOGLE CALENDAR (OAuth + Calendar API)" (~line 2972) — `OAUTH_CLIENT_ID` constant, `oauthState`, `oauthSignIn`, `oauthEnsureToken`, `oauthFreeBusy`, `oauthRefresh`, `oauthCreateEvent`.
 - **Booking:** `evCreateInCalendar` (linje ~1900) — async, bruger `oauthCreateEvent` hvis logget ind, ellers fallback til `buildCalendarUrl` URL-prefill (kun til ICS-only brugere).
-- **`getBusy(pid)`:** merger ICS managers + ICS employees + `state.oauth.busy[pid]`.
+- **`getBusy(pid)`:** returnerer `state.oauth.busy[pid]` (Google Calendar freeBusy-resultater).
 
 ## Repo
 - GitHub: `tor-hash/Check-in-planner` (https://github.com/tor-hash/Check-in-planner)
 - GitHub Pages URL: `https://tor-hash.github.io/Check-in-planner/`
-- Branches: `main` (production), `feature/oauth-calendar` (legacy migration branch — kan slettes når Apps Script-removal er pushet)
+- Branches: `main` (production). Feature-arbejde sker på `feature/oauth-calendar` og merges til main.
 
 ## Conventions
 - UI-tekster på dansk.
@@ -177,7 +177,7 @@ Drive-permissions på topfolderen `166c0_IXuiGF2D03jrStT4p0CERrLEIFw` er sandhed
 - Tekstfarve auto-vælges via `pickTextOn(hex)` (luminance check, dark on light, white on dark).
 - Projekter har nu `color`-felt (`{ name, description, color }`); ny farvevælger + Auto-knap + live preview i projekt-modalen.
 - `projectColor()` returnerer brugervalgt farve hvis sat, ellers `autoProjectColor()` (samme deterministiske palette som før — backward-compat).
-- `projectDots(p)` bruger `projectTagPill` i stedet for `.project-dot`. Den gamle `.project-dot` CSS er bevaret men ubrugt — kan ryddes senere.
+- `projectDots(p)` bruger `projectTagPill`. Den gamle `.project-dot` CSS blev fjernet 2026-05-05.
 - Sidebar projekt-rækker bruger stadig `.pswatch` (10×10 firkant) som status-indikator i listen.
 
 **3. OBS-felt på journal-entries**
@@ -205,3 +205,13 @@ Drive-permissions på topfolderen `166c0_IXuiGF2D03jrStT4p0CERrLEIFw` er sandhed
 **Backward compat / migration:**
 - Eksisterende brugere med v4 localStorage får automatisk `fnTags` seedet i `loadState`. Eksisterende projekter får `color` udledt fra `autoProjectColor(name)` (samme farve som før den ændring) ved load.
 - Eksisterende sheet (15 kolonner) får automatisk header genskrevet næste gang en manager logger ind. OBS-feltet er bare tomt på gamle entries.
+
+## Code cleanup (2026-05-05)
+
+Efter master-data sync og auto-polling kom på plads, blev følgende fjernet for at reducere støj:
+
+- **ICS upload feature komplet:** UI-section, `.ics-grid`/drop-zone CSS, `parseICS`/`parseICSDate`/`attachICS`/`handleICSFiles`/`setupDropZone`/`renderICSList`-funktioner, `state.ics`-felt, `hasICS()`-helper. OAuth/freeBusy håndterer nu alt kalender-arbejde. ~200 linjer kode fjernet. `loadState()` har `delete s.ics` for at rense legacy state fra eksisterende localStorage.
+- **OAuth Client ID localStorage-override:** input-felt `#oauth-client-id`, `state.oauth.clientId`-felt, change-listener, `oauthRenderConfig` input-håndtering, og fallback i `getOauthClientId()`. Vi har hardcoded `OAUTH_CLIENT_ID`-konstanten — overriden var legacy testing-mekanisme. `loadState()` har `delete s.oauth.clientId`.
+- **`.project-dot` CSS:** ubrugt siden runde 1 (erstattet af `.project-tag`).
+- **Apps Script-kommentarer:** opdateret til ikke længere at referere til den fjernede Apps Script-flow.
+- **Bevaret som fail-safes:** URL-prefill-fallback i `evCreateInCalendar` (`buildCalendarUrl`) og `dataUrl`-base64 fallback til journal-files. De koster intet og dækker netværksfejl.
