@@ -115,6 +115,49 @@ Drive-permissions på topfolderen `166c0_IXuiGF2D03jrStT4p0CERrLEIFw` er sandhed
 3. B opretter en ny entry → Tor klikker "Hent delt journal" → ser B's entry.
 4. Vedhæftet fil oprettet af B kan åbnes i Drive af Tor (åbner i ny fane mod `webViewLink`).
 
+## Delt master-data — Google Sheet sync (implementeret 2026-05-04)
+
+**Problemet det løser:** Indtil nu lå alt udover journal kun i hver brugers `localStorage`. Da Tor delte sit GitHub Pages-link med Stefan, så Stefan stadig de gamle (forkerte) emails på Lars m.fl. fordi Tors lokale rettelser aldrig forplantede sig til Stefans browser. Kritisk for et delt værktøj.
+
+**Hvad der nu er delt cloud:** medarbejdere (`state.people` — inkl. emails!), managers (`state.mgrs`), team-rotation (`state.teams`), projekter (`state.projects`), funktion-tags (`state.fnTags`), customDates (`state.customDates`), startDate (`state.startDate`).
+
+**Hvad der bevidst er per-bruger (localStorage only):** `viewedMgrFilter`, `weekOffset`, `oauth.accessToken/clientId/autoRefresh`, `workHours`. UI-præferencer skal være individuelle.
+
+**Ikke synced:** ICS-uploads (`state.ics`) — featuren er ubrugt nu hvor OAuth/freeBusy bærer kalenderen, men koden er beholdt som fallback.
+
+**Schema:** Ny tab `MasterData` i samme sheet (`1--rEDjYldyi7F1qRGyZWhj4pi2ADd9tG9BKazjyeZk8`). Header: `key | json | updatedAt | updatedBy`. Én række per nøgle (de 7 nøgler i `MASTER_KEYS`-konstanten). JSON-payloaden er hele state-feltet for den nøgle.
+
+**Sync-model:**
+- `masterLoadAll()` kaldes automatisk efter OAuth signin (efter `journalLoadAll`). Erstatter de relevante `state.*` felter med sheet-indhold, gemmer i localStorage som offline cache.
+- Alle save-points (person modal, manager dropdown, projekt modal, fnTags modal, drag-drop, startDate change, shuffle, reset, customDates click/clear) kalder `syncPeople()`/`syncTeams()`/`syncProjects()`/`syncFnTags()`/`syncCustomDates()`/`syncStartDate()` efter `saveState()` — write-through pattern (fire-and-forget).
+- Pre-write conflict check: `masterUpsertKey()` GET'er sheet's `updatedAt` for nøglen. Hvis sheet's er nyere end vores `keysSyncedAt[key]`, vises confirm-dialog: "Data ændret af X (timestamp). OK → hent først (dine ændringer går tabt). Annullér → overskriv alligevel". Beskytter mod blind overwrite uden at blokke last-write-wins helt.
+- `Reset til standard` overskriver delt data for alle (tydeliggjort i confirm-dialogen).
+
+**UI:**
+- Sync-bar `<div class="sync-bar">` placeret lige under header (synlig på alle tabs) med `#master-sync-status` pill (⚪/🟡/🟢/🔴) og to knapper: `⟳ Hent delt data` (manuel refresh) og `⤴ Importér lokal master-data` (engangs-migration).
+- `migrateLocalMaster()` — første manager der trykker den efter deploy bliver kanonisk kilde. Hvis sheet allerede har data → spørger om brugeren vil overskrive eller ej. Re-læser localStorage for at få den ægte lokale version (i tilfælde af at masterLoadAll allerede har overskrevet state).
+
+**Hvor det bor i koden (`checkin-planner.html`):**
+- Constants `MASTER_SHEET_TAB`, `MASTER_SHEET_HEADER`, `MASTER_KEYS` lige under journal-konstanterne (~line 3480).
+- Modul: kommentarblok "SHARED MASTER DATA" (~line 4135) — `masterSync`-state, `masterEnsureHeader`, `masterLoadAll`, `applyMasterKey`, `buildMasterPayload`, `masterUpsertKey`, sync-wrappers, `syncAllMaster`, `migrateLocalMaster`.
+- Sync-bar HTML lige efter `<header class="top">` (~line 859).
+- Event listeners (`btn-master-pull`, `btn-master-migrate`) i init-blokken efter journal-listeners (~line 4720).
+- OAuth callback (~line 3585) kalder `masterLoadAll()` efter `journalLoadAll()` ved første signin.
+- Write-through hooks: `evSaveOnly`, `evCreateInCalendar`, custom-date input-listeners, `renderMgrDropdowns`-onchange, `saveModal`, `deletePerson`, `saveProject`, `deleteProject`, `saveFnTags`, drag-drop `onEnd`, `startDate`-change, `btn-reset`, `btn-shuffle`.
+
+**Test-flow / deploy:**
+1. Push til main, GitHub Pages bygger.
+2. Tor (har den rigtige rettede master-data lokalt) åbner siden, logger ind via OAuth → første signin pull'er en TOM `MasterData`-tab og `masterSync.loaded = true`. Tors state forbliver lokalt korrekt.
+3. Tor klikker `⤴ Importér lokal master-data` → confirmer overwrite hvis sheet ikke er tom (er tom på første kør) → 7 syncAllMaster-kald skriver alle 7 nøgler til sheet.
+4. Stefan åbner siden på sin computer, logger ind → `masterLoadAll()` kører automatisk → hans state overskrives med Tors korrekte data. Lars' email er nu rigtig hos Stefan også.
+5. Hver fremtidig ændring (e.g. ny medarbejder, ny manager, projekt-rename) skrives lokalt + push til sheet. Andre managers ser det ved næste `⟳ Hent delt data` eller næste login.
+
+**Conflict edge case:** Hvis Tor og Stefan rediger den samme nøgle samtidig (f.eks. begge tilføjer en person på 1 minut), vil den anden der trykker gem se confirm-dialogen "Data ændret af X". Last-write-wins kan stadig opstå hvis brugeren vælger "overskriv alligevel" — men så har de fået advarslen.
+
+**Backward compat:**
+- LocalStorage-format uændret. Eksisterende brugere skal ikke gøre noget for at bruge appen — uden OAuth virker den lokalt som før.
+- `MasterData`-tab oprettes automatisk af `masterEnsureHeader()` første gang nogen pusher.
+
 ## Brugervenligheds-runde 1 (implementeret 2026-05-04 efter MVP)
 
 **1. Funktion-tags er nu redigerbare** (tidligere hardkodet ENG/BD/MKT/MGMT)
