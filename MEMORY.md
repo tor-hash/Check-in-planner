@@ -154,6 +154,8 @@ Drive-permissions på topfolderen `166c0_IXuiGF2D03jrStT4p0CERrLEIFw` er sandhed
 
 **Conflict edge case:** Hvis Tor og Stefan rediger den samme nøgle samtidig (f.eks. begge tilføjer en person på 1 minut), vil den anden der trykker gem se confirm-dialogen "Data ændret af X". Last-write-wins kan stadig opstå hvis brugeren vælger "overskriv alligevel" — men så har de fået advarslen.
 
+**Auto-polling (tilføjet 2026-05-05):** Statisk hosting har ingen websockets, så vi approximerer real-time push ved at poll'e en single column hver `POLL_INTERVAL_MS` (20 sek). Master tab: GET `MasterData!C2:C` (kun updatedAt-kolonnen ~7 celler), sammenlign max med vores `keysSyncedAt`, kør `masterLoadAll()` hvis sheet er nyere. Journal tab: samme tilgang med `Entries!N2:N`. Polling pauses når `document.hidden`, og kører immediate poll på `visibilitychange` så manager der tabber tilbage ser fresh data inden for 1 sek. `isModalOpen()` blokerer auto-pull mens en bruger er midt i edit. Polling startes i OAuth signin callback (`startSyncPolling()`) og stoppes i `oauthSignOut`. Bandwidth: enkelt-celle reads ~50 bytes × 3 mgrs × 3 polls/min = trivielt, langt under Sheets API quota.
+
 **Backward compat:**
 - LocalStorage-format uændret. Eksisterende brugere skal ikke gøre noget for at bruge appen — uden OAuth virker den lokalt som før.
 - `MasterData`-tab oprettes automatisk af `masterEnsureHeader()` første gang nogen pusher.

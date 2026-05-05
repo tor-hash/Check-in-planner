@@ -3632,6 +3632,10 @@ function oauthInitTokenClient() {
       } else {
         refreshMasterSyncIndicator();
       }
+      // Start auto-polling so other managers' edits show up here
+      // automatically every POLL_INTERVAL_MS (~20 sec). Also runs on visibility
+      // change for instant refresh when the user tabs back in.
+      startSyncPolling();
     },
   });
   return oauthState.tokenClient;
@@ -3652,6 +3656,8 @@ function oauthSignOut() {
   oauthState.accessToken = null;
   oauthState.tokenExpiresAt = 0;
   oauthState.userEmail = null;
+  // Stop polling — without a valid token, every poll would just fail.
+  if (typeof stopSyncPolling === "function") stopSyncPolling();
   oauthRenderSignedInUI();
 }
 
@@ -4512,6 +4518,133 @@ async function migrateLocalMaster() {
   saveState();
   renderAll();
   alert("Master-data importeret til delt sheet. Andre managers ser dette efter deres næste login eller når de klikker 'Hent delt data'.");
+}
+
+
+// =====================================================================
+// AUTO-POLLING — push other managers' changes to my browser automatically
+// =====================================================================
+// GitHub Pages is static hosting — no websockets, no server push. We
+// approximate "real time" by polling a single column every POLL_INTERVAL_MS:
+//   - Master tab: read MasterData!C2:C (updatedAt column only — ~7 cells).
+//     If max(updatedAt) > our highest keysSyncedAt → kick off masterLoadAll().
+//   - Journal tab: read Entries!N2:N (updatedAt column). If max > our
+//     lastJournalSyncAt → kick off journalLoadAll().
+// Polling pauses while the tab is hidden (document.hidden) and runs an
+// immediate poll on visibility-change so a manager who tabs back in sees
+// fresh data within a second instead of waiting up to 20 seconds.
+//
+// Single-cell polls are tiny (~50 bytes) so the bandwidth cost is trivial
+// even at 3 managers × 3 polls/min = 9 reads/min — well under Sheets API
+// quota of 100 reads / 100 sec / user.
+
+const POLL_INTERVAL_MS = 20000; // 20 seconds — feels live without spamming the API
+let masterPollTimer = null;
+let journalPollTimer = null;
+let lastJournalUpdatedAtSeen = 0; // max updatedAt of entries we know about
+
+function startSyncPolling() {
+  if (masterPollTimer == null) {
+    masterPollTimer = setInterval(masterPoll, POLL_INTERVAL_MS);
+  }
+  if (journalPollTimer == null) {
+    journalPollTimer = setInterval(journalPoll, POLL_INTERVAL_MS);
+  }
+}
+
+function stopSyncPolling() {
+  if (masterPollTimer != null) { clearInterval(masterPollTimer); masterPollTimer = null; }
+  if (journalPollTimer != null) { clearInterval(journalPollTimer); journalPollTimer = null; }
+}
+
+// Compute the highest updatedAt we've seen across all known journal entries
+// (across all people). Used to decide whether a poll detected new activity.
+function computeJournalMaxUpdatedAt() {
+  let max = 0;
+  Object.values(state.journal || {}).forEach(arr => {
+    (arr || []).forEach(e => {
+      const v = e.updatedAt || e.createdAt || 0;
+      if (v > max) max = v;
+    });
+  });
+  return max;
+}
+
+async function masterPoll() {
+  if (!isOauthSignedIn()) return;
+  if (typeof document !== "undefined" && document.hidden) return;
+  if (masterSync.inFlight > 0) return; // already syncing — skip this tick
+  if (isModalOpen()) return; // don't yank state under the user mid-edit
+  try {
+    const data = await sheetsApi(
+      "/values/" + encodeURIComponent(MASTER_SHEET_TAB + "!C2:C")
+    );
+    const rows = data.values || [];
+    let maxAt = 0;
+    rows.forEach(r => {
+      const v = parseInt((r && r[0]) || "0", 10) || 0;
+      if (v > maxAt) maxAt = v;
+    });
+    let ourMax = 0;
+    Object.values(masterSync.keysSyncedAt || {}).forEach(v => { if (v > ourMax) ourMax = v; });
+    if (maxAt > 0 && maxAt > ourMax) {
+      console.log("[master poll] sheet has newer data (" + maxAt + " > " + ourMax + ") — auto-refreshing");
+      await masterLoadAll();
+    }
+  } catch (err) {
+    // Don't bubble up to the UI — just log. A failed poll shouldn't disturb
+    // the user; the next one will try again.
+    console.error("[master poll] failed", err);
+  }
+}
+
+async function journalPoll() {
+  if (!isOauthSignedIn()) return;
+  if (typeof document !== "undefined" && document.hidden) return;
+  if (journalSync.inFlight > 0) return;
+  if (isModalOpen()) return;
+  try {
+    const data = await sheetsApi(
+      "/values/" + encodeURIComponent(JOURNAL_SHEET_TAB + "!N2:N")
+    );
+    const rows = data.values || [];
+    let maxAt = 0;
+    rows.forEach(r => {
+      const v = parseInt((r && r[0]) || "0", 10) || 0;
+      if (v > maxAt) maxAt = v;
+    });
+    const ourMax = Math.max(lastJournalUpdatedAtSeen, computeJournalMaxUpdatedAt());
+    if (maxAt > 0 && maxAt > ourMax) {
+      console.log("[journal poll] sheet has newer data (" + maxAt + " > " + ourMax + ") — auto-refreshing");
+      await journalLoadAll();
+      lastJournalUpdatedAtSeen = computeJournalMaxUpdatedAt();
+    }
+  } catch (err) {
+    console.error("[journal poll] failed", err);
+  }
+}
+
+// Returns true if any blocking modal is currently open. We pause auto-pull
+// while the user is mid-edit so their form data doesn't disappear if a poll
+// detects newer master data and re-renders.
+function isModalOpen() {
+  const ids = ["modal-bg", "modal-project-bg", "modal-fntags-bg", "modal-event-bg", "modal-journal-bg", "modal-report-bg"];
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (el && el.classList.contains("active")) return true;
+  }
+  return false;
+}
+
+// Re-poll immediately when the user tabs back to the page (so they see
+// fresh data within ~1 second instead of waiting up to POLL_INTERVAL_MS).
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && isOauthSignedIn()) {
+      masterPoll();
+      journalPoll();
+    }
+  });
 }
 
 
