@@ -764,22 +764,19 @@
   }
   .status-pill.ok { background: rgba(166,218,149,0.18); color: var(--ok); }
   .status-pill.err { background: rgba(237,135,150,0.18); color: var(--danger); }
-  .oauth-config { display: grid; gap: 10px; margin-top: 8px; }
-  .oauth-config .row {
-    display: grid; grid-template-columns: 140px 1fr; gap: 8px; align-items: center;
+  /* Kompakt OAuth-modul i headeren */
+  .oauth-mini { display: inline-flex; align-items: center; }
+  .oauth-mini-signed { display: inline-flex; align-items: center; gap: 4px; padding: 0 4px; }
+  .oauth-mini-dot {
+    color: var(--ok); font-size: 14px; line-height: 1; margin-right: 2px;
   }
-  .oauth-config .row label {
-    font-size: 12px; color: var(--text); text-transform: none; letter-spacing: 0;
-    margin: 0; font-weight: 500;
+  .oauth-mini-user {
+    font-size: 12px; color: var(--muted); max-width: 180px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .oauth-actions { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
-  details.oauth-help { margin-top: 10px; }
-  details.oauth-help summary {
-    cursor: pointer; padding: 6px 10px; background: var(--panel-2);
-    border-radius: 6px; font-size: 12px; user-select: none;
+  .oauth-mini .icon-btn {
+    padding: 4px 8px; font-size: 13px; line-height: 1;
   }
-  details.oauth-help summary:hover { background: #262b3a; }
-  details.oauth-help[open] summary { margin-bottom: 8px; }
   pre.code {
     background: #0a0c11; border: 1px solid var(--border); border-radius: 8px;
     padding: 12px; font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
@@ -828,6 +825,17 @@
   <header class="top">
     <h1>BCT Check-in Planner <span class="sub">Drag & drop · Biweekly rotation · Live calendar · Projekt-view</span></h1>
     <div class="toolbar">
+      <!-- OAuth: kompakt login-modul. Skjuler/viser sig efter signin-tilstand. -->
+      <div class="oauth-mini" id="oauth-mini">
+        <button class="primary" id="btn-oauth-signin">Log ind med Google</button>
+        <span class="oauth-mini-signed" id="oauth-mini-signed" style="display:none;">
+          <span class="oauth-mini-dot" id="oauth-status">●</span>
+          <span class="oauth-mini-user" id="oauth-user"></span>
+          <button class="ghost icon-btn" id="btn-oauth-refresh" title="Hent free/busy igen">↻</button>
+          <button class="ghost icon-btn" id="btn-oauth-help" title="Hjælp / fejlsøgning">?</button>
+          <button class="ghost icon-btn" id="btn-oauth-signout" title="Log ud">⏻</button>
+        </span>
+      </div>
       <button class="ghost" id="btn-reset">Nulstil til standard</button>
       <button class="ghost" id="btn-shuffle">Bland teams</button>
       <button class="ghost" id="btn-export-csv">Eksportér CSV</button>
@@ -924,6 +932,17 @@
       </div>
 
       <div class="tab-panel active" id="panel-cal">
+        <!-- Arbejdstidsindstillinger styrer hvilke slots der vises som ledige
+             i 'Pr. medarbejder'-fanen. Lever her i toppen af kalender-fanen så
+             de er tæt på det de påvirker. -->
+        <div class="work-hours">
+          <label>Arbejdstid:</label>
+          <input type="time" id="wh-start" step="900">
+          <span style="color: var(--muted);">–</span>
+          <input type="time" id="wh-end" step="900">
+          <label><input type="checkbox" id="wh-lunch" style="width:auto; margin: 0 4px 0 12px;"> Spring frokost (12–13) over</label>
+          <label><input type="checkbox" id="wh-weekdays" style="width:auto; margin: 0 4px 0 12px;" checked> Kun hverdage</label>
+        </div>
         <table class="cal">
           <thead>
             <tr>
@@ -1010,29 +1029,10 @@
     </div>
   </div>
 
-  <!-- LIVE OAuth section (NEW) -->
-  <div class="cal-section">
-    <div class="head">
-      <h2>Live Google Calendar (OAuth) <span class="status-pill" id="oauth-status">Ikke logget ind</span></h2>
-      <div>
-        <label style="color: var(--muted); font-size: 12px; margin-right: 10px;">
-          <input type="checkbox" id="oauth-auto" style="width:auto; margin-right: 4px;"> Auto-refresh hver 10 min
-        </label>
-        <button class="ghost" id="btn-oauth-refresh">Hent free/busy</button>
-      </div>
-    </div>
-    <p style="color: var(--muted); font-size: 12px; margin: 0 0 8px;">
-      Log ind med din Google-konto, så henter siden free/busy direkte via Calendar API. Medarbejdere skal stadig dele deres kalender med dig (Calendar settings → Share with specific people → "See only free/busy").
-    </p>
-    <div class="oauth-config">
-      <div class="oauth-actions">
-        <button class="primary" id="btn-oauth-signin">Sign in with Google</button>
-        <button class="ghost" id="btn-oauth-signout" style="display:none;">Log ud</button>
-        <span id="oauth-user" style="color: var(--muted); font-size: 12px; margin-left: 8px;"></span>
-      </div>
-    </div>
-    <details class="oauth-help">
-      <summary>Hvis noget ikke virker — klik her</summary>
+  <!-- Hidden help-popup, vises ved klik på "?"-knappen i toolbar. -->
+  <div class="modal-bg" id="modal-oauth-help">
+    <div class="modal" style="width: 520px;">
+      <h2>Google Calendar — fejlsøgning</h2>
       <p style="margin: 8px 0;">
         <strong>"access_denied"</strong> — du er logget ind med en konto udenfor <code>@blackcapitaltechnology.com</code>. Skift til din BCT-konto.
       </p>
@@ -1042,19 +1042,12 @@
       <p style="margin: 8px 0;">
         <strong>"Hent free/busy" viser fejl på en medarbejder</strong> — den person har ikke delt sin kalender med dig. Bed dem om at tilføje dig under Calendar settings → Share with specific people → "See only free/busy".
       </p>
-    </details>
-  </div>
-
-  <!-- Arbejdstidsindstillinger (bruges af kalender-slot-beregning) -->
-  <div class="cal-section">
-    <h2>Arbejdstid</h2>
-    <div class="work-hours">
-      <label>Arbejdstid:</label>
-      <input type="time" id="wh-start" step="900">
-      <span style="color: var(--muted);">–</span>
-      <input type="time" id="wh-end" step="900">
-      <label><input type="checkbox" id="wh-lunch" style="width:auto; margin: 0 4px 0 12px;"> Spring frokost (12–13) over</label>
-      <label><input type="checkbox" id="wh-weekdays" style="width:auto; margin: 0 4px 0 12px;" checked> Kun hverdage</label>
+      <div class="modal-actions" style="margin-top: 16px;">
+        <div></div>
+        <div class="right">
+          <button class="primary" id="oauth-help-close">OK</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -3444,11 +3437,16 @@ const oauthState = {
   autoTimer: null,
 };
 
+// setOauthStatus now controls the colour and tooltip of the green/grey/red
+// dot in the kompakt OAuth-modul. The dot itself sits inside the signed-in
+// container which is shown/hidden by oauthRenderSignedInUI.
 function setOauthStatus(text, kind) {
-  const el = document.getElementById("oauth-status");
-  if (!el) return;
-  el.textContent = text;
-  el.className = "status-pill" + (kind === "ok" ? " ok" : kind === "err" ? " err" : "");
+  const dot = document.getElementById("oauth-status");
+  if (!dot) return;
+  dot.title = text || "";
+  if (kind === "err") dot.style.color = "var(--danger)";
+  else if (kind === "ok") dot.style.color = "var(--ok)";
+  else dot.style.color = "var(--muted)";
 }
 
 function isOauthSignedIn() {
@@ -3456,30 +3454,30 @@ function isOauthSignedIn() {
 }
 
 function oauthRenderConfig() {
-  const auto = document.getElementById("oauth-auto");
-  if (auto) auto.checked = !!state.oauth?.autoRefresh;
+  // Auto-refresh runs unconditionally now (no UI toggle) — kept here for
+  // backward-compat with state.oauth.autoRefresh field, but always-on.
   oauthRenderSignedInUI();
 }
 
 function oauthRenderSignedInUI() {
   const inBtn = document.getElementById("btn-oauth-signin");
-  const outBtn = document.getElementById("btn-oauth-signout");
+  const signedEl = document.getElementById("oauth-mini-signed");
   const userEl = document.getElementById("oauth-user");
-  if (!inBtn || !outBtn) return;
+  if (!inBtn || !signedEl) return;
   if (isOauthSignedIn()) {
     inBtn.style.display = "none";
-    outBtn.style.display = "";
-    userEl.textContent = oauthState.userEmail ? "Logget ind som " + oauthState.userEmail : "Logget ind";
+    signedEl.style.display = "";
+    if (userEl) userEl.textContent = oauthState.userEmail || "Logget ind";
     if (state.oauth?.lastFetch) {
       const ts = new Date(state.oauth.lastFetch).toLocaleTimeString("da-DK", { hour:"2-digit", minute:"2-digit" });
-      setOauthStatus("Sidste hent " + ts, "ok");
+      setOauthStatus("Sidste free/busy hent " + ts, "ok");
     } else {
-      setOauthStatus("Logget ind · klik 'Hent free/busy'", "ok");
+      setOauthStatus("Logget ind", "ok");
     }
   } else {
     inBtn.style.display = "";
-    outBtn.style.display = "none";
-    userEl.textContent = "";
+    signedEl.style.display = "none";
+    if (userEl) userEl.textContent = "";
     setOauthStatus("Ikke logget ind", "");
   }
 }
@@ -3693,13 +3691,15 @@ async function oauthRefresh(silent = false) {
   }
 }
 
+// Auto-refresh free/busy hver 10. min så slot-availability holdes opdateret
+// uden manuel "↻"-klik. Tidligere var det en opt-in checkbox; det er nu altid
+// aktivt så længe brugeren er logget ind. Pauses automatisk når token er
+// udløbet (oauthRefresh giver bare op stille).
 function setupOauthAuto() {
   if (oauthState.autoTimer) { clearInterval(oauthState.autoTimer); oauthState.autoTimer = null; }
-  if (state.oauth?.autoRefresh) {
-    oauthState.autoTimer = setInterval(() => {
-      if (isOauthSignedIn()) oauthRefresh(true);
-    }, 10 * 60 * 1000);
-  }
+  oauthState.autoTimer = setInterval(() => {
+    if (isOauthSignedIn()) oauthRefresh(true);
+  }, 10 * 60 * 1000);
 }
 
 // Programmatically create a Calendar event in the signed-in manager's primary calendar.
@@ -4819,8 +4819,12 @@ document.getElementById("modal-event-bg").addEventListener("click", e => {
 document.getElementById("btn-oauth-signin").addEventListener("click", oauthSignIn);
 document.getElementById("btn-oauth-signout").addEventListener("click", oauthSignOut);
 document.getElementById("btn-oauth-refresh").addEventListener("click", () => oauthRefresh(false));
-document.getElementById("oauth-auto").addEventListener("change", e => {
-  state.oauth.autoRefresh = e.target.checked; saveState(); setupOauthAuto();
+// Help-knap åbner modal med fejlsøgningstips.
+document.getElementById("btn-oauth-help").addEventListener("click", () => {
+  document.getElementById("modal-oauth-help").classList.add("active");
+});
+document.getElementById("oauth-help-close").addEventListener("click", () => {
+  document.getElementById("modal-oauth-help").classList.remove("active");
 });
 
 function bindWorkHours() {
