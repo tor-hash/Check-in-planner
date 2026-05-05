@@ -125,9 +125,6 @@
   .person-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .person-title { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .project-dots { display: inline-flex; gap: 3px; margin-left: 4px; vertical-align: middle; flex-wrap: wrap; }
-  .project-dot {
-    width: 7px; height: 7px; border-radius: 50%; display: inline-block;
-  }
   .project-tag {
     display: inline-block; padding: 1px 5px; border-radius: 3px;
     font-size: 9px; font-weight: 700; letter-spacing: 0.04em;
@@ -798,24 +795,6 @@
     background: var(--panel-2); padding: 1px 5px; border-radius: 3px; font-size: 12px;
   }
 
-  .ics-grid {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 10px;
-  }
-  @media (max-width: 800px) { .ics-grid { grid-template-columns: 1fr; } }
-  .drop-zone {
-    border: 2px dashed var(--border); border-radius: 10px;
-    padding: 18px; text-align: center; cursor: pointer;
-    transition: border-color .15s, background .15s;
-  }
-  .drop-zone:hover, .drop-zone.dragover {
-    border-color: var(--accent); background: rgba(110,168,254,0.05);
-  }
-  .drop-zone .label { font-weight: 500; margin-bottom: 4px; }
-  .drop-zone .hint { font-size: 11px; color: var(--muted); }
-  .uploaded-list { font-size: 12px; color: var(--muted); margin-top: 8px; }
-  .uploaded-list .item { display: flex; justify-content: space-between; padding: 3px 0; }
-  .uploaded-list .item .x { cursor: pointer; color: var(--danger); padding: 0 6px; }
-
   .work-hours { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
   .work-hours input[type="time"] { width: 90px; }
   .work-hours label { font-size: 12px; color: var(--muted); margin: 0; text-transform: none; letter-spacing: 0; }
@@ -1046,10 +1025,6 @@
       Log ind med din Google-konto, så henter siden free/busy direkte via Calendar API. Medarbejdere skal stadig dele deres kalender med dig (Calendar settings → Share with specific people → "See only free/busy").
     </p>
     <div class="oauth-config">
-      <div class="row">
-        <label>OAuth Client ID</label>
-        <input type="text" id="oauth-client-id" placeholder="123...-abc.apps.googleusercontent.com">
-      </div>
       <div class="oauth-actions">
         <button class="primary" id="btn-oauth-signin">Sign in with Google</button>
         <button class="ghost" id="btn-oauth-signout" style="display:none;">Log ud</button>
@@ -1070,30 +1045,9 @@
     </details>
   </div>
 
-  <!-- ICS section (fallback) -->
+  <!-- Arbejdstidsindstillinger (bruges af kalender-slot-beregning) -->
   <div class="cal-section">
-    <h2>Manuel ICS upload <span class="status-pill">Fallback / supplerende</span></h2>
-    <p style="color: var(--muted); font-size: 12px; margin: 0 0 4px;">Alternativ til OAuth-login: træk .ics filer hertil. Statisk snapshot — re-upload når kalendere ændres.</p>
-    <div class="ics-grid">
-      <div>
-        <h3>Manager kalendere</h3>
-        <div class="drop-zone" id="drop-mgr">
-          <div class="label">Træk .ics fil(er) hertil</div>
-          <div class="hint">eller klik for at vælge</div>
-          <input type="file" id="file-mgr" accept=".ics" multiple style="display:none;">
-        </div>
-        <div class="uploaded-list" id="list-mgr"></div>
-      </div>
-      <div>
-        <h3>Medarbejder kalendere</h3>
-        <div class="drop-zone" id="drop-emp">
-          <div class="label">Træk .ics fil(er) hertil</div>
-          <div class="hint">eller klik for at vælge</div>
-          <input type="file" id="file-emp" accept=".ics" multiple style="display:none;">
-        </div>
-        <div class="uploaded-list" id="list-emp"></div>
-      </div>
-    </div>
+    <h2>Arbejdstid</h2>
     <div class="work-hours">
       <label>Arbejdstid:</label>
       <input type="time" id="wh-start" step="900">
@@ -1447,12 +1401,8 @@ function defaultState() {
     teams: JSON.parse(JSON.stringify(DEFAULT_TEAMS)),
     startDate: nextMonday().toISOString().slice(0,10),
     customDates: {},
-    ics: {
-      managers: {}, employees: {},
-      files: { mgr: [], emp: [] },
-    },
     workHours: { start: "09:00", end: "17:00", excludeLunch: true, weekdaysOnly: true },
-    oauth: { clientId: "", lastFetch: null, busy: {}, autoRefresh: false, lastErrors: [] },
+    oauth: { lastFetch: null, busy: {}, autoRefresh: false, lastErrors: [] },
     viewedMgrFilter: "all",
     weekOffset: 0,  // 0 = upcoming session week 1; 1 = upcoming session week 2; 2 = next session week 1; -1 = previous session week 2; ...
     projects: [],    // [{ name, description, color }]
@@ -1486,9 +1436,10 @@ function loadState() {
     const s = JSON.parse(raw);
     if (!s.people || !s.teams || !s.mgrs) return null;
     if (!s.customDates) s.customDates = {};
-    if (!s.ics) s.ics = { managers: {}, employees: {}, files: { mgr: [], emp: [] } };
+    delete s.ics; // ICS upload feature removed 2026-05-05 — OAuth/freeBusy handles all calendar work
     if (!s.workHours) s.workHours = { start: "09:00", end: "17:00", excludeLunch: true, weekdaysOnly: true };
-    if (!s.oauth) s.oauth = { clientId: "", lastFetch: null, busy: {}, autoRefresh: false, lastErrors: [] };
+    if (!s.oauth) s.oauth = { lastFetch: null, busy: {}, autoRefresh: false, lastErrors: [] };
+    delete s.oauth.clientId; // legacy field — Client ID is now hardcoded
     if (!s.oauth.busy) s.oauth.busy = {};
     if (!s.oauth.lastErrors) s.oauth.lastErrors = [];
     // Drop legacy Apps Script state if it exists in old localStorage data.
@@ -2018,7 +1969,7 @@ async function evCreateInCalendar() {
   const btn = document.getElementById("ev-create");
 
   // If signed into OAuth → create the event via Calendar API (sends invite automatically).
-  // Otherwise → fall back to URL prefill (the original Apps Script-era behaviour).
+  // Otherwise → fall back to URL prefill so user can still book manually.
   if (typeof isOauthSignedIn === "function" && isOauthSignedIn()) {
     if (btn) { btn.disabled = true; btn.textContent = "Opretter…"; }
     try {
@@ -2173,7 +2124,6 @@ function deletePerson(id) {
   state.people = state.people.filter(x => x.id !== id);
   ["pool","team-1","team-2","team-3"].forEach(t => state.teams[t] = state.teams[t].filter(x => x !== id));
   delete state.customDates[id];
-  delete state.ics.employees[id];
   if (state.oauth?.busy) delete state.oauth.busy[id];
   saveState();
   syncPeople();
@@ -3296,60 +3246,20 @@ function saveFnTags() {
 }
 
 // ============================================
-// ICS PARSER
+// CALENDAR HELPERS
 // ============================================
-function parseICS(text) {
-  text = text.replace(/\r\n[ \t]/g, "").replace(/\n[ \t]/g, "");
-  const lines = text.split(/\r?\n/);
-  const events = [];
-  let cur = null;
-  for (const raw of lines) {
-    if (raw === "BEGIN:VEVENT") cur = {};
-    else if (raw === "END:VEVENT") {
-      if (cur && cur.start && cur.end) {
-        if (cur.transp !== "TRANSPARENT" && cur.status !== "CANCELLED") {
-          events.push({ start: cur.start, end: cur.end, summary: cur.summary || "" });
-        }
-      }
-      cur = null;
-    } else if (cur) {
-      const colonIdx = raw.indexOf(":");
-      if (colonIdx === -1) continue;
-      const keyPart = raw.slice(0, colonIdx);
-      const val = raw.slice(colonIdx + 1);
-      const keyName = keyPart.split(";")[0];
-      if (keyName === "DTSTART") cur.start = parseICSDate(val);
-      else if (keyName === "DTEND") cur.end = parseICSDate(val);
-      else if (keyName === "STATUS") cur.status = val;
-      else if (keyName === "TRANSP") cur.transp = val;
-      else if (keyName === "SUMMARY") cur.summary = val;
-    }
-  }
-  return events;
-}
-function parseICSDate(val) {
-  if (/^\d{8}$/.test(val)) return new Date(val.slice(0,4) + "-" + val.slice(4,6) + "-" + val.slice(6,8) + "T00:00");
-  const m = val.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)/);
-  if (!m) return null;
-  return new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}${m[7] === "Z" ? "Z" : ""}`);
-}
-
-function hasICS(pid) { return !!(state.ics.managers[pid]?.length || state.ics.employees[pid]?.length); }
 function hasLive(pid) { return !!(state.oauth?.busy?.[pid]?.length); }
 function getBusy(pid) {
-  return [
-    ...(state.ics.managers[pid] || []),
-    ...(state.ics.employees[pid] || []),
-    ...(state.oauth?.busy?.[pid] || []),
-  ].map(e => ({ start: new Date(e.start), end: new Date(e.end) }));
+  return (state.oauth?.busy?.[pid] || [])
+    .map(e => ({ start: new Date(e.start), end: new Date(e.end) }));
 }
 
 // ============================================
 // SLOT FINDER
 // ============================================
 function suggestSlots(mgrId, empId, sessionIdx, slotMin = 15, maxResults = null) {
-  const mgrHas = hasICS(mgrId) || hasLive(mgrId);
-  const empHas = hasICS(empId) || hasLive(empId);
+  const mgrHas = hasLive(mgrId);
+  const empHas = hasLive(empId);
   if (!mgrHas && !empHas) return [];
   const sd = sessionDate(sessionIdx);
   const start = new Date(sd); start.setHours(0,0,0,0);
@@ -3419,7 +3329,7 @@ function dtLocalValue(d) {
 function renderDayGrid(personId, sessionIdx, slots, customDateStr, weekInSession) {
   if (!slots.length) {
     const mgrId = getManagerForSession(getTeamForPerson(personId), sessionIdx);
-    const hasAny = hasICS(mgrId) || hasLive(mgrId) || hasICS(personId) || hasLive(personId);
+    const hasAny = hasLive(mgrId) || hasLive(personId);
     return `<div class="no-slots-msg">${hasAny ? "Ingen ledige slots fundet i sessionsvinduet" : "Forbind kalender for slot-forslag"}</div>`;
   }
   const weekdays = getSessionWeekdays(sessionIdx);
@@ -3476,8 +3386,8 @@ function renderDayGrid(personId, sessionIdx, slots, customDateStr, weekInSession
 // ============================================
 // LIVE GOOGLE CALENDAR (OAuth + Calendar API)
 // ============================================
-// Replaces the Apps Script flow. Manager logs in once with Google Identity
-// Services (GIS), we get a short-lived access token, then call:
+// Manager logs in once with Google Identity Services (GIS), we get a
+// short-lived access token, then call:
 //   POST https://www.googleapis.com/calendar/v3/freeBusy   (free/busy lookup)
 //   POST https://www.googleapis.com/calendar/v3/calendars/primary/events  (booking)
 // Token is held in memory only — never written to localStorage.
@@ -3522,10 +3432,8 @@ const MASTER_SHEET_TAB = "MasterData";
 const MASTER_SHEET_HEADER = ["key", "json", "updatedAt", "updatedBy"];
 const MASTER_KEYS = ["people", "mgrs", "teams", "projects", "fnTags", "customDates", "startDate"];
 
-// Resolve the active Client ID: hardcoded constant wins, localStorage override
-// is fallback (useful for testing against a different project before committing).
 function getOauthClientId() {
-  return (OAUTH_CLIENT_ID || state.oauth?.clientId || "").trim();
+  return (OAUTH_CLIENT_ID || "").trim();
 }
 
 const oauthState = {
@@ -3548,13 +3456,6 @@ function isOauthSignedIn() {
 }
 
 function oauthRenderConfig() {
-  const inp = document.getElementById("oauth-client-id");
-  if (inp) inp.value = state.oauth?.clientId || "";
-  // If the Client ID is hardcoded in the constant, hide the input row entirely
-  // so managers don't see a confusing config field. Show it only as an
-  // "advanced override" when no constant is set.
-  const inputRow = inp ? inp.closest(".row") : null;
-  if (inputRow) inputRow.style.display = OAUTH_CLIENT_ID ? "none" : "";
   const auto = document.getElementById("oauth-auto");
   if (auto) auto.checked = !!state.oauth?.autoRefresh;
   oauthRenderSignedInUI();
@@ -4648,74 +4549,6 @@ if (typeof document !== "undefined") {
 }
 
 
-function setupDropZone(zoneId, fileInputId, kind) {
-  const zone = document.getElementById(zoneId);
-  const input = document.getElementById(fileInputId);
-  zone.addEventListener("click", () => input.click());
-  zone.addEventListener("dragover", e => { e.preventDefault(); zone.classList.add("dragover"); });
-  zone.addEventListener("dragleave", () => zone.classList.remove("dragover"));
-  zone.addEventListener("drop", e => {
-    e.preventDefault(); zone.classList.remove("dragover");
-    handleICSFiles(e.dataTransfer.files, kind);
-  });
-  input.addEventListener("change", () => handleICSFiles(input.files, kind));
-}
-function handleICSFiles(fileList, kind) {
-  Array.from(fileList).forEach(file => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const events = parseICS(reader.result);
-      attachICS(file.name, events, kind);
-      saveState(); renderICSList(); renderByPerson();
-    };
-    reader.readAsText(file);
-  });
-}
-function attachICS(filename, events, kind) {
-  const norm = filename.toLowerCase().replace(/\.ics$/, "").replace(/[_\-\.]/g, " ");
-  const pool = kind === "mgr" ? state.mgrs : state.people.map(p => p.id).filter(id => !state.mgrs.includes(id));
-  let matchedId = null;
-  for (const id of pool) {
-    const p = findPerson(id); if (!p) continue;
-    const tokens = p.name.toLowerCase().split(/\s+/);
-    const emailLocal = (p.email || "").split("@")[0].toLowerCase();
-    if (tokens.some(t => t.length > 2 && norm.includes(t))) { matchedId = id; break; }
-    if (emailLocal && norm.includes(emailLocal)) { matchedId = id; break; }
-    if (norm.includes(p.id)) { matchedId = id; break; }
-  }
-  if (!matchedId) {
-    const choices = pool.map(id => `${id}: ${findPerson(id)?.name}`).join("\n");
-    const ans = prompt(`Kunne ikke matche "${filename}". Indtast person-id:\n\n${choices}`);
-    if (!ans) return;
-    if (!findPerson(ans.trim())) { alert("Ukendt id."); return; }
-    matchedId = ans.trim();
-  }
-  const bucket = kind === "mgr" ? state.ics.managers : state.ics.employees;
-  bucket[matchedId] = events.map(e => ({ start: e.start, end: e.end, summary: e.summary }));
-  state.ics.files[kind] = state.ics.files[kind].filter(f => f.personId !== matchedId);
-  state.ics.files[kind].push({ filename, personId: matchedId, count: events.length });
-}
-function renderICSList() {
-  ["mgr","emp"].forEach(kind => {
-    const ul = document.getElementById("list-" + kind);
-    const list = state.ics.files[kind] || [];
-    if (!list.length) { ul.innerHTML = `<div style="color: var(--muted); font-style: italic; margin-top: 6px;">Intet uploadet</div>`; return; }
-    ul.innerHTML = list.map(f => {
-      const p = findPerson(f.personId);
-      return `<div class="item"><span><strong>${p ? p.name : f.personId}</strong> · ${f.count} events <span style="color: var(--muted);">(${f.filename})</span></span><span class="x" data-kind="${kind}" data-pid="${f.personId}" title="Fjern">×</span></div>`;
-    }).join("");
-    ul.querySelectorAll(".x").forEach(x => {
-      x.addEventListener("click", () => {
-        const k = x.dataset.kind, pid = x.dataset.pid;
-        const bucket = k === "mgr" ? state.ics.managers : state.ics.employees;
-        delete bucket[pid];
-        state.ics.files[k] = state.ics.files[k].filter(f => f.personId !== pid);
-        saveState(); renderICSList(); renderByPerson();
-      });
-    });
-  });
-}
-
 // ============================================
 // DRAG & DROP
 // ============================================
@@ -4983,12 +4816,6 @@ document.getElementById("modal-event-bg").addEventListener("click", e => {
 });
 
 // OAuth (Calendar API) events
-document.getElementById("oauth-client-id").addEventListener("change", e => {
-  state.oauth.clientId = e.target.value.trim();
-  saveState();
-  // Force re-init on next sign-in so the new client ID is used.
-  oauthState.tokenClient = null;
-});
 document.getElementById("btn-oauth-signin").addEventListener("click", oauthSignIn);
 document.getElementById("btn-oauth-signout").addEventListener("click", oauthSignOut);
 document.getElementById("btn-oauth-refresh").addEventListener("click", () => oauthRefresh(false));
@@ -5012,9 +4839,6 @@ function bindWorkHours() {
   });
 }
 
-setupDropZone("drop-mgr", "file-mgr", "mgr");
-setupDropZone("drop-emp", "file-emp", "emp");
-
 // ============================================
 // INIT
 // ============================================
@@ -5030,7 +4854,6 @@ function renderAll() {
   renderCalendar();
   renderByPerson();
   renderJournalOverview();
-  renderICSList();
 }
 renderAll();
 setupSortable();
