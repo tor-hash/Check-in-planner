@@ -206,6 +206,47 @@ Drive-permissions på topfolderen `166c0_IXuiGF2D03jrStT4p0CERrLEIFw` er sandhed
 - Eksisterende brugere med v4 localStorage får automatisk `fnTags` seedet i `loadState`. Eksisterende projekter får `color` udledt fra `autoProjectColor(name)` (samme farve som før den ændring) ved load.
 - Eksisterende sheet (15 kolonner) får automatisk header genskrevet næste gang en manager logger ind. OBS-feltet er bare tomt på gamle entries.
 
+## Pre-backend tweaks (2026-05-06) — for chefer kan teste
+
+Vi venter på en backend-mand til at bygge Django-løsning med ordentlig adgangskontrol. Indtil da er der lavet 4 UX-forbedringer så Stefan og Malthe kan teste funktionaliteten på den nuværende GitHub Pages-version.
+
+**Audit-fund: master-data sync er korrekt forbundet.** Alle 14 mutations-save-points (savePerson, deletePerson, saveProject, deleteProject, saveFnTags, mgrDropdown change, drag-drop onEnd, customDates input/clear, evSaveOnly, evCreateInCalendar, startDate change, btn-shuffle, btn-reset) har korrekte sync-kald. Hooks er IKKE problemet.
+
+**Reel root cause for "projekter deles ikke":** UX-footgun. `masterUpsertKey` returnerer stille når OAuth ikke er signed in (line ~4300). Hvis nogen redigerer mens de er logget ud, gemmes ændringer kun lokalt. Når de næste gang logger ind, OVERSKRIVER `masterLoadAll()` deres lokale ændringer med sheet-data → tabt arbejde. Sync-pill'en ⚪ var for diskret.
+
+### 1. Synlig "ikke-logget-ind" advarselsbanner (~line 358 CSS, ~line 1004 HTML)
+- Stor gul banner over sync-bar med advarsel + "Log ind nu"-knap der starter OAuth.
+- Toggles i `refreshMasterSyncIndicator()` (~line 4196) via `.active`-class.
+- Også: sync-pill tekst opgraderet til "⚠️ Delt data: ikke logget ind — ændringer deles ikke".
+- `oauthSignOut` kalder nu `refreshMasterSyncIndicator()` så banneret kommer tilbage ved logout.
+- "Log ind nu"-knap (`btn-swb-signin`) wired til `oauthSignIn` i init-blok (~line 4894).
+
+### 2. Forbedret journal-kort på Trivsel & historik-fanen (`renderJournalCard`, ~line 2544)
+- Ny `renderTrendChart()` (~line 2408) erstatter den lille sparkline med en mere tydelig udviklings-graf med Y-akse, fyld under linjen og tooltips på markører.
+- Tilføjet `.trend-block` med stats-kort: antal check-ins, snit, span (min–max), tendens (↑/↓/→ baseret på sidste 3 vs forrige 3 entries), sidste-dato.
+- Ny knap "📂 Fuld historik" på hver kort åbner historik-modalen (se #3).
+- Bevarer den gamle "Vis 5 seneste entries" inline details som hurtig forhåndsvisning.
+
+### 3. Fuld-historik modal pr. medarbejder (~line 1447 HTML, ~line 2670 JS)
+- Modal `#modal-history-bg` (`.history-modal`, 760px max width) med summary-stats, stor udviklings-graf (`renderHistoryChart`, 700×140 SVG med Y-akse labels og gridlines), og ALLE entries i fuld tekst.
+- Hver entry har edit/delete-knapper (`data-hact`) der genbruger eksisterende `openEntryModal`/`deleteEntry`.
+- "+ Log ny check-in"-knap øverst og Esc/click-uden-for lukker.
+- Global `openHistoryPid`-state. `saveEntry` og `deleteEntry` kalder nu `renderHistoryModal()` hvis modalen er åben for samme person, så ændringer reflekteres straks.
+- Wired i init-blok (~line 5184).
+
+### 4. Tab-omdøbning (~line 999 HTML)
+- "Kalender — pr. session" → **"🔄 Rotation"** (forklarer at det er manager-team rullet de næste uger)
+- "📅 Book check-ins" → uændret
+- "Journal & rapporter" → **"💬 Trivsel & historik"** (sætter trivsel i centrum)
+- Alert-tekst i `btn-master-pull` listener opdateret: "Log ind med Google først (i Rotation-fanen)…"
+
+### Filer ændret
+- `checkin-planner.html` — alle 4 ovenstående
+- `MEMORY.md` — denne sektion
+
+### Backend-overgang note
+Når Django-backend kommer, skal denne UX-warning-banner sandsynligvis fjernes — auth-flow vil være anderledes (login-required på siden selv, ikke OAuth-popup-flow). Master-data sync til Sheet bliver overflødig (alt går til Django DB i stedet). Men de øvrige tweaks (graf, fuld-historik modal, tab-navne) er stadig nyttige.
+
 ## Code cleanup (2026-05-05)
 
 Efter master-data sync og auto-polling kom på plads, blev følgende fjernet for at reducere støj:

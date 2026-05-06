@@ -355,6 +355,31 @@
   .sync-pill.err { background: rgba(237,135,150,0.18); color: var(--danger); }
   .sync-pill.warn { background: rgba(238,212,143,0.18); color: #eed49f; }
 
+  /* Stor synlig advarsel når brugeren IKKE er logget ind. Sync-pill alene er
+     for diskret — folk har redigeret medarbejdere/projekter uden login og tabt
+     ændringerne ved næste masterLoadAll. Banneret er svært at overse. */
+  .sync-warning-banner {
+    display: none;
+    align-items: center; gap: 10px;
+    padding: 10px 14px; margin: 6px 0 12px;
+    background: rgba(238,212,143,0.12);
+    border: 1px solid rgba(238,212,143,0.45);
+    border-left: 4px solid #eed49f;
+    border-radius: 6px;
+    font-size: 13px; color: var(--text);
+  }
+  .sync-warning-banner.active { display: flex; }
+  .sync-warning-banner .swb-icon { font-size: 18px; line-height: 1; }
+  .sync-warning-banner .swb-body { flex: 1; }
+  .sync-warning-banner .swb-title { font-weight: 700; color: #eed49f; margin-bottom: 2px; }
+  .sync-warning-banner .swb-msg { color: var(--muted); font-size: 12px; }
+  .sync-warning-banner button {
+    font-size: 12px; padding: 6px 12px;
+    background: #eed49f; color: #1a1a1a; border: none; border-radius: 4px;
+    cursor: pointer; font-weight: 600;
+  }
+  .sync-warning-banner button:hover { background: #f5dfb5; }
+
   /* Journal main tab */
   .journal-toolbar {
     display: grid; grid-template-columns: 1fr auto auto; gap: 14px; align-items: center;
@@ -411,6 +436,53 @@
     padding-top: 8px; margin-top: 4px;
   }
   .journal-card .trend-row svg { flex-shrink: 0; }
+  /* Større udviklings-blok som er tydeligt synlig på journal-kortet
+     uden at man skal klikke ind. Viser sparkline + min/max/snit. */
+  .journal-card .trend-block {
+    display: grid; grid-template-columns: 1fr auto;
+    gap: 10px; align-items: center;
+    border-top: 1px solid var(--border);
+    padding-top: 10px; margin-top: 8px;
+  }
+  .journal-card .trend-block .stats {
+    display: flex; gap: 12px; flex-wrap: wrap;
+    font-size: 11px; color: var(--muted);
+  }
+  .journal-card .trend-block .stats .stat {
+    display: inline-flex; flex-direction: column; align-items: flex-start;
+  }
+  .journal-card .trend-block .stats .stat .v {
+    font-size: 13px; font-weight: 600; color: var(--text);
+  }
+  .journal-card .trend-block .stats .stat .v.pos { color: var(--ok); }
+  .journal-card .trend-block .stats .stat .v.neg { color: var(--danger); }
+  .journal-card .trend-block .stats .stat .v.neu { color: #eed49f; }
+  .journal-card .trend-block .stats .stat .l {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .journal-card .trend-block .actions {
+    display: flex; gap: 4px; flex-shrink: 0;
+  }
+  .journal-card .trend-block .actions button {
+    padding: 4px 10px; font-size: 11px;
+  }
+  .journal-card .sparkline-wrap {
+    grid-column: 1 / -1;
+    background: var(--panel-2);
+    border-radius: 6px; padding: 6px 8px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .journal-card .sparkline-wrap svg { flex: 1; height: 48px; width: 100%; }
+  .journal-card .sparkline-wrap .scale {
+    font-size: 9px; color: var(--muted); display: flex;
+    flex-direction: column; justify-content: space-between; height: 48px;
+  }
+  .journal-card .sparkline-empty-block {
+    grid-column: 1 / -1;
+    text-align: center; padding: 14px 8px; font-size: 12px;
+    color: var(--muted); font-style: italic;
+    background: var(--panel-2); border-radius: 6px;
+  }
   .journal-card .obs-callout {
     margin-top: 10px; padding: 8px 10px;
     background: rgba(238,212,143,0.10);
@@ -488,6 +560,89 @@
 
   /* Report modal */
   .report-modal { width: 540px; max-width: 92vw; }
+
+  /* Fuld-historik modal: bredere end normale modaler. Header + body med
+     scroll, så man kan se alle entries selv på lange historier. */
+  .history-modal {
+    width: 760px; max-width: 96vw; max-height: 92vh;
+    display: flex; flex-direction: column;
+  }
+  .history-modal-head {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    gap: 12px; padding-bottom: 10px; margin-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .history-modal-head h2 { margin: 0; font-size: 18px; }
+  .history-modal-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .history-modal-body {
+    overflow-y: auto; flex: 1;
+    padding-right: 4px;
+  }
+  .history-summary {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 10px; margin-bottom: 14px;
+  }
+  .history-summary .stat-card {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px;
+  }
+  .history-summary .stat-card .v {
+    font-size: 18px; font-weight: 700; color: var(--text);
+  }
+  .history-summary .stat-card .v.pos { color: var(--ok); }
+  .history-summary .stat-card .v.neg { color: var(--danger); }
+  .history-summary .stat-card .v.neu { color: #eed49f; }
+  .history-summary .stat-card .l {
+    font-size: 10px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.06em; margin-top: 2px;
+  }
+  .history-chart {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px; margin-bottom: 14px;
+  }
+  .history-chart-title {
+    font-size: 11px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.06em; margin-bottom: 8px;
+  }
+  .history-chart svg { width: 100%; height: 140px; }
+  .history-entries-title {
+    font-size: 12px; font-weight: 600; color: var(--text);
+    margin: 8px 0 6px; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .history-entry {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
+  }
+  .history-entry .he-head {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 10px; margin-bottom: 6px;
+  }
+  .history-entry .he-head-left {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  .history-entry .he-date { font-weight: 600; font-size: 13px; }
+  .history-entry .he-mgr { font-size: 11px; color: var(--muted); }
+  .history-entry .he-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .history-entry .he-actions button {
+    padding: 3px 8px; font-size: 11px;
+  }
+  .history-entry .he-field {
+    margin-top: 4px; font-size: 12px;
+  }
+  .history-entry .he-field-label {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted); margin-bottom: 1px;
+  }
+  .history-entry .he-field-content {
+    color: var(--text); white-space: pre-wrap;
+  }
+  .history-entry .he-files {
+    display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px;
+  }
+  .history-empty {
+    padding: 20px; text-align: center; color: var(--muted);
+    font-style: italic;
+  }
 
   /* Print stylesheet for PDF reports */
   @media print {
@@ -843,6 +998,18 @@
     </div>
   </header>
 
+  <!-- Synlig advarsel når brugeren IKKE er logget ind. Vises automatisk af
+       refreshMasterSyncIndicator() når oauth-state ikke er signed in. Klik
+       "Log ind nu" scroller til OAuth-sektionen i Kalender-fanen. -->
+  <div class="sync-warning-banner" id="sync-warning-banner">
+    <span class="swb-icon">⚠️</span>
+    <div class="swb-body">
+      <div class="swb-title">Du er ikke logget ind med Google</div>
+      <div class="swb-msg">Ændringer du laver (medarbejdere, managers, projekter, datoer) gemmes <strong>kun lokalt på din computer</strong> og deles ikke med Stefan og Malthe. Næste gang du logger ind, kan dine lokale ændringer blive overskrevet af den delte data.</div>
+    </div>
+    <button id="btn-swb-signin">Log ind nu</button>
+  </div>
+
   <!-- Shared master-data sync bar: visible on all tabs so any manager can see
        at a glance whether their employee list, projects, etc. are in sync
        with the other managers. See SHARED MASTER DATA module in the JS. -->
@@ -926,9 +1093,9 @@
       </div>
 
       <div class="tabs">
-        <button class="tab active" data-tab="cal">Kalender — pr. session</button>
-        <button class="tab" data-tab="byperson">📅 Book check-ins</button>
-        <button class="tab" data-tab="journal">Journal & rapporter</button>
+        <button class="tab active" data-tab="cal" title="Manager-rotation: hvilket team hver manager møder de næste uger">🔄 Rotation</button>
+        <button class="tab" data-tab="byperson" title="Book check-ins direkte i Google Calendar">📅 Book check-ins</button>
+        <button class="tab" data-tab="journal" title="Trivsel-historik og udvikling pr. medarbejder">💬 Trivsel & historik</button>
       </div>
 
       <div class="tab-panel active" id="panel-cal">
@@ -1274,6 +1441,25 @@
 </div>
 
 <!-- Modal: journal entry -->
+<!-- Fuld-historik modal: viser ALLE entries for én medarbejder med stor
+     udviklings-graf, samlede stats og fuld-tekst entries der kan klikkes
+     for at redigere. Åbnes fra "📂 Fuld historik"-knappen på person-kortet. -->
+<div class="modal-bg" id="modal-history-bg">
+  <div class="modal history-modal">
+    <div class="history-modal-head">
+      <div>
+        <h2 id="history-modal-title">Historik</h2>
+        <div id="history-modal-sub" style="color: var(--muted); font-size: 12px; margin-top: 2px;"></div>
+      </div>
+      <div class="history-modal-actions">
+        <button class="primary" id="history-modal-add">+ Log ny check-in</button>
+        <button class="ghost" id="history-modal-close">Luk</button>
+      </div>
+    </div>
+    <div id="history-modal-body" class="history-modal-body"></div>
+  </div>
+</div>
+
 <div class="modal-bg" id="modal-entry-bg">
   <div class="modal entry-modal">
     <h2 id="entry-modal-title">Log check-in</h2>
@@ -2216,6 +2402,45 @@ function renderSparkline(scores) {
   </svg>`;
 }
 
+// Større sparkline til journal-kortet. Viser udviklingen over tid med
+// Y-akse (1-10), tooltips på hver markør, og fyld under linjen så det er
+// nemmere at se trenden. Bruges på person-kortet i Trivsel & historik-fanen.
+function renderTrendChart(entries) {
+  const ordered = [...entries].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const scoredEntries = ordered.filter(e => e.trivsel != null);
+  if (!scoredEntries.length) return `<div class="sparkline-empty-block">Ingen trivsel-data registreret endnu</div>`;
+  const w = 320, h = 48, padX = 4, padY = 4;
+  const min = 1, max = 10;
+  const step = scoredEntries.length === 1 ? 0 : (w - 2*padX) / (scoredEntries.length - 1);
+  const pts = scoredEntries.map((e, i) => {
+    const x = padX + i * step;
+    const y = h - padY - ((e.trivsel - min) / (max - min)) * (h - 2*padY);
+    return { x, y, e };
+  });
+  const path = pts.map((p, i) => (i === 0 ? "M" : "L") + p.x.toFixed(1) + "," + p.y.toFixed(1)).join(" ");
+  // Lukket polygon under linjen for soft fill-effekt
+  const fillPath = path + ` L${pts[pts.length-1].x.toFixed(1)},${(h-padY).toFixed(1)} L${pts[0].x.toFixed(1)},${(h-padY).toFixed(1)} Z`;
+  const dots = pts.map(p => {
+    const cls = trivselClass(p.e.trivsel);
+    const color = cls === "t-green" ? "#a6da95" : cls === "t-yellow" ? "#eed49f" : "#ed8796";
+    const dateLabel = p.e.date ? new Date(p.e.date).toLocaleDateString("da-DK", { day: "2-digit", month: "short", year: "numeric" }) : "";
+    return `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="${color}" stroke="#1a1a1a" stroke-width="1"><title>${escapeHtml(dateLabel)}: ${p.e.trivsel}/10</title></circle>`;
+  }).join("");
+  // Vandrette gridlines ved 4 og 7 (grænserne for gul/grøn)
+  const yFor = v => h - padY - ((v - min) / (max - min)) * (h - 2*padY);
+  return `
+    <div class="sparkline-wrap">
+      <div class="scale"><span>10</span><span>5</span><span>1</span></div>
+      <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+        <line x1="0" x2="${w}" y1="${yFor(7).toFixed(1)}" y2="${yFor(7).toFixed(1)}" stroke="rgba(166,218,149,0.20)" stroke-dasharray="2,3"/>
+        <line x1="0" x2="${w}" y1="${yFor(4).toFixed(1)}" y2="${yFor(4).toFixed(1)}" stroke="rgba(237,135,150,0.20)" stroke-dasharray="2,3"/>
+        <path d="${fillPath}" fill="rgba(110,168,254,0.10)" stroke="none"/>
+        <path d="${path}" fill="none" stroke="#6ea8fe" stroke-width="1.8" opacity="0.85"/>
+        ${dots}
+      </svg>
+    </div>`;
+}
+
 // ============================================
 // JOURNAL MAIN TAB — Overview of all employees
 // ============================================
@@ -2290,6 +2515,7 @@ function renderJournalOverview() {
       else if (action === "edit-entry") openEntryModal(pid, btn.dataset.eid);
       else if (action === "del-entry") deleteEntry(pid, btn.dataset.eid);
       else if (action === "clear-obs") clearObs(pid, btn.dataset.eid);
+      else if (action === "open-history") openHistoryModal(pid);
     });
   });
 }
@@ -2324,7 +2550,23 @@ function renderJournalCard(personId) {
   const teamId = getTeamForPerson(personId);
   const teamLabel = teamId === "pool" ? "Ikke tildelt" : teamId ? "Team " + teamId.split("-")[1] : "—";
   const lastDate = latest?.date ? new Date(latest.date).toLocaleDateString("da-DK", { day: "2-digit", month: "short", year: "numeric" }) : "Aldrig";
-  const scores = entries.slice(0, 12).reverse().map(e => e.trivsel).filter(s => s != null);
+  const scoredEntries = entries.filter(e => e.trivsel != null);
+  const allScores = scoredEntries.map(e => e.trivsel);
+  const avg = allScores.length ? (allScores.reduce((a,b) => a+b, 0) / allScores.length).toFixed(1) : null;
+  const minScore = allScores.length ? Math.min(...allScores) : null;
+  const maxScore = allScores.length ? Math.max(...allScores) : null;
+  // Trend-retning: sammenlign de seneste 3 mod de forrige 3
+  let trendIcon = "", trendClass = "neu";
+  if (scoredEntries.length >= 4) {
+    const recent3 = scoredEntries.slice(0, 3).map(e => e.trivsel);
+    const prev3 = scoredEntries.slice(3, 6).map(e => e.trivsel);
+    const recAvg = recent3.reduce((a,b) => a+b, 0) / recent3.length;
+    const prevAvg = prev3.length ? prev3.reduce((a,b) => a+b, 0) / prev3.length : recAvg;
+    const diff = recAvg - prevAvg;
+    if (diff > 0.5) { trendIcon = "↑"; trendClass = "pos"; }
+    else if (diff < -0.5) { trendIcon = "↓"; trendClass = "neg"; }
+    else { trendIcon = "→"; trendClass = "neu"; }
+  }
 
   const recentHtml = entries.length === 0
     ? `<div style="color: var(--muted); font-size: 12px; font-style: italic; padding: 8px 0;">Ingen entries endnu</div>`
@@ -2366,7 +2608,7 @@ function renderJournalCard(personId) {
           </div>`;
       }).join("");
 
-  const sparkline = scores.length ? renderSparkline(scores) : `<span style="color:var(--muted); font-size:11px;">Ingen trivsel-data endnu</span>`;
+  const trendChartHtml = renderTrendChart(entries);
 
   // OBS reflects ONLY the latest entry. When a new check-in is logged, the
   // previous OBS is automatically replaced (or cleared if the new entry has
@@ -2407,15 +2649,205 @@ function renderJournalCard(personId) {
         </div>
       </div>
       ${obsHtml}
-      <div class="trend-row">
-        ${sparkline}
-        <span class="last-checkin">Sidst: ${lastDate}${entries.length > 1 ? ` · ${entries.length} entries` : ""}</span>
+      <div class="trend-block">
+        <div class="stats">
+          <span class="stat"><span class="v">${entries.length}</span><span class="l">Check-ins</span></span>
+          ${avg != null ? `<span class="stat"><span class="v">${avg}/10</span><span class="l">Snit</span></span>` : ""}
+          ${minScore != null && entries.length > 1 ? `<span class="stat"><span class="v">${minScore}–${maxScore}</span><span class="l">Span</span></span>` : ""}
+          ${trendIcon ? `<span class="stat"><span class="v ${trendClass}">${trendIcon}</span><span class="l">Tendens</span></span>` : ""}
+          <span class="stat"><span class="v" style="font-size:12px; font-weight:500;">${lastDate}</span><span class="l">Sidst</span></span>
+        </div>
+        <div class="actions">
+          ${entries.length > 0 ? `<button class="ghost" data-jact="open-history" data-pid="${personId}" title="Vis fuld historik for ${escapeHtml(p.name)}">📂 Fuld historik</button>` : ""}
+        </div>
+        ${trendChartHtml}
       </div>
-      <details>
-        <summary>${entries.length > 0 ? `Vis ${Math.min(5, entries.length)} seneste entries` : "Ingen entries"}</summary>
+      ${entries.length > 0 ? `<details>
+        <summary>Vis ${Math.min(5, entries.length)} seneste entries inline${entries.length > 5 ? ` (af ${entries.length} total — klik 📂 Fuld historik for resten)` : ""}</summary>
         <div class="recent-entries">${recentHtml}</div>
-      </details>
+      </details>` : `<div style="margin-top:8px; padding: 8px; text-align: center; color: var(--muted); font-size: 11px; font-style: italic;">Klik <strong>+ Log</strong> for at registrere første check-in</div>`}
     </div>`;
+}
+
+// ============================================
+// FULL HISTORY MODAL — alle entries for én medarbejder
+// ============================================
+// Åbnes fra "📂 Fuld historik"-knappen på person-kortet i Trivsel & historik.
+// Viser stor udviklings-graf + summary + alle entries med fuld tekst.
+// State er global så genåbning efter edit/delete fanger den seneste tilstand.
+let openHistoryPid = null;
+
+function openHistoryModal(personId) {
+  const p = findPerson(personId);
+  if (!p) return;
+  openHistoryPid = personId;
+  const titleEl = document.getElementById("history-modal-title");
+  const subEl = document.getElementById("history-modal-sub");
+  if (titleEl) titleEl.textContent = "Historik · " + p.name;
+  const teamId = getTeamForPerson(personId);
+  const teamLabel = teamId === "pool" ? "Ikke tildelt" : teamId ? "Team " + teamId.split("-")[1] : "—";
+  if (subEl) subEl.textContent = (p.title || "") + (p.title ? " · " : "") + teamLabel;
+  renderHistoryModal();
+  document.getElementById("modal-history-bg").classList.add("active");
+}
+
+function closeHistoryModal() {
+  openHistoryPid = null;
+  document.getElementById("modal-history-bg").classList.remove("active");
+}
+
+function renderHistoryModal() {
+  if (!openHistoryPid) return;
+  const personId = openHistoryPid;
+  const body = document.getElementById("history-modal-body");
+  if (!body) return;
+  const entries = [...getJournal(personId)].sort(compareEntriesDesc);
+
+  if (entries.length === 0) {
+    body.innerHTML = `<div class="history-empty">Ingen check-ins logget endnu.<br>Klik <strong>+ Log ny check-in</strong> for at starte.</div>`;
+    return;
+  }
+
+  // Stats
+  const scored = entries.filter(e => e.trivsel != null);
+  const allScores = scored.map(e => e.trivsel);
+  const avg = allScores.length ? (allScores.reduce((a,b) => a+b, 0) / allScores.length).toFixed(1) : "–";
+  const minScore = allScores.length ? Math.min(...allScores) : "–";
+  const maxScore = allScores.length ? Math.max(...allScores) : "–";
+  const latest = entries[0];
+  const latestScore = latest?.trivsel != null ? latest.trivsel + "/10" : "–";
+  const latestCls = trivselClass(latest?.trivsel);
+  const latestColorClass = latestCls === "t-green" ? "pos" : latestCls === "t-yellow" ? "neu" : latestCls === "t-red" ? "neg" : "";
+  const firstDate = entries[entries.length - 1]?.date;
+  const lastDate = latest?.date;
+  const periodLabel = (firstDate && lastDate)
+    ? `${new Date(firstDate).toLocaleDateString("da-DK", { day:"2-digit", month:"short", year:"numeric" })} → ${new Date(lastDate).toLocaleDateString("da-DK", { day:"2-digit", month:"short", year:"numeric" })}`
+    : "—";
+
+  // Trend-retning
+  let trendIcon = "—", trendCls = "";
+  if (scored.length >= 4) {
+    const r3 = scored.slice(0, 3).map(e => e.trivsel);
+    const p3 = scored.slice(3, 6).map(e => e.trivsel);
+    const rAvg = r3.reduce((a,b) => a+b, 0) / r3.length;
+    const pAvg = p3.length ? p3.reduce((a,b) => a+b, 0) / p3.length : rAvg;
+    const diff = rAvg - pAvg;
+    if (diff > 0.5) { trendIcon = "↑ Stigende"; trendCls = "pos"; }
+    else if (diff < -0.5) { trendIcon = "↓ Faldende"; trendCls = "neg"; }
+    else { trendIcon = "→ Stabil"; trendCls = "neu"; }
+  }
+
+  const summaryHtml = `
+    <div class="history-summary">
+      <div class="stat-card"><div class="v ${latestColorClass}">${latestScore}</div><div class="l">Senest</div></div>
+      <div class="stat-card"><div class="v">${avg}/10</div><div class="l">Snit</div></div>
+      <div class="stat-card"><div class="v">${minScore}–${maxScore}</div><div class="l">Span</div></div>
+      <div class="stat-card"><div class="v ${trendCls}">${trendIcon}</div><div class="l">Tendens</div></div>
+      <div class="stat-card"><div class="v">${entries.length}</div><div class="l">Total entries</div></div>
+    </div>`;
+
+  // Stor udviklings-graf
+  const chartHtml = renderHistoryChart(entries);
+
+  // Alle entries i fuld tekst
+  const entriesHtml = entries.map(e => {
+    const mgr = findPerson(e.managerId);
+    const dateLabel = e.date ? new Date(e.date).toLocaleDateString("da-DK", { day:"2-digit", month:"long", year:"numeric" }) : "Ingen dato";
+    const fields = [
+      ["Faglig udvikling", e.faglig],
+      ["Personlig udvikling", e.personlig],
+      ["Udfordringer", e.udfordringer],
+      ["Mål næste periode", e.maal],
+      ["Noter", e.noter],
+      ["Opfølgning", e.opfolgning],
+      ["OBS — næste check-in", e.obs],
+    ].filter(([_, c]) => c && c.trim());
+    const fieldsHtml = fields.map(([label, content]) => `
+      <div class="he-field">
+        <div class="he-field-label">${label}</div>
+        <div class="he-field-content">${escapeHtml(content)}</div>
+      </div>`).join("");
+    const filesHtml = (e.files || []).length
+      ? `<div class="he-files">${(e.files || []).map(f => fileChipHtml(f, e.id)).join("")}</div>`
+      : "";
+    return `
+      <div class="history-entry">
+        <div class="he-head">
+          <div class="he-head-left">
+            <span class="he-date">${dateLabel}</span>
+            <span class="he-mgr">${mgr ? mgr.name.split(" ")[0] : "—"}</span>
+            ${trivselSpan(e.trivsel)}
+          </div>
+          <div class="he-actions">
+            <button data-hact="edit" data-eid="${e.id}" title="Redigér">✎ Redigér</button>
+            <button data-hact="delete" data-eid="${e.id}" title="Slet">×</button>
+          </div>
+        </div>
+        ${fieldsHtml || `<div class="he-field"><div class="he-field-content" style="color: var(--muted); font-style: italic;">Ingen noter</div></div>`}
+        ${filesHtml}
+      </div>`;
+  }).join("");
+
+  body.innerHTML = `
+    ${summaryHtml}
+    <div class="history-chart">
+      <div class="history-chart-title">Trivsels-udvikling (${periodLabel})</div>
+      ${chartHtml}
+    </div>
+    <div class="history-entries-title">Alle check-ins (${entries.length})</div>
+    ${entriesHtml}`;
+
+  // Wire up edit/delete på hver entry
+  body.querySelectorAll("button[data-hact]").forEach(btn => {
+    btn.addEventListener("click", ev => {
+      ev.stopPropagation();
+      const eid = btn.dataset.eid;
+      if (btn.dataset.hact === "edit") {
+        openEntryModal(personId, eid);
+      } else if (btn.dataset.hact === "delete") {
+        deleteEntry(personId, eid);
+        // deleteEntry triggers renderJournalOverview, but historik-modal'en
+        // skal også opdateres så den slettede entry forsvinder med det samme.
+        if (openHistoryPid === personId) renderHistoryModal();
+      }
+    });
+  });
+}
+
+// Stor version af trend-charten — bruges i fuld-historik modalen.
+function renderHistoryChart(entries) {
+  const ordered = [...entries].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const scored = ordered.filter(e => e.trivsel != null);
+  if (!scored.length) return `<div class="history-empty">Ingen trivsel-scores registreret endnu.</div>`;
+  const w = 700, h = 140, padX = 30, padY = 10;
+  const min = 1, max = 10;
+  const step = scored.length === 1 ? 0 : (w - 2*padX) / (scored.length - 1);
+  const yFor = v => h - padY - ((v - min) / (max - min)) * (h - 2*padY);
+  const pts = scored.map((e, i) => ({
+    x: padX + i * step,
+    y: yFor(e.trivsel),
+    e,
+  }));
+  const path = pts.map((p, i) => (i === 0 ? "M" : "L") + p.x.toFixed(1) + "," + p.y.toFixed(1)).join(" ");
+  const fillPath = path + ` L${pts[pts.length-1].x.toFixed(1)},${(h-padY).toFixed(1)} L${pts[0].x.toFixed(1)},${(h-padY).toFixed(1)} Z`;
+  const dots = pts.map(p => {
+    const cls = trivselClass(p.e.trivsel);
+    const color = cls === "t-green" ? "#a6da95" : cls === "t-yellow" ? "#eed49f" : "#ed8796";
+    const dateLabel = p.e.date ? new Date(p.e.date).toLocaleDateString("da-DK", { day:"2-digit", month:"short", year:"numeric" }) : "";
+    return `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4.5" fill="${color}" stroke="#1a1a1a" stroke-width="1.5"><title>${escapeHtml(dateLabel)}: ${p.e.trivsel}/10</title></circle>`;
+  }).join("");
+  // Y-akse labels
+  const yLabels = [10, 7, 4, 1].map(v => `<text x="4" y="${(yFor(v) + 4).toFixed(1)}" font-size="10" fill="rgba(176,189,212,0.6)">${v}</text>`).join("");
+  // Vandrette gridlines
+  const grid = [10, 7, 4, 1].map(v => `<line x1="${padX}" x2="${w}" y1="${yFor(v).toFixed(1)}" y2="${yFor(v).toFixed(1)}" stroke="rgba(176,189,212,0.10)" stroke-dasharray="${v === 7 || v === 4 ? "3,4" : "1,4"}"/>`).join("");
+  return `
+    <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+      ${grid}
+      ${yLabels}
+      <path d="${fillPath}" fill="rgba(110,168,254,0.12)" stroke="none"/>
+      <path d="${path}" fill="none" stroke="#6ea8fe" stroke-width="2" opacity="0.9"/>
+      ${dots}
+    </svg>`;
 }
 
 // ============================================
@@ -2977,6 +3409,9 @@ function saveEntry() {
   closeEntryModal();
   renderJournalOverview();
   renderLists();  // Update trivsel badges
+  // Hvis fuld-historik modalen er åben for samme person, opdatér den så
+  // den nye entry vises med det samme.
+  if (openHistoryPid === personId) renderHistoryModal();
   // Push to shared sheet (fire-and-forget; status pill shows progress/errors).
   if (isOauthSignedIn() && entryRef) {
     journalUpsertEntry(entryRef, personId).then(() => {
@@ -2996,6 +3431,8 @@ function deleteEntry(personId, entryId) {
   if (editingEntryPid === personId) closeEntryModal();
   renderJournalOverview();
   renderLists();
+  // Opdatér historik-modal hvis åben.
+  if (openHistoryPid === personId) renderHistoryModal();
   if (isOauthSignedIn() && entryRef && entryRef._rowIndex) {
     journalSoftDeleteEntry(entryRef, personId).catch(err => {
       console.error("[journal sync] delete failed", err);
@@ -3559,6 +3996,8 @@ function oauthSignOut() {
   // Stop polling — without a valid token, every poll would just fail.
   if (typeof stopSyncPolling === "function") stopSyncPolling();
   oauthRenderSignedInUI();
+  // Vis warning-banner igen så det er klart at ændringer ikke længere deles.
+  if (typeof refreshMasterSyncIndicator === "function") refreshMasterSyncIndicator();
 }
 
 // Ensure we have a usable access token. Returns the token, or null if we couldn't
@@ -4157,8 +4596,13 @@ function setMasterSyncStatus(kind, msg) {
 }
 
 function refreshMasterSyncIndicator() {
+  // Toggle den store advarselsbanner ud fra signin-status. Banneret gør
+  // det umuligt at overse at lokale ændringer ikke deles før man logger ind.
+  const banner = document.getElementById("sync-warning-banner");
+  if (banner) banner.classList.toggle("active", !isOauthSignedIn());
+
   if (!isOauthSignedIn()) {
-    setMasterSyncStatus("warn", "⚪ Delt data: ikke logget ind");
+    setMasterSyncStatus("warn", "⚠️ Delt data: ikke logget ind — ændringer deles ikke");
     return;
   }
   if (masterSync.inFlight > 0) {
@@ -4711,7 +5155,7 @@ document.getElementById("btn-journal-migrate").addEventListener("click", migrate
 // Shared master-data sync controls (employees, managers, teams, projects, ...)
 document.getElementById("btn-master-pull").addEventListener("click", async () => {
   if (!isOauthSignedIn()) {
-    alert("Log ind med Google først (i Kalender-fanen) — den delte data kræver login.");
+    alert("Log ind med Google først (i Rotation-fanen) — den delte data kræver login.");
     return;
   }
   try {
@@ -4736,6 +5180,15 @@ document.getElementById("rep-type").addEventListener("change", e => {
 });
 document.getElementById("modal-report-bg").addEventListener("click", e => {
   if (e.target.id === "modal-report-bg") closeReportModal();
+});
+
+// Fuld-historik modal
+document.getElementById("history-modal-close").addEventListener("click", closeHistoryModal);
+document.getElementById("history-modal-add").addEventListener("click", () => {
+  if (openHistoryPid) openEntryModal(openHistoryPid);
+});
+document.getElementById("modal-history-bg").addEventListener("click", e => {
+  if (e.target.id === "modal-history-bg") closeHistoryModal();
 });
 
 // Entry modal
@@ -4794,6 +5247,7 @@ document.getElementById("modal-bg").addEventListener("click", e => { if (e.targe
 document.addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
   if (document.getElementById("modal-entry-bg").classList.contains("active")) { closeEntryModal(); return; }
+  if (document.getElementById("modal-history-bg").classList.contains("active")) { closeHistoryModal(); return; }
   if (document.getElementById("modal-report-bg").classList.contains("active")) { closeReportModal(); return; }
   if (document.getElementById("modal-fntags-bg").classList.contains("active")) { closeFnTagsModal(); return; }
   if (document.getElementById("modal-bg").classList.contains("active")) closeModal();
@@ -4846,6 +5300,9 @@ document.getElementById("modal-event-bg").addEventListener("click", e => {
 document.getElementById("btn-oauth-signin").addEventListener("click", oauthSignIn);
 document.getElementById("btn-oauth-signout").addEventListener("click", oauthSignOut);
 document.getElementById("btn-oauth-refresh").addEventListener("click", () => oauthRefresh(false));
+// "Log ind nu"-knap i den store advarselsbanner: starter OAuth-flow direkte
+// så brugeren ikke behøver at finde signin-knappen i Kalender-fanen.
+document.getElementById("btn-swb-signin").addEventListener("click", oauthSignIn);
 // Help-knap åbner modal med fejlsøgningstips.
 document.getElementById("btn-oauth-help").addEventListener("click", () => {
   document.getElementById("modal-oauth-help").classList.add("active");
