@@ -1005,7 +1005,7 @@
     <span class="swb-icon">⚠️</span>
     <div class="swb-body">
       <div class="swb-title">Du er ikke logget ind med Google</div>
-      <div class="swb-msg">Ændringer du laver (medarbejdere, managers, projekter, datoer) gemmes <strong>kun lokalt på din computer</strong> og deles ikke med Stefan og Malthe. Næste gang du logger ind, kan dine lokale ændringer blive overskrevet af den delte data.</div>
+      <div class="swb-msg">Ændringer du laver (medarbejdere, managers, projekter, datoer) gemmes <strong>kun lokalt på din computer</strong> og deles ikke med de andre managers. Næste gang du logger ind, kan dine lokale ændringer blive overskrevet af den delte data.</div>
     </div>
     <button id="btn-swb-signin">Log ind nu</button>
   </div>
@@ -4602,7 +4602,9 @@ function refreshMasterSyncIndicator() {
   if (banner) banner.classList.toggle("active", !isOauthSignedIn());
 
   if (!isOauthSignedIn()) {
-    setMasterSyncStatus("warn", "⚠️ Delt data: ikke logget ind — ændringer deles ikke");
+    // Banneret ovenfor siger allerede dette tydeligt — undgå at gentage
+    // beskeden i sync-pill'en. Skjul pill'en helt når man ikke er logget ind.
+    setMasterSyncStatus("", "");
     return;
   }
   if (masterSync.inFlight > 0) {
