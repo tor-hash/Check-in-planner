@@ -2,11 +2,14 @@
 
 Two checks run against every Google sign-in:
 
-1. **Workspace domain** — the user's email must come from one of the configured
-   Google Workspace domains (set via ``GOOGLE_WORKSPACE_DOMAIN``).
-2. **Per-email allowlist** — if ``GOOGLE_WORKSPACE_ALLOWED_EMAILS`` is set,
-   the user's exact email must also appear in that list. When empty/unset,
-   any email from the allowed domain may sign in.
+1. **Workspace domain** — the user's email must come from one of the
+   configured Google Workspace domains (set via ``GOOGLE_WORKSPACE_DOMAIN``).
+2. **Allowlist OR open invitation** — the email must either be in the
+   static ``GOOGLE_WORKSPACE_ALLOWED_EMAILS`` list (seed list, managed via
+   env var) OR have an open ``apps.accounts.Invitation`` row created by an
+   existing user. When the static list is empty *and* there are no
+   invitations the table is effectively disabled and any user from the
+   allowed domain may sign in.
 
 Both checks happen before ``social_user`` / ``create_user`` so a rejected
 caller never gets a Django user row.
@@ -31,23 +34,55 @@ def ensure_workspace_domain(backend, details, response, *args, **kwargs):
 
 
 def ensure_allowed_email(backend, details, response, *args, **kwargs):
-    """Reject sign-ins from emails not in the per-user allowlist.
+    """Reject sign-ins from emails that are neither allowlisted nor invited.
 
-    No-op when ``GOOGLE_WORKSPACE_ALLOWED_EMAILS`` is empty. Combine with
-    ``ensure_workspace_domain`` for defence in depth.
+    Decision tree:
+
+    - Existing Django users are always allowed to re-authenticate (the gate
+      only governs whether a *new* user row may be created).
+    - If the static env allowlist is non-empty *or* any invitation exists,
+      gating is "on" for first-time sign-ins: the email must be
+      allowlisted or have an open invitation, otherwise we raise
+      ``AuthForbidden``.
+    - If both are empty, this step is a no-op — falls back to the domain
+      check only (useful for dev / first-time bootstrap before any
+      invitation has been created).
+    - When an open invitation is consumed it is marked as accepted so the
+      same row cannot be reused later.
     """
+    from django.contrib.auth import get_user_model
+
+    from .models import Invitation  # local import avoids AppRegistryNotReady
+
     allowed_emails = {
         addr.lower()
         for addr in getattr(settings, "GOOGLE_WORKSPACE_ALLOWED_EMAILS", [])
         if addr
     }
-    if not allowed_emails:
-        return  # allowlist disabled - fall back to domain-only check
 
     email = (details.get("email") or "").strip().lower()
-    if email not in allowed_emails:
-        raise AuthForbidden(
-            backend,
-            "Your account is not on the allowlist for this app. Contact an admin "
-            "to be added.",
-        )
+
+    if email and get_user_model().objects.filter(email__iexact=email).exists():
+        return  # already a user, never re-gate on re-auth
+
+    gating_enabled = bool(allowed_emails) or Invitation.objects.exists()
+    if not gating_enabled:
+        return  # nothing configured yet — fall through to domain-only check
+
+    if email and email in allowed_emails:
+        return
+
+    invitation = (
+        Invitation.objects.filter(email__iexact=email, accepted_at__isnull=True).first()
+        if email
+        else None
+    )
+    if invitation is not None:
+        invitation.mark_accepted()
+        return
+
+    raise AuthForbidden(
+        backend,
+        "Your account is not on the allowlist for this app. Ask a colleague "
+        "to invite you (from the planner home page) or contact an admin.",
+    )

@@ -30,9 +30,16 @@ Projektet er nu migreret til en Django-webapp med:
 
 ## Lokal udvikling (Django)
 
+> Ny dev på projektet? Brug den fulde, copy-paste-venlige guide her:
+> [`docs/local-setup.md`](docs/local-setup.md).
+
+Kort version:
+
 1. Installer dependencies:
    - `python -m pip install -r requirements.txt`
-2. Konfigurer env vars (se `backend/.env.example`)
+2. Kopiér `backend/.env.example` til `backend/.env` og udfyld
+   `DJANGO_SECRET_KEY`, `GOOGLE_OAUTH2_KEY`, `GOOGLE_OAUTH2_SECRET`.
+   Filen indlæses automatisk af `manage.py`/`wsgi.py`/`asgi.py`.
 3. Kør migrationer:
    - `python backend/manage.py migrate`
 4. Seed baseline data:
