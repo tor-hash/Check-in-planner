@@ -69,36 +69,44 @@ For at verificere: gå til https://console.cloud.google.com → vælg `blackcapi
 
 ## 4. Opret OAuth Client ID (pr. app — gør dette for Check-in Planner nu)
 
+Der er nu to flows for Check-in Planner:
+- Legacy frontend token-flow (historisk, statisk side)
+- Django social-auth redirect-flow (nuværende backend-app)
+
+Hvis du kører Django-versionen, skal redirect URIs udfyldes (se 4.6).
+
 1. Sidebar → **APIs & Services** → **Credentials**
 2. **+ Create credentials** → **OAuth client ID**
 3. Application type: **Web application**
 4. Name: navngiv specifikt så du kan kende dem fra hinanden. For Check-in Planner: `Check-in Planner — Web`
 5. **Authorized JavaScript origins** (klik + Add URI for hver):
-   - For Check-in Planner: `https://tor-hash.github.io`
+   - For Check-in Planner (legacy/static): `https://tor-hash.github.io`
    - Til lokal udvikling: `http://localhost:8000` (valgfrit)
+   - Render staging: `https://checkin-planner-staging.onrender.com`
+   - Render prod: `https://checkin-planner-prod.onrender.com`
    - Custom domain hvis I får et: fx `https://checkin.blackcapitaltechnology.com`
-6. **Authorized redirect URIs:** ingen (vi bruger token-flow, ikke redirect-flow)
+6. **Authorized redirect URIs** (krævet for Django social-auth):
+   - Lokal: `http://127.0.0.1:8000/auth/complete/google-oauth2/`
+   - Staging: `https://checkin-planner-staging.onrender.com/auth/complete/google-oauth2/`
+   - Production: `https://checkin-planner-prod.onrender.com/auth/complete/google-oauth2/`
 7. Klik **Create** → kopiér **Client ID** (formatet `1234567890-abc...apps.googleusercontent.com`)
 
 Når du senere skal tilføje Onboarding Planner: tilbage til Credentials → opret en ny OAuth Client ID med navnet `Onboarding Planner — Web` og dens egen origins-liste.
 
-## 5. Indsæt Client ID i koden (pr. app)
+## 5. Indsæt credentials i appen (pr. app)
 
-Åbn det relevante repo. For Check-in Planner: `checkin-planner.html`, find linjen (omkring linje 3220):
+### Django-version (nuværende)
+Sæt følgende env vars i din deploy/platform:
+- `GOOGLE_OAUTH2_KEY` = Client ID
+- `GOOGLE_OAUTH2_SECRET` = Client Secret
+- `GOOGLE_WORKSPACE_DOMAIN` = `blackcapitaltechnology.com`
 
-```js
-const OAUTH_CLIENT_ID = "";  // ← paste your OAuth Client ID here
-```
+Lokal udvikling kan bruge `.env` baseret på `backend/.env.example`.
 
-Indsæt dit Client ID:
+### Legacy statisk version (kun hvis stadig brugt)
+`checkin-planner.html` bruger stadig `OAUTH_CLIENT_ID` konstanten i frontend token-flowet.
 
-```js
-const OAUTH_CLIENT_ID = "1234567890-abc...apps.googleusercontent.com";
-```
-
-Commit og push. Færdig.
-
-Client ID'et er **public** og sikkert at committe til GitHub. Sikkerheden ligger i origin-checken på Google's side — kun requests fra de URLs du tilføjede i trin 4.5 kan bruge ID'et.
+Client ID'et er **public** og sikkert at committe til GitHub. Client secret må derimod aldrig committes og skal kun ligge i miljøvariabler.
 
 ---
 
@@ -136,7 +144,7 @@ Hver app får sin egen Client ID, så de er fuldt isolerede på OAuth-niveau (en
 
 - **"Internal" er gråt på OAuth consent screen** — projektet blev oprettet uden organisation. Slet og opret igen med `blackcapitaltechnology.com` som organisation.
 - **"Project Creator"-knappen mangler** — admin har ikke givet dig rollen endnu. Verificér i Cloud Console → IAM & Admin → IAM (på org-niveau).
-- **"redirect_uri_mismatch" / "invalid_request"** — origin er ikke tilføjet under Authorized JavaScript origins (trin 4.5). Tjek at der ikke er trailing slash, og at det er JS origin, ikke redirect URI.
+- **"redirect_uri_mismatch" / "invalid_request"** — enten JS origin eller redirect URI mangler/er forkert. Django-flow kræver præcis match på `/auth/complete/google-oauth2/`.
 - **Login-vinduet lukker uden fejl, men ingen token kommer** — tredjeparts-cookies blokeres i browseren. Aktivér tredjeparts-cookies for `accounts.google.com` eller skift browser.
 - **403 på en specifik medarbejders kalender** — den person har ikke delt sin kalender med den loggede-ind manager.
 - **Manager udenfor `@blackcapitaltechnology.com` får "access_denied"** — Internal apps tillader kun brugere på domænet. Hvis vi skal støtte eksterne (fx konsulenter), skal projektet flyttes til External + test users (eller verification).

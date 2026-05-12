@@ -1,0 +1,86 @@
+databases:
+  - name: checkin-planner-db
+    plan: free
+    databaseName: checkin_planner
+    user: checkin_planner
+
+services:
+  - type: web
+    name: checkin-planner-staging
+    runtime: python
+    plan: free
+    rootDir: .
+    region: frankfurt
+    buildCommand: |
+      pip install -r requirements.txt
+      python backend/manage.py collectstatic --noinput
+      python backend/manage.py migrate
+    startCommand: gunicorn config.wsgi:application --chdir backend --bind 0.0.0.0:$PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: DJANGO_ENVIRONMENT
+        value: staging
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: checkin-planner-staging.onrender.com
+      - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        value: https://checkin-planner-staging.onrender.com
+      - key: DJANGO_SECURE_SSL_REDIRECT
+        value: "True"
+      - key: DJANGO_SECURE_HSTS_SECONDS
+        value: "31536000"
+      - key: GOOGLE_WORKSPACE_DOMAIN
+        value: blackcapitaltechnology.com
+      - key: GOOGLE_WORKSPACE_ALLOWED_EMAILS
+        sync: false
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: checkin-planner-db
+          property: connectionString
+      - key: GOOGLE_OAUTH2_KEY
+        sync: false
+      - key: GOOGLE_OAUTH2_SECRET
+        sync: false
+
+  - type: web
+    name: checkin-planner-prod
+    runtime: python
+    plan: starter
+    rootDir: .
+    region: frankfurt
+    buildCommand: |
+      pip install -r requirements.txt
+      python backend/manage.py collectstatic --noinput
+      python backend/manage.py migrate
+    startCommand: gunicorn config.wsgi:application --chdir backend --bind 0.0.0.0:$PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: DJANGO_ENVIRONMENT
+        value: production
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: checkin-planner-prod.onrender.com
+      - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        value: https://checkin-planner-prod.onrender.com
+      - key: DJANGO_SECURE_SSL_REDIRECT
+        value: "True"
+      - key: DJANGO_SECURE_HSTS_SECONDS
+        value: "31536000"
+      - key: GOOGLE_WORKSPACE_DOMAIN
+        value: blackcapitaltechnology.com
+      - key: GOOGLE_WORKSPACE_ALLOWED_EMAILS
+        sync: false
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: checkin-planner-db
+          property: connectionString
+      - key: GOOGLE_OAUTH2_KEY
+        sync: false
+      - key: GOOGLE_OAUTH2_SECRET
+        sync: false
