@@ -44,6 +44,8 @@ services:
         sync: false
       - key: GOOGLE_OAUTH2_SECRET
         sync: false
+      - key: ONBOARDING_API_TOKEN
+        sync: false
 
   - type: web
     name: checkin-planner-prod
@@ -83,4 +85,6 @@ services:
       - key: GOOGLE_OAUTH2_KEY
         sync: false
       - key: GOOGLE_OAUTH2_SECRET
+        sync: false
+      - key: ONBOARDING_API_TOKEN
         sync: false

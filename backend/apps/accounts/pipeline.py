@@ -62,8 +62,8 @@ def ensure_allowed_email(backend, details, response, *args, **kwargs):
 
     email = (details.get("email") or "").strip().lower()
 
-    if email and get_user_model().objects.filter(email__iexact=email).exists():
-        return  # already a user, never re-gate on re-auth
+    if email and get_user_model().objects.filter(email__iexact=email, is_active=True).exists():
+        return  # already an active user, never re-gate on re-auth
 
     gating_enabled = bool(allowed_emails) or Invitation.objects.exists()
     if not gating_enabled:

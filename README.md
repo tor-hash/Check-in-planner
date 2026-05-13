@@ -60,10 +60,23 @@ Kort version:
 - Kun brugere i gruppen `manager` eller `admin` (eller superuser) kan skrive planner-data via API.
 - Grupper kan styres i Django admin (`/admin`).
 
+## Onboarding API
+
+Et separat headless service i samme Django-projekt der lader ERP-systemet
+oprette nye medarbejdere og lader HR-værktøjer markere onboarding-steps
+færdige via REST. Onboardees logger aldrig ind (de gemmes som
+`is_active=False` Django-brugere så de ikke kan tilgå check-in-planneren).
+
+- Endpoints: se [docs/onboarding-api.md](docs/onboarding-api.md).
+- Auth: shared API key i `ONBOARDING_API_TOKEN` env var (header
+  `X-API-Key: ...`). Tom = endpoints svarer 503.
+- Flow templates bygges i Django admin under `/admin/onboarding/`.
+- Seed default flow: `python backend/manage.py seed_onboarding`.
+
 ## Tests
 
 Kør backend tests:
-- `python backend/manage.py test apps.planner.tests apps.accounts.tests`
+- `python backend/manage.py test apps.planner.tests apps.accounts.tests apps.onboarding.tests`
 
 ## Render deployment (staging + production)
 

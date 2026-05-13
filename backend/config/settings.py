@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     "social_django",
     "apps.accounts",
     "apps.planner",
+    "apps.onboarding",
 ]
 
 MIDDLEWARE = [
@@ -157,6 +158,11 @@ SOCIAL_AUTH_GOOGLE_OAUTH2_EXTRA_DATA = [
 ]
 GOOGLE_CALENDAR_TIMEZONE = os.getenv("GOOGLE_CALENDAR_TIMEZONE", "Europe/Copenhagen")
 USE_GOOGLE_SHEET_JOURNAL = env_bool("USE_GOOGLE_SHEET_JOURNAL", False)
+
+# Shared API key for the onboarding REST API. Leaving this blank disables
+# the API entirely (endpoints respond 503) which is the safe default for
+# dev and CI: no surprise exposure on a fresh deploy.
+ONBOARDING_API_TOKEN = os.getenv("ONBOARDING_API_TOKEN", "")
 SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.social_details",
     "social_core.pipeline.social_auth.social_uid",
