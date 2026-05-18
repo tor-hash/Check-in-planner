@@ -47,16 +47,19 @@
 
     const response = await fetch(BASE + path, init);
     if (response.status === 204) return null;
-    if (response.status === 401 && window.location) {
-      // Session expired — bounce back through Django login.
-      window.location.href = "/accounts/login/?next=" + encodeURIComponent(window.location.pathname);
-      return null;
-    }
     let body = null;
     try {
       body = await response.json();
     } catch (_) {
       body = null;
+    }
+    if (response.status === 401 && window.location && !(body && body.needs_consent)) {
+      // Session expired — bounce back through Django login. Calendar
+      // re-consent errors are returned to the caller so the UI can show
+      // the specific Google permission message instead of treating the
+      // request as a successful no-op.
+      window.location.href = "/accounts/login/?next=" + encodeURIComponent(window.location.pathname);
+      return null;
     }
     if (!response.ok) {
       const detail = (body && body.detail) || ("HTTP " + response.status);

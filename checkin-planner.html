@@ -18,7 +18,6 @@
 <script src="{% static 'planner/modules/oauth-signin.js' %}"></script>
 <script src="{% static 'planner/modules/bookings.js' %}"></script>
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
-<script src="https://accounts.google.com/gsi/client" async defer></script>
 <link rel="stylesheet" href="{% static 'planner/styles/main.css' %}">
 </head>
 <body>
@@ -408,7 +407,7 @@
       </div>
     </div>
     <div class="ev-info">
-      <strong>Opret i Google Calendar</strong> åbner Google's event-vindue i en ny tab med alle felter prefyldt — du klikker bare <strong>Save</strong> for at sende invitationen. Mødet oprettes i <em>din</em> kalender med medarbejderen som inviteret deltager.
+      <strong>Opret i Google Calendar</strong> opretter mødet via backend'en, gemmer det som en CheckInMeeting i databasen og sender invitationen fra managerens Google Calendar.
     </div>
     <div class="modal-actions">
       <div></div>
@@ -1128,7 +1127,6 @@ function openEventModal(personId, sessionIdx, slotDate) {
   if (!p) return;
   const teamId = getTeamForPerson(personId);
   const mgrId = getManagerForSession(teamId, sessionIdx);
-  const mgr = findPerson(mgrId);
 
   document.getElementById("ev-title").value = "Check-in samtale";
   document.getElementById("ev-date").value = dayKey(slotDate);
@@ -1143,28 +1141,12 @@ function openEventModal(personId, sessionIdx, slotDate) {
   bg.dataset.pid = personId;
   bg.dataset.sidx = sessionIdx;
   bg.dataset.email = p.email || "";
+  bg.dataset.managerId = mgrId || "";
   bg.classList.add("active");
   setTimeout(() => document.getElementById("ev-title").focus(), 50);
 }
 function closeEventModal() {
   document.getElementById("modal-event-bg").classList.remove("active");
-}
-function buildCalendarUrl({ title, dateStr, timeStr, durationMin, attendeeEmail, agenda }) {
-  const startDt = new Date(dateStr + "T" + timeStr);
-  const endDt = new Date(startDt.getTime() + durationMin * 60000);
-  const fmtCalDate = d =>
-    d.getFullYear() +
-    String(d.getMonth() + 1).padStart(2, "0") +
-    String(d.getDate()).padStart(2, "0") + "T" +
-    String(d.getHours()).padStart(2, "0") +
-    String(d.getMinutes()).padStart(2, "0") + "00";
-  const params = new URLSearchParams();
-  params.set("action", "TEMPLATE");
-  params.set("text", title || "Check-in samtale");
-  params.set("dates", `${fmtCalDate(startDt)}/${fmtCalDate(endDt)}`);
-  if (agenda && agenda.trim()) params.set("details", agenda);
-  if (attendeeEmail) params.set("add", attendeeEmail);
-  return "https://calendar.google.com/calendar/render?" + params.toString();
 }
 function getEventModalData() {
   const bg = document.getElementById("modal-event-bg");
@@ -1176,6 +1158,7 @@ function getEventModalData() {
     timeStr: document.getElementById("ev-time").value,
     durationMin: parseInt(document.getElementById("ev-duration").value, 10) || 15,
     attendeeEmail: bg.dataset.email,
+    managerId: bg.dataset.managerId,
     agenda: document.getElementById("ev-agenda").value,
   };
 }
@@ -1192,50 +1175,51 @@ function evSaveOnly() {
 async function evCreateInCalendar() {
   const d = getEventModalData();
   if (!d.dateStr || !d.timeStr) { alert("Udfyld dato og tid."); return; }
+  if (!d.managerId) { alert("Kunne ikke finde manageren for denne session."); return; }
   const btn = document.getElementById("ev-create");
 
-  // If signed into OAuth → create the event via Calendar API (sends invite automatically).
-  // Otherwise → fall back to URL prefill so user can still book manually.
-  if (typeof isOauthSignedIn === "function" && isOauthSignedIn()) {
-    if (btn) { btn.disabled = true; btn.textContent = "Opretter…"; }
-    try {
-      const ev = await oauthCreateEvent(d);
-      if (!state.customDates[d.pid]) state.customDates[d.pid] = {};
-      state.customDates[d.pid][d.sidx] = d.dateStr + "T" + d.timeStr;
-      saveState();
-      syncCustomDates();
-      closeEventModal();
-      renderByPerson();
-      // Refresh free/busy in the background so the new event shows up immediately.
-      oauthRefresh(true);
-      if (ev.htmlLink) window.open(ev.htmlLink, "_blank", "noopener,noreferrer");
-    } catch (err) {
-      console.error("[oauth] create event failed", err);
-      alert("Kunne ikke oprette event:\n\n" + err.message + "\n\nFalder tilbage til prefill-flow.");
-      // Fall through to the URL-prefill path so the user isn't stuck.
-      const url = buildCalendarUrl(d);
-      if (!state.customDates[d.pid]) state.customDates[d.pid] = {};
-      state.customDates[d.pid][d.sidx] = d.dateStr + "T" + d.timeStr;
-      saveState();
-      syncCustomDates();
-      window.open(url, "_blank", "noopener,noreferrer");
-      closeEventModal();
-      renderByPerson();
-    } finally {
-      if (btn) { btn.disabled = false; btn.textContent = "Opret i Google Calendar →"; }
-    }
+  const startsAt = new Date(d.dateStr + "T" + d.timeStr);
+  if (Number.isNaN(startsAt.getTime())) { alert("Dato/tidspunkt er ugyldigt."); return; }
+
+  const bookingModule = window.Planner?.modules?.bookings;
+  if (!bookingModule || typeof bookingModule.book !== "function") {
+    alert("Booking-modulet er ikke indlæst. Genindlæs siden og prøv igen.");
     return;
   }
 
-  // Not signed in — original prefill flow.
-  const url = buildCalendarUrl(d);
-  if (!state.customDates[d.pid]) state.customDates[d.pid] = {};
-  state.customDates[d.pid][d.sidx] = d.dateStr + "T" + d.timeStr;
-  saveState();
-  syncCustomDates();
-  window.open(url, "_blank", "noopener,noreferrer");
-  closeEventModal();
-  renderByPerson();
+  if (btn) { btn.disabled = true; btn.textContent = "Opretter…"; }
+  try {
+    const booking = await bookingModule.book({
+      managerId: d.managerId,
+      personId: d.pid,
+      startsAt: startsAt.toISOString(),
+      durationMinutes: d.durationMin,
+      title: d.title,
+      agenda: d.agenda,
+    });
+    if (!booking) throw new Error("Backend'en returnerede ikke en booking.");
+
+    if (!state.customDates[d.pid]) state.customDates[d.pid] = {};
+    state.customDates[d.pid][d.sidx] = d.dateStr + "T" + d.timeStr;
+    saveState();
+    syncCustomDates();
+    closeEventModal();
+    renderByPerson();
+    // Refresh free/busy in the background so the new event shows up immediately.
+    if (typeof oauthRefresh === "function") {
+      oauthRefresh(true).catch(err => console.error("[booking] background free/busy refresh failed", err));
+    }
+    if (booking.googleHtmlLink) window.open(booking.googleHtmlLink, "_blank", "noopener,noreferrer");
+  } catch (err) {
+    console.error("[booking] backend booking failed", err);
+    const detail = err?.body?.detail || err?.message || String(err);
+    const consentHint = err?.body?.needs_consent
+      ? "\n\nManageren skal logge ind igen og give Google Calendar-tilladelse."
+      : "";
+    alert("Kunne ikke oprette booking:\n\n" + detail + consentHint);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Opret i Google Calendar →"; }
+  }
 }
 
 function formatSlotLabel(d) {
@@ -2862,33 +2846,11 @@ function renderDayGrid(personId, sessionIdx, slots, customDateStr, weekInSession
 }
 
 // ============================================
-// LIVE GOOGLE CALENDAR (OAuth + Calendar API)
+// GOOGLE CALENDAR (server-side OAuth via Django)
 // ============================================
-// Manager logs in once with Google Identity Services (GIS), we get a
-// short-lived access token, then call:
-//   POST https://www.googleapis.com/calendar/v3/freeBusy   (free/busy lookup)
-//   POST https://www.googleapis.com/calendar/v3/calendars/primary/events  (booking)
-// Token is held in memory only — never written to localStorage.
-//
-// SETUP: Paste your OAuth Client ID below (see GOOGLE_CLOUD_SETUP.md for how
-// to get one). Once set, all managers just click "Sign in with Google" — no
-// per-user config needed. The Client ID is public and safe to commit.
-const OAUTH_CLIENT_ID = "895573577859-h2sjmrtjhqku4dheh2nsuon4bnnm8p6t.apps.googleusercontent.com";
-
-// Sheet/Drive scopes are only needed when journal data still lives in the
-// legacy Google Sheet. Phase 4 moves the journal to Django, so we only
-// request them when the runtime flag tells us the sheet is still in play.
-const OAUTH_SCOPES = (function buildScopes() {
-  const scopes = [
-    "https://www.googleapis.com/auth/calendar.freebusy",
-    "https://www.googleapis.com/auth/calendar.events",
-  ];
-  if (window.PLANNER_USE_SHEET_JOURNAL) {
-    scopes.push("https://www.googleapis.com/auth/spreadsheets");
-    scopes.push("https://www.googleapis.com/auth/drive.file");
-  }
-  return scopes.join(" ");
-})();
+// Sign-in uses the same OAuth client as GOOGLE_OAUTH2_KEY on the server.
+// Free/busy and booking go through /api/* with the manager's stored refresh
+// token — no browser GIS token or hardcoded client ID.
 
 // =====================================================================
 // SHARED JOURNAL STORAGE — Google Sheet + Drive folder
@@ -2918,15 +2880,7 @@ const MASTER_SHEET_TAB = "MasterData";
 const MASTER_SHEET_HEADER = ["key", "json", "updatedAt", "updatedBy"];
 const MASTER_KEYS = ["people", "mgrs", "teams", "projects", "fnTags", "customDates", "startDate"];
 
-function getOauthClientId() {
-  return (OAUTH_CLIENT_ID || "").trim();
-}
-
 const oauthState = {
-  tokenClient: null,
-  accessToken: null,
-  tokenExpiresAt: 0,    // epoch ms
-  userEmail: null,      // best-effort, parsed from id_token if Google sends one
   autoTimer: null,
 };
 
@@ -2943,7 +2897,7 @@ function setOauthStatus(text, kind) {
 }
 
 function isOauthSignedIn() {
-  return !!(oauthState.accessToken && Date.now() < oauthState.tokenExpiresAt - 30_000);
+  return !!(window.PLANNER_USER_EMAIL && String(window.PLANNER_USER_EMAIL).trim());
 }
 
 function oauthRenderConfig() {
@@ -2960,7 +2914,7 @@ function oauthRenderSignedInUI() {
   if (isOauthSignedIn()) {
     inBtn.style.display = "none";
     signedEl.style.display = "";
-    if (userEl) userEl.textContent = oauthState.userEmail || "Logget ind";
+    if (userEl) userEl.textContent = window.PLANNER_USER_EMAIL || "Logget ind";
     if (state.oauth?.lastFetch) {
       const ts = new Date(state.oauth.lastFetch).toLocaleTimeString("da-DK", { hour:"2-digit", minute:"2-digit" });
       setOauthStatus("Sidste free/busy hent " + ts, "ok");
@@ -2975,147 +2929,37 @@ function oauthRenderSignedInUI() {
   }
 }
 
-// Initialize the GIS token client. Safe to call multiple times — re-creates
-// the client when the configured client ID changes.
-function oauthInitTokenClient() {
-  const clientId = getOauthClientId();
-  if (!clientId) {
-    alert("Ingen OAuth Client ID konfigureret. Admin skal sætte OAUTH_CLIENT_ID konstanten i checkin-planner.html (se GOOGLE_CLOUD_SETUP.md).");
-    return null;
-  }
-  if (typeof google === "undefined" || !google.accounts || !google.accounts.oauth2) {
-    alert("Google Identity Services er ikke loaded endnu — vent et øjeblik og prøv igen.");
-    return null;
-  }
-  // Always (re)build to pick up changes to the client ID.
-  oauthState.tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: clientId,
-    scope: OAUTH_SCOPES,
-    callback: (resp) => {
-      if (resp.error) {
-        setOauthStatus("Login fejl: " + resp.error, "err");
-        console.error("[oauth] token error", resp);
-        return;
-      }
-      oauthState.accessToken = resp.access_token;
-      // GIS returns expires_in in seconds; default 3600 if absent.
-      const ttl = (parseInt(resp.expires_in, 10) || 3600) * 1000;
-      oauthState.tokenExpiresAt = Date.now() + ttl;
-      // Best-effort: try to read the email from the ID token if one came along.
-      // Token-flow doesn't include id_token by default, so we just use 'primary' calendar
-      // and let the user see their generic logged-in state.
-      oauthRenderSignedInUI();
-      // First-time login → fetch immediately.
-      oauthRefresh(false);
-      // Also pull the shared journal so other managers' entries show up.
-      if (!journalSync.loaded) {
-        journalLoadAll().catch(err => {
-          console.error("[journal sync] initial load failed", err);
-        });
-      } else {
-        refreshJournalSyncIndicator();
-      }
-      // And the shared master data (employees, managers, teams, projects, ...).
-      // First-time signin → full pull. After that, manual refresh button.
-      if (!masterSync.loaded) {
-        masterLoadAll().catch(err => {
-          console.error("[master sync] initial load failed", err);
-        });
-      } else {
-        refreshMasterSyncIndicator();
-      }
-      // Start auto-polling so other managers' edits show up here
-      // automatically every POLL_INTERVAL_MS (~20 sec). Also runs on visibility
-      // change for instant refresh when the user tabs back in.
-      startSyncPolling();
-    },
-  });
-  return oauthState.tokenClient;
-}
-
 function oauthSignIn() {
-  const client = oauthState.tokenClient || oauthInitTokenClient();
-  if (!client) return;
-  // prompt: '' means silent if possible, otherwise show consent. Use 'consent'
-  // on first ever sign-in — Google handles the difference automatically.
-  client.requestAccessToken({ prompt: oauthState.accessToken ? "" : "consent" });
+  const mod = window.Planner && typeof window.Planner.get === "function"
+    ? window.Planner.get("oauthSignin")
+    : null;
+  if (mod && typeof mod.reconsent === "function") {
+    mod.reconsent();
+    return;
+  }
+  const next = encodeURIComponent(window.location.pathname + window.location.search);
+  window.location.href = "/auth/login/google-oauth2/?next=" + next;
 }
 
 function oauthSignOut() {
-  if (oauthState.accessToken && google?.accounts?.oauth2?.revoke) {
-    google.accounts.oauth2.revoke(oauthState.accessToken, () => {});
-  }
-  oauthState.accessToken = null;
-  oauthState.tokenExpiresAt = 0;
-  oauthState.userEmail = null;
-  // Stop polling — without a valid token, every poll would just fail.
   if (typeof stopSyncPolling === "function") stopSyncPolling();
-  oauthRenderSignedInUI();
-  // Vis warning-banner igen så det er klart at ændringer ikke længere deles.
-  if (typeof refreshMasterSyncIndicator === "function") refreshMasterSyncIndicator();
+  const next = encodeURIComponent("/accounts/login/");
+  window.location.href = "/accounts/logout/?next=" + next;
 }
 
-// Ensure we have a usable access token. Returns the token, or null if we couldn't
-// silently refresh (caller should show a sign-in prompt).
+// Legacy sheet journal still expected a browser token; prod uses Django journal.
 async function oauthEnsureToken() {
-  if (isOauthSignedIn()) return oauthState.accessToken;
-  if (!oauthState.tokenClient) oauthInitTokenClient();
-  if (!oauthState.tokenClient) return null;
-  return new Promise((resolve) => {
-    const cb = (resp) => {
-      if (resp.error) { resolve(null); return; }
-      oauthState.accessToken = resp.access_token;
-      oauthState.tokenExpiresAt = Date.now() + ((parseInt(resp.expires_in,10) || 3600) * 1000);
-      resolve(oauthState.accessToken);
-    };
-    // Reassign callback temporarily.
-    const original = oauthState.tokenClient.callback;
-    oauthState.tokenClient.callback = (resp) => { cb(resp); oauthState.tokenClient.callback = original; };
-    oauthState.tokenClient.requestAccessToken({ prompt: "" });
-  });
-}
-
-// Call Calendar v3 freeBusy for many calendars in one request (max 50 per call).
-async function oauthFreeBusy(token, calendarIds, timeMin, timeMax) {
-  // Calendar API caps freeBusy.items at 50 per request.
-  const chunks = [];
-  for (let i = 0; i < calendarIds.length; i += 50) chunks.push(calendarIds.slice(i, i + 50));
-  const merged = {};
-  const errors = [];
-  for (const chunk of chunks) {
-    const r = await fetch("https://www.googleapis.com/calendar/v3/freeBusy", {
-      method: "POST",
-      headers: {
-        "Authorization": "Bearer " + token,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        timeMin: timeMin.toISOString(),
-        timeMax: timeMax.toISOString(),
-        items: chunk.map(id => ({ id })),
-      }),
-    });
-    if (!r.ok) {
-      const txt = await r.text();
-      throw new Error("freeBusy HTTP " + r.status + ": " + txt.slice(0, 200));
-    }
-    const data = await r.json();
-    Object.entries(data.calendars || {}).forEach(([calId, info]) => {
-      if (info.errors && info.errors.length) {
-        errors.push({ calendar: calId, reason: info.errors[0].reason });
-        merged[calId] = null;
-      } else {
-        merged[calId] = (info.busy || []).map(b => ({ start: b.start, end: b.end, summary: "" }));
-      }
-    });
-  }
-  return { merged, errors };
+  if (!window.PLANNER_USE_SHEET_JOURNAL) return null;
+  return null;
 }
 
 async function oauthRefresh(silent = false) {
-  const token = await oauthEnsureToken();
-  if (!token) {
-    if (!silent) alert("Ikke logget ind. Klik 'Sign in with Google' først.");
+  if (!isOauthSignedIn()) {
+    if (!silent) alert("Ikke logget ind. Klik 'Log ind med Google' først.");
+    return;
+  }
+  if (!window.PlannerApi || typeof window.PlannerApi.freeBusy !== "function") {
+    if (!silent) alert("Planner API er ikke klar.");
     return;
   }
   setOauthStatus("Henter…", "");
@@ -3144,30 +2988,40 @@ async function oauthRefresh(silent = false) {
     return;
   }
 
-  let result;
+  let response;
   try {
-    result = await oauthFreeBusy(token, calendarIds, start, end);
+    response = await window.PlannerApi.freeBusy({
+      from: start.toISOString(),
+      to: end.toISOString(),
+      emails: calendarIds,
+    });
   } catch (err) {
     console.error("[oauth] freeBusy failed", err);
-    setOauthStatus("Fejl: " + err.message.slice(0, 60), "err");
-    if (!silent) alert("Free/busy fejl:\n\n" + err.message);
+    if (err && err.status === 401 && err.body && err.body.needs_consent) {
+      setOauthStatus("Kalender-tilladelse mangler", "err");
+      if (!silent && confirm("Google Calendar-adgang mangler. Log ind igen for at give tilladelse?")) {
+        oauthSignIn();
+      }
+      return;
+    }
+    setOauthStatus("Fejl: " + (err.message || "free/busy").slice(0, 60), "err");
+    if (!silent) alert("Free/busy fejl:\n\n" + (err.message || err));
     return;
   }
 
   const newBusy = {};
   let okCount = 0;
   const errorDetails = [...skipped];
-  for (const [calId, busy] of Object.entries(result.merged)) {
-    const pid = emailToPid[calId];
+  const calendars = (response && response.calendars) || {};
+  for (const [email, busy] of Object.entries(calendars)) {
+    const pid = emailToPid[email];
     if (!pid) continue;
-    if (busy === null) continue; // had an error, captured below
-    newBusy[pid] = busy;
+    newBusy[pid] = (busy || []).map(b => ({
+      start: b.start,
+      end: b.end,
+      summary: "",
+    }));
     okCount++;
-  }
-  for (const e of result.errors) {
-    const pid = emailToPid[e.calendar];
-    const p = pid ? findPerson(pid) : null;
-    errorDetails.push((p?.name || e.calendar) + ": " + e.reason);
   }
   const errCount = calendarIds.length - okCount + skipped.length;
 
@@ -3216,34 +3070,6 @@ function maybeAutoRefreshFreeBusy() {
     _autoRefreshTimer = null;
     oauthRefresh(true).catch(err => console.error("[auto-refresh] failed", err));
   }, 1000);
-}
-
-// Programmatically create a Calendar event in the signed-in manager's primary calendar.
-// Returns the created event resource (with htmlLink). Throws on failure.
-async function oauthCreateEvent({ title, dateStr, timeStr, durationMin, attendeeEmail, agenda }) {
-  const token = await oauthEnsureToken();
-  if (!token) throw new Error("Ikke logget ind med Google");
-  const startDt = new Date(dateStr + "T" + timeStr);
-  const endDt = new Date(startDt.getTime() + durationMin * 60000);
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Copenhagen";
-  const body = {
-    summary: title || "Check-in samtale",
-    description: agenda || "",
-    start: { dateTime: startDt.toISOString(), timeZone: tz },
-    end: { dateTime: endDt.toISOString(), timeZone: tz },
-  };
-  if (attendeeEmail) body.attendees = [{ email: attendeeEmail }];
-  // sendUpdates=all → Google sends the calendar invite email to the attendee.
-  const r = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all", {
-    method: "POST",
-    headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!r.ok) {
-    const txt = await r.text();
-    throw new Error("events.insert HTTP " + r.status + ": " + txt.slice(0, 300));
-  }
-  return await r.json();
 }
 
 // ============================================
@@ -3843,7 +3669,7 @@ async function masterUpsertKey(key, opts = {}) {
 
     const json = buildMasterPayload(key);
     const updatedAt = Date.now();
-    const updatedBy = oauthState.userEmail || "ukendt";
+    const updatedBy = window.PLANNER_USER_EMAIL || "ukendt";
     const row = [key, json, String(updatedAt), updatedBy];
     if (rowIdx) {
       await sheetsApi(
@@ -4556,6 +4382,9 @@ renderAll();
 setupSortable();
 bindWorkHours();
 setupOauthAuto();
+if (isOauthSignedIn() && window.PlannerApi) {
+  oauthRefresh(true).catch(err => console.warn("[oauth] initial free/busy failed", err));
+}
 </script>
 </body>
 </html>

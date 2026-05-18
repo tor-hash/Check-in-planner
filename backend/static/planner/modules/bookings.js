@@ -8,8 +8,8 @@
  *     CheckInMeeting + Google event in one round-trip
  *   - cancelBooking(id)                     → cancels DB row + Google event
  *
- * Once Phase 5 fully replaces the in-page slot-grid + booking modal, the
- * legacy oauthCreateEvent in checkin-planner.html will be deleted.
+ * The legacy in-page booking modal now calls this module, so event creation
+ * goes through Django instead of calling Google Calendar directly.
  */
 (function () {
   "use strict";

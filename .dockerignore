@@ -1,17 +1,19 @@
-# Python
+.git
+.github
+.cursor
+
 __pycache__/
 *.py[cod]
 .ruff_cache/
 .pytest_cache/
 .mypy_cache/
 
-# Django
-backend/db.sqlite3
-backend/staticfiles/
-!backend/staticfiles/.gitkeep
-backend/media/
-
-# Environment files
 .env
 backend/.env
-cloudrun.env.yaml
+
+backend/db.sqlite3
+backend/staticfiles/
+backend/media/
+
+node_modules/
+*.log

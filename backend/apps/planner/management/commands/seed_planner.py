@@ -6,8 +6,15 @@ from apps.planner.services.state import persist_state
 
 def baseline_state():
     return {
-        "people": [],
-        "mgrs": ["tor", "mr", "skj"],
+        "people": [
+            {
+                "id": "jvo",
+                "name": "Jonas Vo",
+                "email": "jvo@blackcapitaltechnology.com",
+                "org": "BCT",
+            },
+        ],
+        "mgrs": ["jvo", "tor", "mr", "skj"],
         "teams": {"team-1": [], "team-2": [], "team-3": [], "pool": []},
         "startDate": "2026-01-05",
         "customDates": {},
