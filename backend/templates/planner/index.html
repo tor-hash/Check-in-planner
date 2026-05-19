@@ -8,8 +8,8 @@
     body { font-family: Segoe UI, sans-serif; background: #0f1115; color: #e7eaf0; margin: 0; }
     .wrap { max-width: 760px; margin: 5rem auto; padding: 2rem; background: #171a21; border: 1px solid #2a2f3d; border-radius: 12px; }
     .actions { display: flex; gap: 8px; flex-wrap: wrap; }
-    a.btn { display: inline-block; background: #6ea8fe; color: #0c1320; font-weight: 600; text-decoration: none; padding: 10px 14px; border-radius: 8px; }
-    a.ghost { background: transparent; color: #e7eaf0; border: 1px solid #2a2f3d; }
+    a.btn, button.btn { display: inline-block; background: #6ea8fe; color: #0c1320; font-weight: 600; text-decoration: none; padding: 10px 14px; border-radius: 8px; border: none; cursor: pointer; font: inherit; }
+    a.ghost, button.ghost { background: transparent; color: #e7eaf0; border: 1px solid #2a2f3d; }
   </style>
 </head>
 <body>
@@ -19,7 +19,10 @@
     <div class="actions">
       <a class="btn" href="{% url 'planner:app' %}">Open Planner</a>
       <a class="btn ghost" href="{% url 'account-invitations' %}">Invite a colleague</a>
-      <a class="btn ghost" href="{% url 'logout' %}">Log out</a>
+      <form method="post" action="{% url 'logout' %}" style="display:inline">
+        {% csrf_token %}
+        <button type="submit" class="btn ghost">Log out</button>
+      </form>
     </div>
   </main>
 </body>

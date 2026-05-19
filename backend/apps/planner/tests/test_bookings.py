@@ -208,3 +208,10 @@ class RotationApiTests(TestCase):
         self.assertEqual(len(body["sessions"]), 2)
         for session in body["sessions"]:
             self.assertEqual(len(session["teams"]), 3)
+
+    def test_get_rotation_accepts_from_date(self):
+        response = self.client.get("/api/rotation?upcoming=2&from=2026-06-01")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(len(body["sessions"]), 2)
+        self.assertIn("weekStart", body["sessions"][0])

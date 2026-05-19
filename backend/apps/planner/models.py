@@ -113,6 +113,7 @@ class PlannerConfig(AuditFieldsModel):
     work_hours = models.JSONField(default=dict, blank=True)
     viewed_mgr_filter = models.CharField(max_length=32, default="all")
     week_offset = models.IntegerField(default=0)
+    weeks_per_session = models.PositiveSmallIntegerField(default=2)
 
     @classmethod
     def singleton(cls):
@@ -121,6 +122,7 @@ class PlannerConfig(AuditFieldsModel):
             defaults={
                 "start_date": date(2026, 1, 5),
                 "work_hours": {"start": "09:00", "end": "17:00", "excludeLunch": True, "weekdaysOnly": True},
+                "weeks_per_session": 2,
             },
         )
         return obj

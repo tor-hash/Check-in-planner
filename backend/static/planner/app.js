@@ -21,6 +21,10 @@
   window.Planner.modules = window.Planner.modules || {};
 
   // Allow modules to register themselves so the bootstrap can iterate later.
+  window.Planner.get = function get(name) {
+    return window.Planner.modules[name];
+  };
+
   window.Planner.register = function register(name, factory) {
     if (window.Planner.modules[name]) {
       console.warn("[planner] module '" + name + "' already registered");

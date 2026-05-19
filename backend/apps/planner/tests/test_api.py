@@ -19,6 +19,8 @@ class PlannerApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertIn("people", body)
+        self.assertIn("bookings", body)
+        self.assertIsInstance(body["bookings"], list)
         self.assertIn("_meta", body)
 
     def test_state_put_requires_manager_role(self):

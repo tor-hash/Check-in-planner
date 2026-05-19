@@ -38,6 +38,7 @@ from .services.state import (
     is_manager_or_admin,
     persist_state,
     replace_custom_dates,
+    replace_function_tags,
     replace_team_membership,
     serialize_journal_entry,
     serialize_person,
@@ -256,9 +257,27 @@ def projects_detail(request: HttpRequest, name: str):
 
 
 @login_required
-@require_http_methods(["GET", "POST"])
+@require_http_methods(["GET", "POST", "PUT"])
 def function_tags_collection(request: HttpRequest):
     if request.method == "GET":
+        tags = [
+            {"label": t.label, "displayName": t.display_name, "color": t.color}
+            for t in FunctionTag.objects.order_by("display_name")
+        ]
+        return JsonResponse({"fnTags": tags})
+
+    if request.method == "PUT":
+        if not is_manager_or_admin(request.user):
+            return JsonResponse({"detail": "Only manager/admin users can replace function tags."}, status=403)
+        payload, err = _parse_json(request)
+        if err:
+            return err
+        rows = payload.get("fnTags", [])
+        if not isinstance(rows, list):
+            return JsonResponse({"detail": "fnTags must be a list."}, status=400)
+        with transaction.atomic():
+            replace_function_tags(rows, request.user)
+            _bump_state_version()
         tags = [
             {"label": t.label, "displayName": t.display_name, "color": t.color}
             for t in FunctionTag.objects.order_by("display_name")
@@ -487,6 +506,7 @@ def config_endpoint(request: HttpRequest):
                 "workHours": cfg.work_hours or DEFAULT_WORK_HOURS,
                 "viewedMgrFilter": cfg.viewed_mgr_filter,
                 "weekOffset": cfg.week_offset,
+                "weeksPerSession": cfg.weeks_per_session or 2,
             }
         )
     if not is_manager_or_admin(request.user):
@@ -503,6 +523,7 @@ def config_endpoint(request: HttpRequest):
             "workHours": cfg.work_hours or DEFAULT_WORK_HOURS,
             "viewedMgrFilter": cfg.viewed_mgr_filter,
             "weekOffset": cfg.week_offset,
+            "weeksPerSession": cfg.weeks_per_session or 2,
         }
     )
 
@@ -729,18 +750,29 @@ def bookings_detail(request: HttpRequest, booking_id: int):
 @login_required
 @require_GET
 def rotation_endpoint(request: HttpRequest):
-    try:
-        n = int(request.GET.get("upcoming", "4"))
-    except ValueError:
-        n = 4
-    n = max(1, min(n, 24))
+    from datetime import date as date_cls
+
     from .services.rotation import (
         get_or_create_session,
         upcoming_session_windows,
     )
 
+    try:
+        n = int(request.GET.get("upcoming", "4"))
+    except ValueError:
+        n = 4
+    n = max(1, min(n, 52))
+
+    from_date = None
+    from_raw = request.GET.get("from")
+    if from_raw:
+        try:
+            from_date = date_cls.fromisoformat(from_raw[:10])
+        except ValueError:
+            return JsonResponse({"detail": "Invalid 'from' date (use YYYY-MM-DD)."}, status=400)
+
     out = []
-    for window in upcoming_session_windows(n):
+    for window in upcoming_session_windows(n, from_date=from_date):
         teams = []
         for team in ("team-1", "team-2", "team-3"):
             session = get_or_create_session(

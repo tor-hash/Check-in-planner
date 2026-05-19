@@ -115,6 +115,9 @@
     createFunctionTag(payload) {
       return request("/function-tags", { method: "POST", body: payload });
     },
+    replaceFunctionTags(fnTags) {
+      return request("/function-tags", { method: "PUT", body: { fnTags } });
+    },
 
     // Teams
     replaceTeam(team, personIds) {
@@ -206,8 +209,16 @@
     },
 
     // Rotation introspection
-    getRotation(upcoming = 4) {
-      return request("/rotation?upcoming=" + encodeURIComponent(upcoming));
+    getRotation(upcoming = 4, fromDate = null) {
+      let qs = "upcoming=" + encodeURIComponent(upcoming);
+      if (fromDate) {
+        const d =
+          fromDate instanceof Date
+            ? fromDate.toISOString().slice(0, 10)
+            : String(fromDate).slice(0, 10);
+        qs += "&from=" + encodeURIComponent(d);
+      }
+      return request("/rotation?" + qs);
     },
   };
 

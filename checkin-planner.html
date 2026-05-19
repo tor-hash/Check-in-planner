@@ -17,6 +17,7 @@
 <script src="{% static 'planner/app.js' %}"></script>
 <script src="{% static 'planner/modules/oauth-signin.js' %}"></script>
 <script src="{% static 'planner/modules/bookings.js' %}"></script>
+<script src="{% static 'planner/modules/state-sync.js' %}"></script>
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <link rel="stylesheet" href="{% static 'planner/styles/main.css' %}">
 </head>
@@ -37,7 +38,7 @@
           <button class="ghost icon-btn" id="btn-oauth-signout" title="Log ud">⏻</button>
         </span>
       </div>
-      <button class="ghost" id="btn-reset">Nulstil til standard</button>
+      <button class="ghost" id="btn-reset">Genindlæs fra server</button>
       <button class="ghost" id="btn-shuffle">Bland teams</button>
       <button class="ghost" id="btn-export-csv">Eksportér CSV</button>
       <button class="primary" id="btn-print">Print kalender</button>
@@ -51,7 +52,7 @@
     <span class="swb-icon">⚠️</span>
     <div class="swb-body">
       <div class="swb-title">Du er ikke logget ind med Google</div>
-      <div class="swb-msg">Ændringer du laver (medarbejdere, managers, projekter, datoer) gemmes <strong>kun lokalt på din computer</strong> og deles ikke med de andre managers. Næste gang du logger ind, kan dine lokale ændringer blive overskrevet af den delte data.</div>
+      <div class="swb-msg">Log ind med Google for kalender (free/busy og booking). Roster og journal gemmes i den delte database når du er logget ind som manager.</div>
     </div>
     <button id="btn-swb-signin">Log ind nu</button>
   </div>
@@ -64,8 +65,15 @@
       <span class="sync-pill" id="master-sync-status" style="display:none"></span>
     </div>
     <div class="sync-bar-right">
-      <button class="ghost" id="btn-master-pull" title="Hent seneste medarbejdere/managers/projekter/datoer fra delt sheet">⟳ Hent delt data</button>
-      <button class="ghost" id="btn-master-migrate" title="Push din lokale master-data til delt sheet (engangs-import — bruges efter første deploy)">⤴ Importér lokal master-data</button>
+      <button class="ghost" id="btn-master-pull" title="Hent seneste roster fra serveren">⟳ Opdater fra server</button>
+    </div>
+  </div>
+
+  <div class="sync-warning-banner" id="viewer-mode-banner" style="display:none; margin-bottom: 10px;">
+    <span class="swb-icon">👁</span>
+    <div class="swb-body">
+      <div class="swb-title">Kun visning</div>
+      <div class="swb-msg">Du er logget ind uden manager-rettigheder. Roster, teams og projekter kan ikke redigeres — brug «Opdater fra server» for at se seneste data.</div>
     </div>
   </div>
 
@@ -155,6 +163,15 @@
           <input type="time" id="wh-end" step="900">
           <label><input type="checkbox" id="wh-lunch" style="width:auto; margin: 0 4px 0 12px;"> Spring frokost (12–13) over</label>
           <label><input type="checkbox" id="wh-weekdays" style="width:auto; margin: 0 4px 0 12px;" checked> Kun hverdage</label>
+          <label style="margin-left: 12px;">Uger pr. rotation</label>
+          <select id="weeksPerSession" title="Antal kalenderuger i hver check-in-periode" style="width: auto; min-width: 6.5rem;">
+            <option value="1">1 uge</option>
+            <option value="2" selected>2 uger</option>
+            <option value="3">3 uger</option>
+            <option value="4">4 uger</option>
+            <option value="6">6 uger</option>
+            <option value="8">8 uger</option>
+          </select>
         </div>
         <table class="cal">
           <thead>
@@ -413,6 +430,7 @@
       <div></div>
       <div class="right">
         <button class="ghost" id="ev-cancel">Annullér</button>
+        <button class="ghost" id="ev-cancel-booking" style="display:none">Annuller booking</button>
         <button class="ghost" id="ev-save-only">Gem tid (uden booking)</button>
         <button class="primary" id="ev-create">Opret i Google Calendar →</button>
       </div>
@@ -578,63 +596,155 @@
 
 <script>
 // ============================================
-// DEFAULT DATA
+// STATE (PostgreSQL via Django API — Option B granular sync)
 // ============================================
-const SEED_PEOPLE = [
-  { id: "skj", name: "Stefan Konrad Johansen", mbti: "ESTJ-A", title: "Managing Director", org: "BCG", fn: "Management", loc: "Oslo Norway", email: "skj@blackcapitalventures.com", phone: "(+45) 60 92 80 03", linkedin: "linkedin.com/in/k-bak/", dessert: "Ice cream", projects: [] },
-  { id: "mr",  name: "Malthe Reipurth", mbti: "ENTJ-A", title: "Managing Director", org: "BCT", fn: "Management", loc: "Aalborg Denmark", email: "mr@blackcapitalventures.com", phone: "(+45) 52 25 50 55", linkedin: "linkedin.com/in/57192/", dessert: "Créme Brûlée og portvin fra Aarstová Torshavn", projects: [] },
-  { id: "tor", name: "Tor Duerlund Emanuelssen", mbti: "", title: "Business Developer", org: "BCT", fn: "Business Development", loc: "Aalborg Denmark", email: "tor@blackcapitaltechnology.com", phone: "", linkedin: "linkedin.com/in/elsen/", dessert: "", projects: [] },
-  { id: "cdo", name: "Charlie Østergaard", mbti: "ENFJ-A", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "cdo@blackcapitaltechnology.com", phone: "(+45) 52 22 66 13", linkedin: "linkedin.com/in/gaard/", dessert: "Créme Brûlée / Pancakes with ice cream", projects: [] },
-  { id: "jbr", name: "Jonas Blendstrup Rasmussen", mbti: "INFJ-T", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "jbr@blackcapitaltechnology.com", phone: "", linkedin: "linkedin.com/in/73200/", dessert: "Ice cream", projects: [] },
-  { id: "jo",  name: "Jonas Vestergård Olsen", mbti: "INTP-T", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "jo@blackcapitaltechnology.com", phone: "", linkedin: "linkedin.com/in/jvolsen/", dessert: "", projects: [] },
-  { id: "jl",  name: "Jesper Luff Olesen", mbti: "", title: "Business Developer", org: "BCT", fn: "Business Development", loc: "Aalborg Denmark", email: "jl@blackcapitaltechnology.com", phone: "", linkedin: "linkedin.com/in/rluff/", dessert: "Gammeldags æblekage", projects: [] },
-  { id: "csv", name: "Christian Skou Vendelbjerg", mbti: "", title: "Studentermedhjælper", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "csv@blackcapitaltechnology.com", phone: "(+45) 31 67 30 77", linkedin: "linkedin.com/in/77339/", dessert: "Brownie", projects: [] },
-  { id: "ab",  name: "Astrid Bak", mbti: "INFJ-T", title: "Marketing assistant", org: "BCT", fn: "Marketing", loc: "Aalborg Denmark", email: "ab@blackcapitaltechnology.com", phone: "(+45) 52 30 25 71", linkedin: "linkedin.com/in/b42b4/", dessert: "Brunsviger", projects: [] },
-  { id: "czr", name: "Casper Zacho Roskær", mbti: "", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "czr@blackcapitaltechnology.com", phone: "(+45) 61 60 12 22", linkedin: "linkedin.com/in/99222/", dessert: "Flæskesvær", projects: [] },
-  { id: "lnp", name: "Lars Nyborg Pedersen", mbti: "INTJ-T", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "lnp@blackcapitalventures.com", phone: "(+45) 22 55 55 03", linkedin: "linkedin.com/in/ersen/", dessert: "Chocolate mousse", projects: [] },
-  { id: "jkm", name: "Julie Krause Madsen", mbti: "", title: "Graphic Designer", org: "BCT", fn: "Marketing", loc: "Aalborg Denmark", email: "jkm@blackcapitaltechnology.com", phone: "(+45) 25 37 20 90", linkedin: "linkedin.com/in/adsen/", dessert: "Bland selv slik (surt vandmelonsslik)", projects: [] },
-  { id: "mkk", name: "Martin Kenth Knudsen", mbti: "", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "mkk@blackcapitaltechnology.com", phone: "", linkedin: "linkedin.com/in/kenth/", dessert: "", projects: [] },
-  { id: "rfh", name: "Rasmus Frydenlund Hansen", mbti: "ENFJ-A", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "Rasmusfrydenlund@hotmail.com", phone: "(+45) 28 70 38 62", linkedin: "linkedin.com/in/ansen/", dessert: "Japansk, Buffet", projects: [] },
-  { id: "dip", name: "Daniel Prior", mbti: "", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "dip@blackcapitaltechnology.com", phone: "(+54) 26 83 40 88", linkedin: "linkedin.com/in/79195/", dessert: "Citronmåne - en god en", projects: [] },
-  { id: "bej", name: "Benjamin Jensen", mbti: "", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "bej@blackcapitaltechnology.com", phone: "", linkedin: "linkedin.com/in/jamin/", dessert: "", projects: [] },
-  { id: "tmg", name: "Trond Magnus Gulbrandsen", mbti: "INTJ-A", title: "Business Developer", org: "BCT", fn: "Business Development", loc: "Oslo Norway", email: "tmg@blackcapitaltechnology.com", phone: "(+47) 90 70 08 63", linkedin: "linkedin.com/in/andsen", dessert: "Anything m mørk sjokolade", projects: [] },
-  { id: "jgk", name: "Jesper Guldhammer Klötzl", mbti: "", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "jgk@blackcapitaltechnology.com", phone: "(+45) 20 82 78 85", linkedin: "linkedin.com/in/b8582/", dessert: "Gateau Marcel", projects: [] },
-  { id: "ndn", name: "Niklas Due Nim", mbti: "", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "ndn@blackcapital.com", phone: "(+45) 31 77 15 38", linkedin: "", dessert: "Pepsi Max", projects: [] },
-  { id: "amm", name: "Aleksander Mosekjær Møller", mbti: "", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "amm@blackcapitaltechnology.com", phone: "(+45) 31785513", linkedin: "", dessert: "Nutella", projects: [] },
-  { id: "trd", name: "Thomas Ranum Damsgaard", mbti: "", title: "Software Developer", org: "BCT", fn: "Engineering", loc: "Aalborg Denmark", email: "trd@blackcapitaltechnology.com", phone: "27850234", linkedin: "linkedin.com/in/03202/", dessert: "Tiramisu", projects: [] },
-];
-
-const DEFAULT_MGRS = ["tor", "mr", "skj"];
-const DEFAULT_TEAMS = {
-  "team-1": ["cdo", "jbr", "jl",  "ab",  "lnp", "dip"],
-  "team-2": ["jo",  "czr", "jkm", "rfh", "bej", "ndn"],
-  "team-3": ["csv", "mkk", "tmg", "jgk", "amm", "trd"],
-  "pool":   []
-};
 const STORAGE_KEY = "bct-checkin-planner-v4";
 
-// ============================================
-// STATE
-// ============================================
-let state = loadState() || defaultState();
+let state = emptyState();
 let activeProjectFilter = null;
 
-function defaultState() {
+function getStateSync() {
+  return window.Planner && typeof window.Planner.get === "function"
+    ? window.Planner.get("stateSync")
+    : null;
+}
+
+function canEditRoster() {
+  return !!window.PLANNER_USER_IS_MANAGER;
+}
+
+function canUseCalendar() {
+  return !!(window.PLANNER_USER_IS_MANAGER && isOauthSignedIn());
+}
+
+let sortableInstances = [];
+let _lastSyncAlertAt = 0;
+
+function handleSyncError(err) {
+  const msg = (err && err.message) || String(err);
+  console.error("[sync]", err);
+  const now = Date.now();
+  if (!_lastSyncAlertAt || now - _lastSyncAlertAt > 4000) {
+    _lastSyncAlertAt = now;
+    alert("Kunne ikke gemme til serveren:\n\n" + msg.slice(0, 240));
+  }
+}
+
+function applyViewerMode() {
+  const readonly = !canEditRoster();
+  document.body.classList.toggle("planner-readonly", readonly);
+  const banner = document.getElementById("viewer-mode-banner");
+  if (banner) banner.style.display = readonly ? "" : "none";
+  ["btn-shuffle", "btn-add-person", "btn-add-project", "fntag-add"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = readonly;
+  });
+  const startDate = document.getElementById("startDate");
+  if (startDate) startDate.disabled = readonly;
+  const weeksSel = document.getElementById("weeksPerSession");
+  if (weeksSel) weeksSel.disabled = readonly;
+  ["mgr1", "mgr2", "mgr3"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = readonly;
+  });
+  const migrateBtn = document.getElementById("btn-journal-migrate");
+  if (migrateBtn) migrateBtn.style.display = window.PLANNER_USE_SHEET_JOURNAL ? "" : "none";
+  document.querySelectorAll(".person-actions").forEach((el) => {
+    el.style.display = readonly ? "none" : "";
+  });
+  if (readonly && sortableInstances.length) {
+    sortableInstances.forEach((s) => s.destroy());
+    sortableInstances = [];
+  } else if (!readonly && !sortableInstances.length) {
+    setupSortable();
+  }
+}
+
+function decodeCustomDatesPayload(raw) {
+  const ss = getStateSync();
+  if (ss && ss.decodeCustomDates) return ss.decodeCustomDates(raw);
+  return raw || {};
+}
+
+function emptyState() {
   return {
-    people: JSON.parse(JSON.stringify(SEED_PEOPLE)),
-    mgrs: [...DEFAULT_MGRS],
-    teams: JSON.parse(JSON.stringify(DEFAULT_TEAMS)),
-    startDate: nextMonday().toISOString().slice(0,10),
+    people: [],
+    mgrs: [],
+    teams: { "team-1": [], "team-2": [], "team-3": [], pool: [] },
+    startDate: nextMonday().toISOString().slice(0, 10),
     customDates: {},
     workHours: { start: "09:00", end: "17:00", excludeLunch: true, weekdaysOnly: true },
     oauth: { lastFetch: null, busy: {}, autoRefresh: false, lastErrors: [] },
     viewedMgrFilter: "all",
-    weekOffset: 0,  // 0 = upcoming session week 1; 1 = upcoming session week 2; 2 = next session week 1; -1 = previous session week 2; ...
-    projects: [],    // [{ name, description, color }]
-    journal: {},     // { [personId]: [{ id, date, managerId, trivsel, faglig, personlig, udfordringer, maal, noter, opfolgning, obs, files: [{name, type, size, dataUrl}], createdAt, updatedAt }] }
+    weekOffset: 0,
+    weeksPerSession: 2,
+    projects: [],
+    journal: {},
     fnTags: defaultFnTags(),
+    rotationSessions: [],
+    bookings: [],
   };
 }
+
+function applyPlannerStatePayload(payload) {
+  const s = payload || {};
+  if (Array.isArray(s.people)) {
+    state.people = s.people.map(p => ({ ...p, projects: Array.isArray(p.projects) ? p.projects : [] }));
+  }
+  if (Array.isArray(s.mgrs)) state.mgrs = s.mgrs.slice(0, 3);
+  if (s.teams && typeof s.teams === "object") {
+    state.teams = {
+      "team-1": Array.isArray(s.teams["team-1"]) ? s.teams["team-1"] : [],
+      "team-2": Array.isArray(s.teams["team-2"]) ? s.teams["team-2"] : [],
+      "team-3": Array.isArray(s.teams["team-3"]) ? s.teams["team-3"] : [],
+      pool: Array.isArray(s.teams.pool) ? s.teams.pool : [],
+    };
+  }
+  if (typeof s.startDate === "string" && s.startDate) state.startDate = s.startDate;
+  if (s.customDates && typeof s.customDates === "object") {
+    state.customDates = decodeCustomDatesPayload(s.customDates);
+  }
+  if (Array.isArray(s.bookings)) state.bookings = s.bookings;
+  if (Array.isArray(s.rotationSessions)) {
+    const ss = getStateSync();
+    state.rotationSessions = ss && ss.mergeRotationSessions
+      ? ss.mergeRotationSessions(state.rotationSessions, s.rotationSessions)
+      : s.rotationSessions;
+  }
+  if (s.workHours) state.workHours = s.workHours;
+  if (s.viewedMgrFilter != null) state.viewedMgrFilter = s.viewedMgrFilter;
+  if (s.weekOffset != null) state.weekOffset = s.weekOffset;
+  if (s.weeksPerSession != null) state.weeksPerSession = parseInt(s.weeksPerSession, 10) || 2;
+  if (Array.isArray(s.projects)) {
+    state.projects = s.projects.map(pj => ({
+      name: pj.name,
+      description: pj.description || "",
+      color: pj.color || autoProjectColor(pj.name),
+    }));
+  }
+  if (Array.isArray(s.fnTags) && s.fnTags.length) state.fnTags = s.fnTags;
+  if (s.journal && typeof s.journal === "object") state.journal = s.journal;
+  const ss = getStateSync();
+  if (s.oauth) {
+    state.oauth = s.oauth;
+  } else if (ss) {
+    const cached = ss.loadOauthCache();
+    if (cached) state.oauth = cached;
+  }
+  state.people.forEach(p => { if (!p.projects) p.projects = []; });
+  const knownNames = new Set(state.projects.map(pj => pj.name));
+  state.people.forEach(p => {
+    (p.projects || []).forEach(name => {
+      if (!knownNames.has(name)) {
+        state.projects.push({ name, description: "" });
+        knownNames.add(name);
+      }
+    });
+  });
+  saveState();
+}
+
+window.applyPlannerStatePayload = applyPlannerStatePayload;
 
 function defaultFnTags() {
   return [
@@ -661,6 +771,9 @@ function loadState() {
     const s = JSON.parse(raw);
     if (!s.people || !s.teams || !s.mgrs) return null;
     if (!s.customDates) s.customDates = {};
+    else s.customDates = decodeCustomDatesPayload(s.customDates);
+    if (!s.rotationSessions) s.rotationSessions = [];
+    if (!s.bookings) s.bookings = [];
     delete s.ics; // ICS upload feature removed 2026-05-05 — OAuth/freeBusy handles all calendar work
     if (!s.workHours) s.workHours = { start: "09:00", end: "17:00", excludeLunch: true, weekdaysOnly: true };
     if (!s.oauth) s.oauth = { lastFetch: null, busy: {}, autoRefresh: false, lastErrors: [] };
@@ -672,6 +785,7 @@ function loadState() {
     if (s.viewedMgrFilter == null) s.viewedMgrFilter = "all";
     if (s.weekOffset == null) s.weekOffset = (s.viewedWeek != null) ? s.viewedWeek : 0;
     delete s.viewedWeek;
+    if (s.weeksPerSession == null) s.weeksPerSession = 2;
     if (!s.projects) s.projects = [];
     if (!s.journal) s.journal = {};
     if (!s.fnTags || !Array.isArray(s.fnTags) || s.fnTags.length === 0) s.fnTags = defaultFnTags();
@@ -693,7 +807,13 @@ function loadState() {
 }
 
 function saveState() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+  try {
+    const payload = { ...state };
+    delete payload.journal;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  } catch {}
+  const ss = getStateSync();
+  if (ss && state.oauth) ss.saveOauthCache(state.oauth);
 }
 
 function findPerson(id) { return state.people.find(p => p.id === id); }
@@ -847,8 +967,8 @@ function renderPersonCard(id) {
     <div class="${cls}" data-id="${p.id}" title="${p.email}${p.phone ? "\n" + p.phone : ""}${p.projects?.length ? "\nProjekter: " + p.projects.join(", ") : ""}">
       <div class="avatar">${initials(p.name)}</div>
       <div class="person-meta">
-        <div class="person-name">${p.name}${projectDots(p)}${trivselBadge(p.id)}</div>
-        <div class="person-title">${fnBadge(p)}${locBadge(p)}${p.title || ""}</div>
+        <div class="person-name">${escapeHtml(p.name)}${projectDots(p)}${trivselBadge(p.id)}</div>
+        <div class="person-title">${fnBadge(p)}${locBadge(p)}${escapeHtml(p.title || "")}</div>
       </div>
       <div class="person-actions">
         <button class="icon-btn edit" data-act="edit" data-id="${p.id}" title="Redigér / Journal">✎</button>
@@ -931,13 +1051,152 @@ function renderProjects() {
 }
 
 // ============================================
-// CALENDAR / ROTATION
+// CALENDAR / ROTATION (server-backed via GET /api/rotation)
 // ============================================
-const ROTATION = [
-  ["team-1", "team-2", "team-3"],
-  ["team-2", "team-3", "team-1"],
-  ["team-3", "team-1", "team-2"],
-];
+const SESSIONS_PER_CYCLE = 3;
+const DEFAULT_WEEKS_PER_SESSION = 2;
+
+function getWeeksPerSession() {
+  const n = parseInt(state.weeksPerSession, 10);
+  if (!Number.isFinite(n) || n < 1) return DEFAULT_WEEKS_PER_SESSION;
+  return Math.min(12, n);
+}
+const CYCLE_WEEKS = 6;
+
+function mondayOf(d) {
+  const x = new Date(d);
+  const day = x.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  x.setDate(x.getDate() + diff);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function clientSessionWindow(when) {
+  const base = mondayOf(new Date(state.startDate));
+  let whenM = mondayOf(when);
+  if (whenM < base) whenM = base;
+  const msPerWeek = 7 * 86400000;
+  const weeksSince = Math.floor((whenM - base) / msPerWeek);
+  const cyclesSince = Math.floor(weeksSince / CYCLE_WEEKS);
+  const cycleStart = new Date(base);
+  cycleStart.setDate(base.getDate() + cyclesSince * CYCLE_WEEKS * 7);
+  const weeksInto = Math.floor((whenM - cycleStart) / msPerWeek);
+  const sessionIndex = Math.max(0, Math.min(SESSIONS_PER_CYCLE - 1, Math.floor(weeksInto / getWeeksPerSession())));
+  const weekStart = new Date(cycleStart);
+  weekStart.setDate(cycleStart.getDate() + sessionIndex * getWeeksPerSession() * 7);
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + getWeeksPerSession() * 7 - 1);
+  return {
+    cycleStart: cycleStart.toISOString().slice(0, 10),
+    sessionIndex,
+    weekStart: weekStart.toISOString().slice(0, 10),
+    weekEnd: weekEnd.toISOString().slice(0, 10),
+  };
+}
+
+function sessionDateFromIdx(idx) {
+  const start = new Date(state.startDate);
+  const d = new Date(start);
+  d.setDate(start.getDate() + idx * getWeeksPerSession() * 7);
+  return d;
+}
+
+function findRotationSession(sessionIdx) {
+  const win = clientSessionWindow(sessionDateFromIdx(sessionIdx));
+  return (state.rotationSessions || []).find(
+    (s) => s.cycleStart === win.cycleStart && s.sessionIndex === win.sessionIndex
+  ) || null;
+}
+
+async function ensureRotationForSession(sessionIdx) {
+  const existing = findRotationSession(sessionIdx);
+  if (existing) return existing;
+  const win = clientSessionWindow(sessionDateFromIdx(sessionIdx));
+  const ss = getStateSync();
+  if (!ss || !window.PlannerApi) return null;
+  try {
+    const sessions = await ss.loadRotation(6, win.weekStart);
+    state.rotationSessions = ss.mergeRotationSessions(state.rotationSessions, sessions);
+    saveState();
+  } catch (err) {
+    console.warn("[rotation] session load failed", err);
+  }
+  return findRotationSession(sessionIdx);
+}
+
+function teamForManagerInSession(mgrIdx, sess) {
+  const mgrId = state.mgrs[mgrIdx];
+  const row = (sess.teams || []).find((t) => t.managerId === mgrId);
+  return row ? row.team : null;
+}
+
+async function ensureRotationLoaded(minSessions = 32) {
+  const ss = getStateSync();
+  if (!ss || !window.PlannerApi) return;
+  if ((state.rotationSessions || []).length >= minSessions) return;
+  try {
+    const sessions = await ss.loadRotation(minSessions);
+    state.rotationSessions = ss.mergeRotationSessions(state.rotationSessions, sessions);
+    saveState();
+  } catch (err) {
+    console.warn("[rotation] load failed", err);
+  }
+}
+
+function setRotationTableLoading(message = "Henter rotation fra server…") {
+  const tbody = document.getElementById("cal-body");
+  if (tbody) tbody.innerHTML = `<tr><td colspan="5">${message}</td></tr>`;
+}
+
+/** Replace cached rotation after config changes (weeks per session, start date). */
+async function reloadRotationSessions(minSessions = 32) {
+  const ss = getStateSync();
+  if (!ss || !window.PlannerApi) return;
+  state.rotationSessions = [];
+  saveState();
+  const sessions = await ss.loadRotation(minSessions);
+  state.rotationSessions = sessions || [];
+  saveState();
+}
+
+async function reloadBookings() {
+  const ss = getStateSync();
+  if (!ss || !window.PlannerApi) return;
+  try {
+    state.bookings = await ss.loadBookings();
+    saveState();
+  } catch (err) {
+    console.warn("[bookings] reload failed", err);
+  }
+}
+
+function findBookingForSlot(personId, sessionIdx) {
+  const sess = findRotationSession(sessionIdx);
+  if (!sess) return null;
+  const ws = new Date(sess.weekStart + "T00:00:00").getTime();
+  const we = new Date(sess.weekEnd + "T23:59:59").getTime();
+  return (state.bookings || []).find((b) => {
+    if (b.personId !== personId || b.status !== "scheduled") return false;
+    const t = new Date(b.startsAt).getTime();
+    return t >= ws && t <= we;
+  }) || null;
+}
+
+function toDatetimeLocalValue(isoOrLocal) {
+  if (!isoOrLocal) return "";
+  const d = new Date(isoOrLocal);
+  if (Number.isNaN(d.getTime())) return String(isoOrLocal).slice(0, 16);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function scheduledTimeForSlot(personId, sessionIdx) {
+  const booking = findBookingForSlot(personId, sessionIdx);
+  if (booking) return toDatetimeLocalValue(booking.startsAt);
+  return state.customDates[personId]?.[sessionIdx] || null;
+}
+
 function fmtDate(d) { return d.toLocaleDateString("da-DK", { day: "2-digit", month: "short" }); }
 function isoWeek(d) {
   const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
@@ -947,41 +1206,65 @@ function isoWeek(d) {
   const diff = (date - firstThursday) / 86400000;
   return 1 + Math.round(diff / 7);
 }
-function teamBadge(teamId) { const n = teamId.split("-")[1]; return `<span class="week-pill pill-t${n}">Team ${n}</span>`; }
-function getManagerForSession(teamId, sessionIdx) {
-  const phase = sessionIdx % 3;
-  const mgrIdx = ROTATION[phase].findIndex(t => t === teamId);
-  return state.mgrs[mgrIdx];
+/** ISO week label for a biweekly session (from server rotation API). */
+function sessionWeekDisplay(weekStart, weekEnd) {
+  const sd = new Date(weekStart + "T00:00:00");
+  const end = new Date(weekEnd + "T23:59:59");
+  const wStart = isoWeek(sd);
+  const wEnd = isoWeek(end);
+  if (wStart === wEnd) return `Uge ${wStart}`;
+  return `Uge ${wStart}–${wEnd}`;
 }
+function sessionDateRangeDisplay(weekStart, weekEnd) {
+  const sd = new Date(weekStart + "T00:00:00");
+  const end = new Date(weekEnd + "T23:59:59");
+  const startStr = fmtDate(sd);
+  const endStr = fmtDate(end);
+  return startStr === endStr ? startStr : `${startStr} – ${endStr}`;
+}
+function teamBadge(teamId) { const n = teamId.split("-")[1]; return `<span class="week-pill pill-t${n}">Team ${n}</span>`; }
 function sessionDate(idx) {
-  const start = new Date(state.startDate);
-  const d = new Date(start); d.setDate(start.getDate() + idx*14);
-  return d;
+  const sess = findRotationSession(idx);
+  if (sess && sess.weekStart) return new Date(sess.weekStart + "T00:00:00");
+  return sessionDateFromIdx(idx);
+}
+
+function getManagerForSession(teamId, sessionIdx) {
+  const sess = findRotationSession(sessionIdx);
+  if (sess && sess.teams) {
+    const row = sess.teams.find((t) => t.team === teamId);
+    if (row && row.managerId) return row.managerId;
+  }
+  return null;
 }
 
 function renderCalendar(numSessions = 4) {
   const tbody = document.getElementById("cal-body");
   const start = new Date(state.startDate);
   if (isNaN(start)) { tbody.innerHTML = `<tr><td colspan="5">Vælg en startdato</td></tr>`; return; }
-  const today = new Date(); today.setHours(0,0,0,0);
-  const startIdx = getCurrentSessionIdx();
+  const sessions = (state.rotationSessions || []).slice(0, numSessions);
+  if (!sessions.length) {
+    tbody.innerHTML = `<tr><td colspan="5">Henter rotation fra server…</td></tr>`;
+    ensureRotationLoaded(numSessions + 8).then(() => renderCalendar(numSessions));
+    return;
+  }
+  const today = new Date(); today.setHours(0, 0, 0, 0);
   const rows = [];
-  for (let offset = 0; offset < numSessions; offset++) {
-    const i = startIdx + offset;
-    const sd = sessionDate(i);
-    const sessionEnd = new Date(sd); sessionEnd.setDate(sd.getDate() + 13);
-    const phase = i % 3;
+  sessions.forEach((sess, offset) => {
+    const sd = new Date(sess.weekStart + "T00:00:00");
+    const sessionEnd = new Date(sess.weekEnd + "T23:59:59");
     const isNow = today >= sd && today <= sessionEnd;
     const isNext = !isNow && offset === 0 && today < sd;
     const tag = isNow ? `<span class="session-tag now">I gang</span>`
-              : isNext ? `<span class="session-tag next">Næste</span>`
-              : "";
+      : isNext ? `<span class="session-tag next">Næste</span>` : "";
     const rowCls = isNow ? "current-session" : (isNext ? "upcoming" : "");
-    const mgrCell = (mgrIdx, teamId) => {
+    const mgrCell = (mgrIdx) => {
+      const teamId = teamForManagerInSession(mgrIdx, sess);
+      if (!teamId) return `<td><span style="color:var(--muted)">—</span></td>`;
       const mgrId = state.mgrs[mgrIdx];
       const mgr = findPerson(mgrId);
-      const members = state.teams[teamId].map(id => findPerson(id)?.name.split(" ")[0]).filter(Boolean);
-      const mgrName = mgr ? mgr.name.split(" ")[0] + " " + (mgr.name.split(" ").slice(-1)[0] || "").slice(0,1) + "." : "—";
+      const members = (state.teams[teamId] || []).map((id) => findPerson(id)?.name.split(" ")[0]).filter(Boolean);
+      const mgrName = mgr ? mgr.name.split(" ")[0] + " " + (mgr.name.split(" ").slice(-1)[0] || "").slice(0, 1) + "." : "—";
       return `
         <td>
           <div class="manager-cell">
@@ -990,16 +1273,21 @@ function renderCalendar(numSessions = 4) {
           </div>
         </td>`;
     };
+    const weekText = sessionWeekDisplay(sess.weekStart, sess.weekEnd);
+    const dateText = sessionDateRangeDisplay(sess.weekStart, sess.weekEnd);
+    const dayHint = isNow
+      ? ["Søn","Man","Tir","Ons","Tor","Fre","Lør"][today.getDay()]
+      : ["Søn","Man","Tir","Ons","Tor","Fre","Lør"][sd.getDay()];
     rows.push(`
       <tr class="${rowCls}">
-        <td><strong>Uge ${isoWeek(sd)}</strong>${tag}</td>
-        <td>${fmtDate(sd)}<br><span style="color:var(--muted); font-size:11px;">${["Søn","Man","Tir","Ons","Tor","Fre","Lør"][sd.getDay()]}</span></td>
-        ${mgrCell(0, ROTATION[phase][0])}
-        ${mgrCell(1, ROTATION[phase][1])}
-        ${mgrCell(2, ROTATION[phase][2])}
+        <td><strong>${weekText}</strong>${tag}</td>
+        <td>${dateText}<br><span style="color:var(--muted); font-size:11px;">${dayHint}</span></td>
+        ${mgrCell(0)}
+        ${mgrCell(1)}
+        ${mgrCell(2)}
       </tr>
     `);
-  }
+  });
   tbody.innerHTML = rows.join("");
 }
 
@@ -1017,23 +1305,25 @@ function getCurrentSessionIdx() {
   const today = new Date(); today.setHours(0,0,0,0);
   const start = new Date(state.startDate); start.setHours(0,0,0,0);
   const daysFromStart = Math.floor((today - start) / 86400000);
-  return Math.max(0, Math.floor(daysFromStart / 14));
+  return Math.max(0, Math.floor(daysFromStart / (getWeeksPerSession() * 7)));
 }
 
 function getViewedSessionAndWeek() {
   const baseIdx = getNextSessionIdx();
   const offset = state.weekOffset || 0;
-  const sessionIdx = baseIdx + Math.floor(offset / 2);
-  const weekInSession = ((offset % 2) + 2) % 2;
+  const wps = getWeeksPerSession();
+  const sessionIdx = baseIdx + Math.floor(offset / wps);
+  const weekInSession = ((offset % wps) + wps) % wps;
   return { sessionIdx, weekInSession, baseIdx, offset };
 }
 
-function renderByPerson() {
+async function renderByPerson() {
   const tbody = document.getElementById("byperson-body");
   const start = new Date(state.startDate);
   if (isNaN(start)) { tbody.innerHTML = ""; return; }
   const view = getViewedSessionAndWeek();
   const sessionIdx = view.sessionIdx;
+  await ensureRotationForSession(sessionIdx);
   const filter = state.viewedMgrFilter || "all";
   const rows = [];
   let totalShown = 0, totalAll = 0;
@@ -1047,10 +1337,12 @@ function renderByPerson() {
       totalShown++;
       const mgr = findPerson(mgrId);
       const sd = sessionDate(sessionIdx);
-      const customDate = state.customDates[id]?.[sessionIdx];
+      const customDate = scheduledTimeForSlot(id, sessionIdx);
+      const booking = findBookingForSlot(id, sessionIdx);
       const defaultDateValue = customDate || (sd.toISOString().slice(0,10) + "T10:00");
       const allSlots = suggestSlots(mgrId, id, sessionIdx);
       const dayGridHTML = renderDayGrid(id, sessionIdx, allSlots, customDate || null, view.weekInSession);
+      const bookedTag = booking ? `<span class="session-tag now" style="margin-left:6px">Booket</span>` : "";
       rows.push(`
         <tr>
           <td><strong>${p.name}</strong>${projectDots(p)}<br><span style="color:var(--muted); font-size:11px;">${p.title || ""}</span></td>
@@ -1059,7 +1351,7 @@ function renderByPerson() {
           <td class="slot-cell">
             <div class="date-input-cell" style="margin-bottom: 8px;">
               <input type="datetime-local" data-pid="${id}" data-sidx="${sessionIdx}" value="${defaultDateValue}" class="custom-date">
-              ${customDate ? `<button class="icon-btn" data-act="clear-date" data-pid="${id}" data-sidx="${sessionIdx}" title="Nulstil">↺</button>` : ""}
+              ${bookedTag}${customDate ? `<button class="icon-btn" data-act="clear-date" data-pid="${id}" data-sidx="${sessionIdx}" title="Nulstil">↺</button>` : ""}
               <span class="slot-source-info">${mgr ? mgr.name.split(" ")[0] : "Manager"} ↔ ${p.name.split(" ")[0]}</span>
             </div>
             ${dayGridHTML}
@@ -1092,7 +1384,9 @@ function renderByPerson() {
   tbody.innerHTML = rows.join("") || `<tr><td colspan="4" style="text-align:center; color:var(--muted); padding: 20px;">${filter === "all" ? "Ingen tildelte medarbejdere endnu" : "Ingen check-ins for denne manager i denne session"}</td></tr>`;
 
   tbody.querySelectorAll("input.custom-date").forEach(inp => {
+    inp.disabled = !canEditRoster();
     inp.addEventListener("change", () => {
+      if (!canEditRoster()) return;
       const pid = inp.dataset.pid, sidx = inp.dataset.sidx;
       if (!state.customDates[pid]) state.customDates[pid] = {};
       state.customDates[pid][sidx] = inp.value;
@@ -1127,6 +1421,10 @@ function openEventModal(personId, sessionIdx, slotDate) {
   if (!p) return;
   const teamId = getTeamForPerson(personId);
   const mgrId = getManagerForSession(teamId, sessionIdx);
+  if (!mgrId) {
+    alert("Kunne ikke finde rotation for denne uge. Prøv «Opdater fra server» eller vent et øjeblik.");
+    return;
+  }
 
   document.getElementById("ev-title").value = "Check-in samtale";
   document.getElementById("ev-date").value = dayKey(slotDate);
@@ -1142,6 +1440,10 @@ function openEventModal(personId, sessionIdx, slotDate) {
   bg.dataset.sidx = sessionIdx;
   bg.dataset.email = p.email || "";
   bg.dataset.managerId = mgrId || "";
+  const booking = findBookingForSlot(personId, sessionIdx);
+  bg.dataset.bookingId = booking ? String(booking.id) : "";
+  const cancelBtn = document.getElementById("ev-cancel-booking");
+  if (cancelBtn) cancelBtn.style.display = booking && canUseCalendar() ? "" : "none";
   bg.classList.add("active");
   setTimeout(() => document.getElementById("ev-title").focus(), 50);
 }
@@ -1163,6 +1465,7 @@ function getEventModalData() {
   };
 }
 function evSaveOnly() {
+  if (!canEditRoster()) return;
   const d = getEventModalData();
   if (!d.dateStr || !d.timeStr) { alert("Udfyld dato og tid."); return; }
   if (!state.customDates[d.pid]) state.customDates[d.pid] = {};
@@ -1203,6 +1506,7 @@ async function evCreateInCalendar() {
     state.customDates[d.pid][d.sidx] = d.dateStr + "T" + d.timeStr;
     saveState();
     syncCustomDates();
+    await reloadBookings();
     closeEventModal();
     renderByPerson();
     // Refresh free/busy in the background so the new event shows up immediately.
@@ -1245,7 +1549,8 @@ function renderMgrDropdowns() {
       renderAll();
       saveState();
       syncMgrs();
-      syncTeams(); // syncPool() can move people between pool and teams
+      syncTeams();
+      ensureRotationLoaded(32).then(() => { renderCalendar(); renderByPerson(); });
       maybeAutoRefreshFreeBusy(); // ny manager → fetch deres kalender
     };
   });
@@ -1268,6 +1573,7 @@ function populateFnSelect(currentValue) {
   sel.value = all.includes(currentValue) ? currentValue : (tags[0]?.displayName || "Other");
 }
 function openModal(personId = null) {
+  if (!canEditRoster()) return;
   editingId = personId;
   document.getElementById("modal-title").textContent = personId ? "Redigér medarbejder" : "Tilføj medarbejder";
   const defaultFn = (state.fnTags && state.fnTags[0]?.displayName) || "Engineering";
@@ -1337,9 +1643,16 @@ function deletePerson(id) {
   delete state.customDates[id];
   if (state.oauth?.busy) delete state.oauth.busy[id];
   saveState();
-  syncPeople();
-  syncTeams();
-  syncCustomDates();
+  const ss = getStateSync();
+  if (canEditRoster() && ss) {
+    ss.runSync("delete person", () => ss.removePerson(id))
+      .then(() => syncTeams())
+      .then(() => syncCustomDates())
+      .catch(handleSyncError);
+  } else {
+    syncTeams();
+    syncCustomDates();
+  }
   if (editingId === id) closeModal();
   renderAll();
 }
@@ -2169,93 +2482,6 @@ function buildPersonReport(personId, cutoff, includeNotes) {
     </div>`;
 }
 
-function renderJournalTab(personId) {
-  const entries = [...getJournal(personId)].sort(compareEntriesDesc);
-  // Trend block
-  const trendEl = document.getElementById("trivsel-trend");
-  if (entries.length === 0) {
-    trendEl.innerHTML = `
-      <div class="label-block"><span class="label">Trivsel</span><span class="value" style="color:var(--muted)">–</span></div>
-      <div class="sparkline-empty">Ingen check-ins logget endnu</div>`;
-  } else {
-    const scores = entries.slice(0, 12).reverse().map(e => e.trivsel).filter(s => s != null);
-    const latest = entries[0].trivsel;
-    const avg = scores.length ? (scores.reduce((a,b) => a+b, 0) / scores.length).toFixed(1) : "–";
-    const cls = trivselClass(latest);
-    trendEl.innerHTML = `
-      <div class="label-block">
-        <span class="label">Senest</span>
-        <span class="value ${cls === "t-green" ? "" : ""}" style="color: ${cls === "t-green" ? "var(--ok)" : cls === "t-yellow" ? "#eed49f" : "var(--danger)"}">${latest != null ? latest + "/10" : "–"}</span>
-        <span class="avg">Snit: ${avg}/10 · ${entries.length} ${entries.length === 1 ? "entry" : "entries"}</span>
-      </div>
-      ${renderSparkline(scores)}`;
-  }
-  // List
-  const list = document.getElementById("journal-list");
-  if (entries.length === 0) {
-    list.innerHTML = `<div style="color: var(--muted); font-size: 12px; font-style: italic; padding: 16px; text-align: center;">Ingen check-ins logget endnu. Klik <strong>+ Log ny check-in</strong> for at starte.</div>`;
-    return;
-  }
-  list.innerHTML = entries.map(e => {
-    const mgr = findPerson(e.managerId);
-    const dateLabel = e.date ? new Date(e.date).toLocaleDateString("da-DK", { day: "2-digit", month: "long", year: "numeric" }) : "Ingen dato";
-    const fields = [
-      ["Faglig udvikling", e.faglig],
-      ["Personlig udvikling", e.personlig],
-      ["Udfordringer", e.udfordringer],
-      ["Mål næste periode", e.maal],
-      ["Noter", e.noter],
-      ["Opfølgning", e.opfolgning],
-      ["OBS — næste check-in", e.obs],
-    ];
-    const fieldsHtml = fields.map(([label, content]) => `
-      <div class="field">
-        <div class="field-label">${label}</div>
-        <div class="field-content ${content ? "" : "empty"}">${content ? escapeHtml(content) : "—"}</div>
-      </div>`).join("");
-    const filesHtml = (e.files || []).length
-      ? `<div class="field">
-          <div class="field-label">Filer</div>
-          <div class="files-row">${(e.files || []).map(f => fileChipHtml(f, e.id)).join("")}</div>
-        </div>`
-      : "";
-    return `
-      <div class="journal-entry" data-eid="${e.id}">
-        <div class="journal-entry-head" data-eid="${e.id}">
-          <div class="left">
-            <span class="journal-entry-date">${dateLabel}</span>
-            <span class="journal-entry-meta">${mgr ? mgr.name.split(" ")[0] : "Ukendt manager"}</span>
-            ${trivselSpan(e.trivsel)}
-          </div>
-          <div class="journal-entry-actions">
-            <button data-jact="edit" data-eid="${e.id}" title="Redigér">✎</button>
-            <button data-jact="delete" data-eid="${e.id}" title="Slet">×</button>
-          </div>
-        </div>
-        <div class="journal-entry-body">
-          ${fieldsHtml}
-          ${filesHtml}
-        </div>
-      </div>`;
-  }).join("");
-
-  // Wire up click handlers
-  list.querySelectorAll(".journal-entry-head").forEach(head => {
-    head.addEventListener("click", e => {
-      if (e.target.closest("button")) return;
-      head.parentElement.classList.toggle("expanded");
-    });
-  });
-  list.querySelectorAll("button[data-jact]").forEach(btn => {
-    btn.addEventListener("click", e => {
-      e.stopPropagation();
-      const eid = btn.dataset.eid;
-      if (btn.dataset.jact === "edit") openEntryModal(personId, eid);
-      else if (btn.dataset.jact === "delete") deleteEntry(personId, eid);
-    });
-  });
-}
-
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
@@ -2853,33 +3079,8 @@ function renderDayGrid(personId, sessionIdx, slots, customDateStr, weekInSession
 // token — no browser GIS token or hardcoded client ID.
 
 // =====================================================================
-// SHARED JOURNAL STORAGE — Google Sheet + Drive folder
+// OAuth / calendar (free-busy via Django API)
 // =====================================================================
-// All 3 managers see all journal entries for all employees. Data lives in
-// a Google Sheet (one row per entry) inside a Drive folder shared only
-// with the named managers. File attachments live in a sub-folder; the
-// sheet just stores Drive file IDs. Access control is enforced by the
-// Drive permissions on the parent folder, not by anything in this code.
-//
-// IDs are public-safe — they identify the resource but don't grant access.
-const JOURNAL_SHEET_ID = "1--rEDjYldyi7F1qRGyZWhj4pi2ADd9tG9BKazjyeZk8";
-const JOURNAL_FILES_FOLDER_ID = "11Y5HD1GOdWkAkPew6xqc8TZuWK2-KY-O";
-const JOURNAL_SHEET_TAB = "Entries"; // Sheet tab name; auto-created if missing
-const JOURNAL_SHEET_HEADER = [
-  "id", "personId", "managerId", "date",
-  "trivsel", "faglig", "personlig", "udfordringer", "maal", "noter", "opfolgning",
-  "files", // JSON array of {name, type, size, driveId, webViewLink}
-  "createdAt", "updatedAt", "deletedAt",
-  "obs", // Attention point for next check-in (column P, index 15) — added 2026-05-04
-];
-
-// Shared master-data tab — see "SHARED MASTER DATA" module below.
-// Stores employees, managers, teams, projects, fnTags, customDates, startDate
-// as one row per key with JSON payload. All 3 managers share the same view.
-const MASTER_SHEET_TAB = "MasterData";
-const MASTER_SHEET_HEADER = ["key", "json", "updatedAt", "updatedBy"];
-const MASTER_KEYS = ["people", "mgrs", "teams", "projects", "fnTags", "customDates", "startDate"];
-
 const oauthState = {
   autoTimer: null,
 };
@@ -2941,16 +3142,31 @@ function oauthSignIn() {
   window.location.href = "/auth/login/google-oauth2/?next=" + next;
 }
 
-function oauthSignOut() {
-  if (typeof stopSyncPolling === "function") stopSyncPolling();
-  const next = encodeURIComponent("/accounts/login/");
-  window.location.href = "/accounts/logout/?next=" + next;
+function plannerCsrfToken() {
+  const match = document.cookie.split("; ").find((row) => row.startsWith("csrftoken="));
+  return match ? decodeURIComponent(match.split("=").slice(1).join("=")) : "";
 }
 
-// Legacy sheet journal still expected a browser token; prod uses Django journal.
-async function oauthEnsureToken() {
-  if (!window.PLANNER_USE_SHEET_JOURNAL) return null;
-  return null;
+function oauthSignOut() {
+  if (typeof stopSyncPolling === "function") stopSyncPolling();
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = "/accounts/logout/";
+  const csrf = plannerCsrfToken();
+  if (csrf) {
+    const csrfInput = document.createElement("input");
+    csrfInput.type = "hidden";
+    csrfInput.name = "csrfmiddlewaretoken";
+    csrfInput.value = csrf;
+    form.appendChild(csrfInput);
+  }
+  const nextInput = document.createElement("input");
+  nextInput.type = "hidden";
+  nextInput.name = "next";
+  nextInput.value = "/accounts/login/";
+  form.appendChild(nextInput);
+  document.body.appendChild(form);
+  form.submit();
 }
 
 async function oauthRefresh(silent = false) {
@@ -3072,20 +3288,11 @@ function maybeAutoRefreshFreeBusy() {
   }, 1000);
 }
 
-// ============================================
-// SHARED JOURNAL — Google Sheet + Drive upload
-// ============================================
-//
-// Sync model: read-on-signin + write-through. Local state.journal stays
-// authoritative for the UI; every successful sheet write also updates
-// state.journal[personId][i]._rowIndex so subsequent edits map back to
-// the right sheet row. Soft-delete (deletedAt column) instead of row
-// removal keeps row indices stable across managers.
-//
-// Status pill states: idle, loading, saving, ok, err.
+
+// Journal sync status (Django API)
 const journalSync = {
-  loaded: false,        // true once we've successfully pulled from sheet at least once
-  inFlight: 0,          // count of in-flight sheet/drive requests
+  loaded: false,
+  inFlight: 0,
   lastError: null,
   lastSyncAt: null,
 };
@@ -3100,7 +3307,7 @@ function setJournalSyncStatus(kind, msg) {
 
 function refreshJournalSyncIndicator() {
   if (!isOauthSignedIn()) {
-    setJournalSyncStatus("warn", "⚪ Ikke logget ind — skift til OAuth-fanen");
+    setJournalSyncStatus("warn", "⚪ Ikke logget ind");
     return;
   }
   if (journalSync.inFlight > 0) {
@@ -3113,9 +3320,9 @@ function refreshJournalSyncIndicator() {
   }
   if (journalSync.lastSyncAt) {
     const ts = new Date(journalSync.lastSyncAt).toLocaleTimeString("da-DK", { hour:"2-digit", minute:"2-digit" });
-    setJournalSyncStatus("ok", "🟢 Delt journal · sidst synced " + ts);
+    setJournalSyncStatus("ok", "🟢 Journal · sidst hentet " + ts);
   } else {
-    setJournalSyncStatus("", "Klar til at hente delt journal");
+    setJournalSyncStatus("", "Klar til at hente journal");
   }
 }
 
@@ -3127,756 +3334,6 @@ function journalEndRequest(err) {
   refreshJournalSyncIndicator();
 }
 
-// --- Drive file upload ------------------------------------------------
-//
-// Multipart upload: metadata + binary blob in one request, dropped into
-// the JOURNAL_FILES_FOLDER_ID folder. Returns { id, name, webViewLink, size, type }.
-async function driveUploadFile(file) {
-  const token = await oauthEnsureToken();
-  if (!token) throw new Error("Ikke logget ind");
-  const metadata = {
-    name: file.name,
-    parents: [JOURNAL_FILES_FOLDER_ID],
-    mimeType: file.type || "application/octet-stream",
-  };
-  const boundary = "bct_journal_" + Math.random().toString(36).slice(2);
-  const fileBuf = await file.arrayBuffer();
-  const enc = new TextEncoder();
-  const head = enc.encode(
-    `--${boundary}\r\n` +
-    `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
-    JSON.stringify(metadata) + `\r\n` +
-    `--${boundary}\r\n` +
-    `Content-Type: ${metadata.mimeType}\r\n\r\n`
-  );
-  const tail = enc.encode(`\r\n--${boundary}--`);
-  const body = new Uint8Array(head.length + fileBuf.byteLength + tail.length);
-  body.set(head, 0);
-  body.set(new Uint8Array(fileBuf), head.length);
-  body.set(tail, head.length + fileBuf.byteLength);
-  const r = await fetch(
-    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,size,mimeType",
-    {
-      method: "POST",
-      headers: {
-        "Authorization": "Bearer " + token,
-        "Content-Type": `multipart/related; boundary=${boundary}`,
-      },
-      body,
-    }
-  );
-  if (!r.ok) {
-    const txt = await r.text();
-    throw new Error("Drive upload " + r.status + ": " + txt.slice(0, 200));
-  }
-  const data = await r.json();
-  return {
-    name: data.name || file.name,
-    type: data.mimeType || file.type || "application/octet-stream",
-    size: parseInt(data.size, 10) || file.size || 0,
-    driveId: data.id,
-    webViewLink: data.webViewLink || ("https://drive.google.com/file/d/" + data.id + "/view"),
-  };
-}
-
-// --- Sheet helpers ----------------------------------------------------
-
-const SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets";
-
-async function sheetsApi(path, opts = {}) {
-  const token = await oauthEnsureToken();
-  if (!token) throw new Error("Ikke logget ind");
-  const r = await fetch(SHEETS_API + "/" + JOURNAL_SHEET_ID + path, {
-    ...opts,
-    headers: {
-      "Authorization": "Bearer " + token,
-      "Content-Type": "application/json",
-      ...(opts.headers || {}),
-    },
-  });
-  if (!r.ok) {
-    const txt = await r.text();
-    throw new Error("Sheets " + r.status + ": " + txt.slice(0, 200));
-  }
-  return await r.json();
-}
-
-// Make sure the "Entries" tab exists and row 1 has our header.
-async function journalEnsureHeader() {
-  const meta = await sheetsApi("?fields=sheets(properties(sheetId,title))");
-  const tab = (meta.sheets || []).find(s => s.properties?.title === JOURNAL_SHEET_TAB);
-  if (!tab) {
-    await sheetsApi(":batchUpdate", {
-      method: "POST",
-      body: JSON.stringify({
-        requests: [{ addSheet: { properties: { title: JOURNAL_SHEET_TAB } } }],
-      }),
-    });
-  }
-  // Check if row 1 already has the header.
-  const existing = await sheetsApi(
-    "/values/" + encodeURIComponent(JOURNAL_SHEET_TAB + "!A1:P1")
-  );
-  const have = (existing.values && existing.values[0]) || [];
-  if (have.length < JOURNAL_SHEET_HEADER.length) {
-    await sheetsApi(
-      "/values/" + encodeURIComponent(JOURNAL_SHEET_TAB + "!A1") +
-      "?valueInputOption=RAW",
-      {
-        method: "PUT",
-        body: JSON.stringify({ values: [JOURNAL_SHEET_HEADER] }),
-      }
-    );
-  }
-}
-
-// Convert a sheet row (array of strings) to an entry object.
-function rowToEntry(row, rowIndex /* 1-based, row 1 is header so entries start at 2 */) {
-  const get = i => (row[i] != null ? row[i] : "");
-  let files = [];
-  try { files = JSON.parse(get(11) || "[]"); } catch { files = []; }
-  return {
-    id: get(0),
-    personId: get(1),
-    managerId: get(2),
-    date: get(3),
-    trivsel: parseInt(get(4), 10) || 0,
-    faglig: get(5),
-    personlig: get(6),
-    udfordringer: get(7),
-    maal: get(8),
-    noter: get(9),
-    opfolgning: get(10),
-    files,
-    createdAt: parseInt(get(12), 10) || 0,
-    updatedAt: parseInt(get(13), 10) || 0,
-    deletedAt: parseInt(get(14), 10) || 0,
-    obs: get(15),
-    _rowIndex: rowIndex,
-  };
-}
-
-function entryToRow(entry, personId) {
-  return [
-    entry.id || "",
-    personId || entry.personId || "",
-    entry.managerId || "",
-    entry.date || "",
-    String(entry.trivsel || 0),
-    entry.faglig || "",
-    entry.personlig || "",
-    entry.udfordringer || "",
-    entry.maal || "",
-    entry.noter || "",
-    entry.opfolgning || "",
-    JSON.stringify((entry.files || []).map(f => ({
-      name: f.name, type: f.type, size: f.size,
-      driveId: f.driveId || "", webViewLink: f.webViewLink || "",
-    }))),
-    String(entry.createdAt || Date.now()),
-    String(entry.updatedAt || Date.now()),
-    String(entry.deletedAt || ""),
-    entry.obs || "",
-  ];
-}
-
-// Read all rows from sheet → replace state.journal in memory (does NOT
-// touch localStorage until the user explicitly saves something).
-async function journalLoadAll() {
-  journalBeginRequest();
-  try {
-    await journalEnsureHeader();
-    const data = await sheetsApi(
-      "/values/" + encodeURIComponent(JOURNAL_SHEET_TAB + "!A2:P")
-    );
-    const rows = data.values || [];
-    const grouped = {};
-    rows.forEach((row, i) => {
-      if (!row || !row[0]) return; // skip empty rows
-      const entry = rowToEntry(row, i + 2); // +2 because row 1 = header, +1 for 1-based
-      if (!entry.personId) return;
-      if (!grouped[entry.personId]) grouped[entry.personId] = [];
-      grouped[entry.personId].push(entry);
-    });
-    // Hide soft-deleted entries from the UI.
-    Object.keys(grouped).forEach(pid => {
-      grouped[pid] = grouped[pid].filter(e => !e.deletedAt);
-    });
-    state.journal = grouped;
-    journalSync.loaded = true;
-    saveState();
-    if (typeof renderJournalOverview === "function") renderJournalOverview();
-    if (typeof renderLists === "function") renderLists();
-    journalEndRequest();
-  } catch (err) {
-    journalEndRequest(err);
-    throw err;
-  }
-}
-
-// Append or update a single entry. Mutates the entry to record _rowIndex.
-async function journalUpsertEntry(entry, personId) {
-  journalBeginRequest();
-  try {
-    const row = entryToRow(entry, personId);
-    if (entry._rowIndex && entry._rowIndex >= 2) {
-      // Update existing row.
-      await sheetsApi(
-        "/values/" + encodeURIComponent(JOURNAL_SHEET_TAB + "!A" + entry._rowIndex + ":P" + entry._rowIndex) +
-        "?valueInputOption=RAW",
-        { method: "PUT", body: JSON.stringify({ values: [row] }) }
-      );
-    } else {
-      // Append new row, then read back the resulting range to capture the row index.
-      // Sheets API requires the ":append" suffix on the path for the append endpoint.
-      const res = await sheetsApi(
-        "/values/" + encodeURIComponent(JOURNAL_SHEET_TAB + "!A:P") + ":append" +
-        "?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
-        { method: "POST", body: JSON.stringify({ values: [row] }) }
-      );
-      // updatedRange looks like "Entries!A7:P7" — extract row number.
-      const m = (res.updates?.updatedRange || "").match(/!A(\d+):/);
-      if (m) entry._rowIndex = parseInt(m[1], 10);
-    }
-    journalEndRequest();
-  } catch (err) {
-    journalEndRequest(err);
-    throw err;
-  }
-}
-
-// Soft-delete: write deletedAt to the row so other managers stop seeing it.
-async function journalSoftDeleteEntry(entry, personId) {
-  if (!entry._rowIndex) return; // never written to sheet, nothing to do
-  entry.deletedAt = Date.now();
-  await journalUpsertEntry(entry, personId);
-}
-
-// One-time migration: take everything currently in state.journal that
-// doesn't yet have a _rowIndex (i.e. has only ever lived in this browser's
-// localStorage) and push it into the shared sheet. Inline base64 file
-// attachments are uploaded to Drive and replaced with Drive references.
-async function migrateLocalJournal() {
-  if (!isOauthSignedIn()) {
-    alert("Log ind med Google først (OAuth-fanen) for at importere lokal historik.");
-    return;
-  }
-  // Snapshot the LOCAL journal first — journalLoadAll() will overwrite
-  // state.journal (and localStorage) with whatever is currently in the sheet.
-  const localJournal = JSON.parse(JSON.stringify(state.journal || {}));
-  // Pre-flight: pull from sheet first so we don't push duplicates of entries
-  // some other manager already migrated.
-  try {
-    await journalLoadAll();
-  } catch (err) {
-    if (!confirm("Kunne ikke læse delt journal først (" + err.message + "). Fortsæt alligevel? (Risiko for duplikater)")) return;
-  }
-  // Build a Set of IDs already in sheet (from current state.journal).
-  const existingIds = new Set();
-  Object.values(state.journal || {}).forEach(arr => {
-    (arr || []).forEach(e => { if (e.id) existingIds.add(e.id); });
-  });
-  const toPush = [];
-  Object.entries(localJournal).forEach(([pid, arr]) => {
-    (arr || []).forEach(e => {
-      if (!e || !e.id) return;
-      if (existingIds.has(e.id)) return; // already in sheet
-      toPush.push({ pid, entry: e });
-    });
-  });
-  if (!toPush.length) {
-    alert("Ingen lokale entries at importere — alt er allerede i den delte journal.");
-    return;
-  }
-  if (!confirm(`Klar til at importere ${toPush.length} entry/entries fra denne browser til den delte journal. Fortsæt?`)) return;
-  let ok = 0, fail = 0;
-  for (const { pid, entry } of toPush) {
-    try {
-      // Upload any base64 file attachments to Drive first.
-      if (entry.files && entry.files.length) {
-        const newFiles = [];
-        for (const f of entry.files) {
-          if (f.driveId) { newFiles.push(f); continue; }
-          if (!f.dataUrl) { newFiles.push(f); continue; }
-          try {
-            // Convert dataUrl back to a File-like blob.
-            const blob = await (await fetch(f.dataUrl)).blob();
-            const file = new File([blob], f.name, { type: f.type || blob.type });
-            const uploaded = await driveUploadFile(file);
-            newFiles.push(uploaded);
-          } catch (err) {
-            console.error("[migrate] file upload failed for", f.name, err);
-            newFiles.push({ name: f.name, type: f.type, size: f.size }); // metadata only
-          }
-        }
-        entry.files = newFiles;
-      }
-      // Make sure entry lives in state.journal so _rowIndex sticks.
-      if (!state.journal[pid]) state.journal[pid] = [];
-      const existsLocally = state.journal[pid].find(e => e.id === entry.id);
-      if (!existsLocally) state.journal[pid].push(entry);
-      const ref = state.journal[pid].find(e => e.id === entry.id);
-      await journalUpsertEntry(ref, pid);
-      ok++;
-    } catch (err) {
-      console.error("[migrate] entry failed", entry.id, err);
-      fail++;
-    }
-  }
-  saveState();
-  renderJournalOverview();
-  renderLists();
-  alert(`Import færdig.\n\nImporteret: ${ok}\nFejlede: ${fail}\n\nDe andre managers kan nu se dine entries når de klikker 'Hent delt journal'.`);
-}
-
-
-// =====================================================================
-// SHARED MASTER DATA — Google Sheet sync (people, managers, teams, etc.)
-// =====================================================================
-// Up to 2026-05-04 the only data shared across managers was the journal.
-// Master data (employee list incl. emails, managers, team rotation, projects,
-// function tags, custom dates, start date) lived in each browser's
-// localStorage — so when Tor fixed Lars' email locally, Stefan still saw the
-// old wrong email. This module pushes master data through the same Google
-// Sheet (different tab) so all 3 managers share one source of truth.
-//
-// Schema: tab "MasterData", one row per logical key. Header row 1.
-//   key | json | updatedAt | updatedBy
-// Keys (see MASTER_KEYS constant): people, mgrs, teams, projects, fnTags,
-// customDates, startDate. JSON column holds the full payload for that key.
-//
-// Sync model:
-//   - On OAuth signin → masterLoadAll() pulls all rows, replaces the
-//     corresponding state.* fields, saves to localStorage as offline cache.
-//   - Every save-point that mutates master data calls masterUpsertKey(key).
-//   - Pre-write: GET the row's updatedAt and compare to our last-synced
-//     timestamp. If sheet is newer, ask the user to confirm overwrite or
-//     refresh first ("data ændret af X. Vil du overskrive eller hente først?").
-//   - Manual "⟳ Hent delt data" button forces a full refresh.
-//   - Migration button "⤴ Importér lokal master-data" pushes the local
-//     state up as the initial snapshot (one-time, used by the first manager
-//     after deploy whose state is the canonical source of truth).
-//
-// LocalStorage stays as offline cache so the app still loads without OAuth.
-
-const masterSync = {
-  loaded: false,
-  inFlight: 0,
-  lastError: null,
-  lastSyncAt: null,
-  keysSyncedAt: {},  // { key: epoch ms — when WE last loaded that row from sheet }
-  rowIndex: {},      // { key: 1-based row index in sheet }
-};
-
-function setMasterSyncStatus(kind, msg) {
-  const el = document.getElementById("master-sync-status");
-  if (!el) return;
-  el.className = "sync-pill " + (kind || "");
-  el.textContent = msg || "";
-  el.style.display = msg ? "" : "none";
-}
-
-function refreshMasterSyncIndicator() {
-  // Toggle den store advarselsbanner ud fra signin-status. Banneret gør
-  // det umuligt at overse at lokale ændringer ikke deles før man logger ind.
-  const banner = document.getElementById("sync-warning-banner");
-  if (banner) banner.classList.toggle("active", !isOauthSignedIn());
-
-  if (!isOauthSignedIn()) {
-    // Banneret ovenfor siger allerede dette tydeligt — undgå at gentage
-    // beskeden i sync-pill'en. Skjul pill'en helt når man ikke er logget ind.
-    setMasterSyncStatus("", "");
-    return;
-  }
-  if (masterSync.inFlight > 0) {
-    setMasterSyncStatus("", "🟡 Synkroniserer delt data…");
-    return;
-  }
-  if (masterSync.lastError) {
-    setMasterSyncStatus("err", "🔴 Sync-fejl: " + masterSync.lastError);
-    return;
-  }
-  if (masterSync.lastSyncAt) {
-    const ts = new Date(masterSync.lastSyncAt).toLocaleTimeString("da-DK", { hour:"2-digit", minute:"2-digit" });
-    setMasterSyncStatus("ok", "🟢 Delt data · sidst synced " + ts);
-  } else {
-    setMasterSyncStatus("", "Klar til at hente delt data");
-  }
-}
-
-function masterBeginRequest() { masterSync.inFlight++; refreshMasterSyncIndicator(); }
-function masterEndRequest(err) {
-  masterSync.inFlight = Math.max(0, masterSync.inFlight - 1);
-  if (err) masterSync.lastError = (err.message || String(err)).slice(0, 120);
-  else { masterSync.lastError = null; masterSync.lastSyncAt = Date.now(); }
-  refreshMasterSyncIndicator();
-}
-
-// Make sure the MasterData tab exists with the right header.
-async function masterEnsureHeader() {
-  const meta = await sheetsApi("?fields=sheets(properties(sheetId,title))");
-  const tab = (meta.sheets || []).find(s => s.properties?.title === MASTER_SHEET_TAB);
-  if (!tab) {
-    await sheetsApi(":batchUpdate", {
-      method: "POST",
-      body: JSON.stringify({
-        requests: [{ addSheet: { properties: { title: MASTER_SHEET_TAB } } }],
-      }),
-    });
-  }
-  const existing = await sheetsApi(
-    "/values/" + encodeURIComponent(MASTER_SHEET_TAB + "!A1:D1")
-  );
-  const have = (existing.values && existing.values[0]) || [];
-  if (have.length < MASTER_SHEET_HEADER.length) {
-    await sheetsApi(
-      "/values/" + encodeURIComponent(MASTER_SHEET_TAB + "!A1") +
-      "?valueInputOption=RAW",
-      {
-        method: "PUT",
-        body: JSON.stringify({ values: [MASTER_SHEET_HEADER] }),
-      }
-    );
-  }
-}
-
-// Read all master rows from sheet → replace corresponding state.* fields.
-// Hooked to OAuth signin. Caller can pass { silent: true } to skip alert
-// dialogs on conflict (used by initial load).
-async function masterLoadAll() {
-  masterBeginRequest();
-  try {
-    await masterEnsureHeader();
-    const data = await sheetsApi(
-      "/values/" + encodeURIComponent(MASTER_SHEET_TAB + "!A2:D")
-    );
-    const rows = data.values || [];
-    masterSync.rowIndex = {};
-    masterSync.keysSyncedAt = {};
-    rows.forEach((row, i) => {
-      if (!row || !row[0]) return;
-      const key = row[0];
-      const jsonRaw = row[1] || "";
-      const updatedAt = parseInt(row[2], 10) || 0;
-      masterSync.rowIndex[key] = i + 2;
-      masterSync.keysSyncedAt[key] = updatedAt;
-      if (!MASTER_KEYS.includes(key)) return;
-      let parsed;
-      try { parsed = JSON.parse(jsonRaw); } catch { return; }
-      applyMasterKey(key, parsed);
-    });
-    masterSync.loaded = true;
-    saveState();
-    if (typeof renderAll === "function") renderAll();
-    masterEndRequest();
-  } catch (err) {
-    masterEndRequest(err);
-    throw err;
-  }
-}
-
-// Assign a parsed value from sheet to state.* — keeps state shape stable
-// (e.g. teams object always has team-1/2/3/pool keys).
-function applyMasterKey(key, value) {
-  if (key === "people" && Array.isArray(value)) {
-    state.people = value.map(p => ({ ...p, projects: Array.isArray(p.projects) ? p.projects : [] }));
-  } else if (key === "mgrs" && Array.isArray(value)) {
-    state.mgrs = value.slice(0, 3);
-  } else if (key === "teams" && value && typeof value === "object") {
-    state.teams = {
-      "team-1": Array.isArray(value["team-1"]) ? value["team-1"] : [],
-      "team-2": Array.isArray(value["team-2"]) ? value["team-2"] : [],
-      "team-3": Array.isArray(value["team-3"]) ? value["team-3"] : [],
-      "pool":   Array.isArray(value["pool"])   ? value["pool"]   : [],
-    };
-  } else if (key === "projects" && Array.isArray(value)) {
-    state.projects = value.map(pj => ({
-      name: pj.name,
-      description: pj.description || "",
-      color: pj.color || autoProjectColor(pj.name),
-    }));
-  } else if (key === "fnTags" && Array.isArray(value) && value.length) {
-    state.fnTags = value;
-  } else if (key === "customDates" && value && typeof value === "object") {
-    state.customDates = value;
-  } else if (key === "startDate" && typeof value === "string") {
-    state.startDate = value;
-  }
-}
-
-// Build the JSON payload for a given key.
-function buildMasterPayload(key) {
-  switch (key) {
-    case "people":      return JSON.stringify(state.people || []);
-    case "mgrs":        return JSON.stringify(state.mgrs || []);
-    case "teams":       return JSON.stringify(state.teams || {});
-    case "projects":    return JSON.stringify(state.projects || []);
-    case "fnTags":      return JSON.stringify(state.fnTags || []);
-    case "customDates": return JSON.stringify(state.customDates || {});
-    case "startDate":   return JSON.stringify(state.startDate || "");
-    default:            return "null";
-  }
-}
-
-// Push a single key's current state to sheet. Pre-write conflict check:
-// if the sheet's updatedAt for this key is newer than what we loaded, prompt
-// the user to choose between overwrite, refresh first, or cancel.
-// Mutations: writes lastSyncedAt + rowIndex back into masterSync on success.
-async function masterUpsertKey(key, opts = {}) {
-  if (!MASTER_KEYS.includes(key)) return;
-  if (!isOauthSignedIn()) {
-    // Offline mode — saveState() has already cached locally. Do nothing.
-    return;
-  }
-  if (!masterSync.loaded) {
-    // First time pushing without ever having loaded — load first to learn
-    // existing rowIndex so we update instead of duplicating rows.
-    try { await masterLoadAll(); }
-    catch (err) { console.error("[master] preload failed", err); }
-  }
-  masterBeginRequest();
-  try {
-    // Conflict check: read current updatedAt for this key.
-    const rowIdx = masterSync.rowIndex[key];
-    let conflict = null;
-    if (rowIdx) {
-      const cur = await sheetsApi(
-        "/values/" + encodeURIComponent(MASTER_SHEET_TAB + "!A" + rowIdx + ":D" + rowIdx)
-      );
-      const r = (cur.values && cur.values[0]) || [];
-      const sheetUpdatedAt = parseInt(r[2], 10) || 0;
-      const sheetUpdatedBy = r[3] || "ukendt";
-      const ourSyncedAt = masterSync.keysSyncedAt[key] || 0;
-      if (sheetUpdatedAt > ourSyncedAt) {
-        conflict = { sheetUpdatedAt, sheetUpdatedBy };
-      }
-    }
-    if (conflict && !opts.force) {
-      masterEndRequest(); // release the in-flight slot before showing dialog
-      const ts = new Date(conflict.sheetUpdatedAt).toLocaleString("da-DK");
-      const choice = confirm(
-        `Delt data er ændret af ${conflict.sheetUpdatedBy} (${ts}) — efter du loadede.\n\n` +
-        `OK → hent fra sheet først (dine ændringer går tabt)\n` +
-        `Annullér → overskriv den anden persons ændringer alligevel`
-      );
-      if (choice) {
-        await masterLoadAll();
-        return;
-      }
-      // User chose to force-overwrite: re-enter request lifecycle.
-      masterBeginRequest();
-    }
-
-    const json = buildMasterPayload(key);
-    const updatedAt = Date.now();
-    const updatedBy = window.PLANNER_USER_EMAIL || "ukendt";
-    const row = [key, json, String(updatedAt), updatedBy];
-    if (rowIdx) {
-      await sheetsApi(
-        "/values/" + encodeURIComponent(MASTER_SHEET_TAB + "!A" + rowIdx + ":D" + rowIdx) +
-        "?valueInputOption=RAW",
-        { method: "PUT", body: JSON.stringify({ values: [row] }) }
-      );
-    } else {
-      const res = await sheetsApi(
-        "/values/" + encodeURIComponent(MASTER_SHEET_TAB + "!A:D") + ":append" +
-        "?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
-        { method: "POST", body: JSON.stringify({ values: [row] }) }
-      );
-      const m = (res.updates?.updatedRange || "").match(/!A(\d+):/);
-      if (m) masterSync.rowIndex[key] = parseInt(m[1], 10);
-    }
-    masterSync.keysSyncedAt[key] = updatedAt;
-    masterEndRequest();
-  } catch (err) {
-    masterEndRequest(err);
-    console.error("[master] upsert failed for key", key, err);
-  }
-}
-
-// Convenience wrappers used by save-points throughout the app. Fire-and-forget
-// (status pill shows progress/errors). Save locally first via saveState() —
-// these only push to the cloud.
-function syncPeople()      { masterUpsertKey("people"); }
-function syncMgrs()        { masterUpsertKey("mgrs"); }
-function syncTeams()       { masterUpsertKey("teams"); }
-function syncProjects()    { masterUpsertKey("projects"); }
-function syncFnTags()      { masterUpsertKey("fnTags"); }
-function syncCustomDates() { masterUpsertKey("customDates"); }
-function syncStartDate()   { masterUpsertKey("startDate"); }
-// Convenience: push every master key. Used by the "import local data → sheet"
-// migration button on first deploy.
-async function syncAllMaster() {
-  for (const key of MASTER_KEYS) {
-    try { await masterUpsertKey(key, { force: true }); }
-    catch (err) { console.error("[master] sync-all failed for", key, err); }
-  }
-}
-
-// One-time migration: take everything currently in localStorage and push it
-// to the shared sheet as the canonical first snapshot. The first manager who
-// runs this after deploy "wins" — their state becomes the truth that other
-// managers' browsers will pull down on next signin.
-async function migrateLocalMaster() {
-  if (!isOauthSignedIn()) {
-    alert("Log ind med Google først for at importere lokal master-data.");
-    return;
-  }
-  // Check if sheet already has data — if so, prompt before overwriting.
-  try { await masterLoadAll(); } catch (err) {
-    if (!confirm("Kunne ikke læse delt data først (" + err.message + "). Fortsæt? (Risiko for konflikt)")) return;
-  }
-  const hasExisting = Object.keys(masterSync.rowIndex || {}).length > 0;
-  // After masterLoadAll, state is now whatever's in the sheet. We need the
-  // ORIGINAL local state to push. To do that we re-read from localStorage
-  // (since saveState was last called before masterLoadAll, this is safe).
-  // For first-run scenario, sheet is empty → state is unchanged → push it.
-  // For overwrite scenario, we re-read localStorage to recover local data.
-  if (hasExisting) {
-    const ok = confirm(
-      "Den delte data-fane indeholder allerede data fra en anden bruger.\n\n" +
-      "OK → din lokale state bliver IKKE pushet (sheet vinder).\n" +
-      "Annullér → fortsæt og OVERSKRIV den delte data med din lokale.\n\n" +
-      "Vælger du Annullér og fortsætter, vil andre managers' ændringer gå tabt næste gang de loader."
-    );
-    if (ok) {
-      alert("Importen blev annulleret. Din browser bruger nu den delte data.");
-      return;
-    }
-    // User wants to overwrite — re-read localStorage to recover original local state
-    const localRaw = localStorage.getItem(STORAGE_KEY);
-    if (localRaw) {
-      try {
-        const localState = JSON.parse(localRaw);
-        // Re-apply local values to state for each master key we manage.
-        if (Array.isArray(localState.people)) state.people = localState.people;
-        if (Array.isArray(localState.mgrs)) state.mgrs = localState.mgrs;
-        if (localState.teams) state.teams = localState.teams;
-        if (Array.isArray(localState.projects)) state.projects = localState.projects;
-        if (Array.isArray(localState.fnTags)) state.fnTags = localState.fnTags;
-        if (localState.customDates) state.customDates = localState.customDates;
-        if (localState.startDate) state.startDate = localState.startDate;
-      } catch (err) {
-        alert("Kunne ikke læse lokal localStorage: " + err.message);
-        return;
-      }
-    }
-  }
-  if (!confirm(`Klar til at pushe din lokale master-data til den delte sheet (${MASTER_KEYS.length} nøgler). Andre managers' browsere vil bruge dette som sandhed efter de loader. Fortsæt?`)) return;
-
-  await syncAllMaster();
-  saveState();
-  renderAll();
-  alert("Master-data importeret til delt sheet. Andre managers ser dette efter deres næste login eller når de klikker 'Hent delt data'.");
-}
-
-
-// =====================================================================
-// AUTO-POLLING — push other managers' changes to my browser automatically
-// =====================================================================
-// GitHub Pages is static hosting — no websockets, no server push. We
-// approximate "real time" by polling a single column every POLL_INTERVAL_MS:
-//   - Master tab: read MasterData!C2:C (updatedAt column only — ~7 cells).
-//     If max(updatedAt) > our highest keysSyncedAt → kick off masterLoadAll().
-//   - Journal tab: read Entries!N2:N (updatedAt column). If max > our
-//     lastJournalSyncAt → kick off journalLoadAll().
-// Polling pauses while the tab is hidden (document.hidden) and runs an
-// immediate poll on visibility-change so a manager who tabs back in sees
-// fresh data within a second instead of waiting up to 20 seconds.
-//
-// Single-cell polls are tiny (~50 bytes) so the bandwidth cost is trivial
-// even at 3 managers × 3 polls/min = 9 reads/min — well under Sheets API
-// quota of 100 reads / 100 sec / user.
-
-const POLL_INTERVAL_MS = 20000; // 20 seconds — feels live without spamming the API
-let masterPollTimer = null;
-let journalPollTimer = null;
-let lastJournalUpdatedAtSeen = 0; // max updatedAt of entries we know about
-
-function startSyncPolling() {
-  if (masterPollTimer == null) {
-    masterPollTimer = setInterval(masterPoll, POLL_INTERVAL_MS);
-  }
-  if (journalPollTimer == null) {
-    journalPollTimer = setInterval(journalPoll, POLL_INTERVAL_MS);
-  }
-}
-
-function stopSyncPolling() {
-  if (masterPollTimer != null) { clearInterval(masterPollTimer); masterPollTimer = null; }
-  if (journalPollTimer != null) { clearInterval(journalPollTimer); journalPollTimer = null; }
-}
-
-// Compute the highest updatedAt we've seen across all known journal entries
-// (across all people). Used to decide whether a poll detected new activity.
-function computeJournalMaxUpdatedAt() {
-  let max = 0;
-  Object.values(state.journal || {}).forEach(arr => {
-    (arr || []).forEach(e => {
-      const v = e.updatedAt || e.createdAt || 0;
-      if (v > max) max = v;
-    });
-  });
-  return max;
-}
-
-async function masterPoll() {
-  if (!isOauthSignedIn()) return;
-  if (typeof document !== "undefined" && document.hidden) return;
-  if (masterSync.inFlight > 0) return; // already syncing — skip this tick
-  if (isModalOpen()) return; // don't yank state under the user mid-edit
-  try {
-    const data = await sheetsApi(
-      "/values/" + encodeURIComponent(MASTER_SHEET_TAB + "!C2:C")
-    );
-    const rows = data.values || [];
-    let maxAt = 0;
-    rows.forEach(r => {
-      const v = parseInt((r && r[0]) || "0", 10) || 0;
-      if (v > maxAt) maxAt = v;
-    });
-    let ourMax = 0;
-    Object.values(masterSync.keysSyncedAt || {}).forEach(v => { if (v > ourMax) ourMax = v; });
-    if (maxAt > 0 && maxAt > ourMax) {
-      console.log("[master poll] sheet has newer data (" + maxAt + " > " + ourMax + ") — auto-refreshing");
-      await masterLoadAll();
-    }
-  } catch (err) {
-    // Don't bubble up to the UI — just log. A failed poll shouldn't disturb
-    // the user; the next one will try again.
-    console.error("[master poll] failed", err);
-  }
-}
-
-async function journalPoll() {
-  if (!isOauthSignedIn()) return;
-  if (typeof document !== "undefined" && document.hidden) return;
-  if (journalSync.inFlight > 0) return;
-  if (isModalOpen()) return;
-  try {
-    const data = await sheetsApi(
-      "/values/" + encodeURIComponent(JOURNAL_SHEET_TAB + "!N2:N")
-    );
-    const rows = data.values || [];
-    let maxAt = 0;
-    rows.forEach(r => {
-      const v = parseInt((r && r[0]) || "0", 10) || 0;
-      if (v > maxAt) maxAt = v;
-    });
-    const ourMax = Math.max(lastJournalUpdatedAtSeen, computeJournalMaxUpdatedAt());
-    if (maxAt > 0 && maxAt > ourMax) {
-      console.log("[journal poll] sheet has newer data (" + maxAt + " > " + ourMax + ") — auto-refreshing");
-      await journalLoadAll();
-      lastJournalUpdatedAtSeen = computeJournalMaxUpdatedAt();
-    }
-  } catch (err) {
-    console.error("[journal poll] failed", err);
-  }
-}
-
-// Returns true if any blocking modal is currently open. We pause auto-pull
-// while the user is mid-edit so their form data doesn't disappear if a poll
-// detects newer master data and re-renders.
 function isModalOpen() {
   const ids = ["modal-bg", "modal-project-bg", "modal-fntags-bg", "modal-event-bg", "modal-journal-bg", "modal-report-bg"];
   for (const id of ids) {
@@ -3886,17 +3343,87 @@ function isModalOpen() {
   return false;
 }
 
-// Re-poll immediately when the user tabs back to the page (so they see
-// fresh data within ~1 second instead of waiting up to POLL_INTERVAL_MS).
-if (typeof document !== "undefined") {
-  document.addEventListener("visibilitychange", () => {
-    if (!document.hidden && isOauthSignedIn()) {
-      masterPoll();
-      journalPoll();
-    }
-  });
+function stopSyncPolling() {}
+function startSyncPolling() {}
+
+async function migrateLocalJournal() {
+  alert("Lokal journal-import er kun tilgængelig med Google Sheet-journal (USE_GOOGLE_SHEET_JOURNAL).");
 }
 
+
+// =====================================================================
+// SHARED MASTER DATA — Django API (granular sync via state-sync.js)
+// =====================================================================
+
+function refreshMasterSyncIndicator() {
+  const banner = document.getElementById("sync-warning-banner");
+  if (banner) banner.classList.toggle("active", !isOauthSignedIn());
+  if (!isOauthSignedIn()) {
+    const ss = getStateSync();
+    if (ss) ss.setSyncPill("", "");
+  }
+}
+
+async function refreshPlannerFromServer() {
+  const ss = getStateSync();
+  if (!ss) throw new Error("State sync module ikke indlæst.");
+  await ss.refreshFromServer();
+  await ensureRotationLoaded(32);
+  await reloadBookings();
+  refreshMasterSyncIndicator();
+}
+
+function syncPeople() {
+  const ss = getStateSync();
+  if (!canEditRoster() || !ss) return;
+  ss.runSync("people", () => ss.syncAllPeople(state.people)).catch(handleSyncError);
+}
+function syncMgrs() {
+  const ss = getStateSync();
+  if (!canEditRoster() || !ss) return;
+  ss.runSync("managers", () => ss.syncMgrs(state.mgrs)).catch(handleSyncError);
+}
+function syncTeams() {
+  const ss = getStateSync();
+  if (!canEditRoster() || !ss) return;
+  ss.runSync("teams", () => ss.syncAllTeams(state.teams)).catch(handleSyncError);
+}
+function syncProjects() {
+  const ss = getStateSync();
+  if (!canEditRoster() || !ss) return;
+  ss.runSync("projects", () => ss.syncAllProjects(state.projects)).catch(handleSyncError);
+}
+function syncFnTags() {
+  const ss = getStateSync();
+  if (!canEditRoster() || !ss) return;
+  ss.runSync("function tags", () => ss.syncFnTags(state.fnTags)).catch(handleSyncError);
+}
+function syncCustomDates() {
+  const ss = getStateSync();
+  if (!canEditRoster() || !ss) return;
+  ss.runSync("custom dates", () => ss.syncCustomDates(state.customDates)).catch(handleSyncError);
+}
+function syncStartDate() {
+  const ss = getStateSync();
+  if (!canEditRoster() || !ss) return;
+  ss.runSync("config", () => ss.syncConfig({
+    startDate: state.startDate,
+    workHours: state.workHours,
+    viewedMgrFilter: state.viewedMgrFilter,
+    weekOffset: state.weekOffset,
+    weeksPerSession: getWeeksPerSession(),
+  })).catch(handleSyncError);
+}
+function syncPlannerConfig() {
+  const ss = getStateSync();
+  if (!canEditRoster() || !ss) return;
+  ss.runSync("config", () => ss.syncConfig({
+    workHours: state.workHours,
+    viewedMgrFilter: state.viewedMgrFilter,
+    weekOffset: state.weekOffset,
+    weeksPerSession: getWeeksPerSession(),
+  })).catch(handleSyncError);
+}
 
 // ============================================
 // DRAG & DROP
@@ -3929,29 +3456,53 @@ function setupSortable() {
       });
     }
   };
-  ["pool","team-1","team-2","team-3"].forEach(id => new Sortable(document.getElementById(id), opts));
+  if (!canEditRoster()) return;
+  sortableInstances.forEach((s) => s.destroy());
+  sortableInstances = [];
+  ["pool","team-1","team-2","team-3"].forEach(id => {
+    sortableInstances.push(new Sortable(document.getElementById(id), opts));
+  });
 }
 
 // ============================================
 // EVENTS
 // ============================================
-document.getElementById("startDate").addEventListener("change", e => {
+document.getElementById("startDate").addEventListener("change", async (e) => {
+  if (!canEditRoster()) return;
   state.startDate = e.target.value;
-  saveState(); syncStartDate(); renderCalendar(); renderByPerson();
+  saveState();
+  setRotationTableLoading("Opdaterer rotation…");
+  try {
+    const ss = getStateSync();
+    if (ss && window.PlannerApi) {
+      await ss.runSync("config", () => ss.syncConfig({
+        startDate: state.startDate,
+        workHours: state.workHours,
+        viewedMgrFilter: state.viewedMgrFilter,
+        weekOffset: state.weekOffset,
+        weeksPerSession: getWeeksPerSession(),
+      }));
+      await reloadRotationSessions(32);
+    }
+    renderCalendar();
+    renderByPerson();
+  } catch (err) {
+    handleSyncError(err);
+  }
 });
 document.getElementById("search").addEventListener("input", () => renderLists());
-document.getElementById("btn-reset").addEventListener("click", () => {
-  if (!confirm("Nulstil ALT til standard? Dette overskriver også den DELTE master-data for alle managers.")) return;
-  state = defaultState(); activeProjectFilter = null;
-  saveState();
-  // Reset is destructive across the team — push every key as force overwrite
-  // so all managers' browsers pick it up on next load.
-  if (isOauthSignedIn()) {
-    syncAllMaster().catch(err => console.error("[reset] sync failed", err));
+document.getElementById("btn-reset").addEventListener("click", async () => {
+  if (!confirm("Genindlæs roster fra serveren? Lokale ændringer der ikke er gemt, overskrives.")) return;
+  try {
+    await refreshPlannerFromServer();
+    activeProjectFilter = null;
+    renderAll();
+  } catch (err) {
+    alert("Kunne ikke hente data: " + (err.message || err));
   }
-  renderAll();
 });
 document.getElementById("btn-shuffle").addEventListener("click", () => {
+  if (!canEditRoster()) return;
   if (!confirm("Bland alle medarbejdere tilfældigt i 3 teams?")) return;
   const all = getEligiblePeople().map(p => p.id);
   for (let i = all.length - 1; i > 0; i--) {
@@ -3969,9 +3520,10 @@ document.getElementById("btn-export-csv").addEventListener("click", () => {
   const rows = [["Uge","Sessions-dato","Manager","Team","Medarbejder","Custom dato/tid","Projekter"]];
   for (let i = 0; i < 12; i++) {
     const sd = sessionDate(i);
-    const phase = i % 3;
+    const sess = findRotationSession(i);
     [0,1,2].forEach(mgrIdx => {
-      const teamId = ROTATION[phase][mgrIdx];
+      const teamId = sess ? teamForManagerInSession(mgrIdx, sess) : null;
+      if (!teamId) return;
       const mgr = findPerson(state.mgrs[mgrIdx]);
       state.teams[teamId].forEach(pid => {
         const p = findPerson(pid);
@@ -4005,6 +3557,7 @@ document.querySelectorAll(".tab").forEach(btn => {
 });
 
 document.body.addEventListener("click", e => {
+  if (!canEditRoster()) return;
   const btn = e.target.closest("button[data-act]");
   if (!btn) return;
   const id = btn.dataset.id;
@@ -4012,7 +3565,7 @@ document.body.addEventListener("click", e => {
   else if (btn.dataset.act === "delete") deletePerson(id);
 });
 
-document.getElementById("btn-add-person").addEventListener("click", () => openModal());
+document.getElementById("btn-add-person").addEventListener("click", () => { if (!canEditRoster()) return; openModal(); });
 
 // Journal main tab filters
 ["j-search","j-filter-team","j-filter-trivsel"].forEach(id => {
@@ -4037,17 +3590,17 @@ document.getElementById("btn-journal-migrate").addEventListener("click", migrate
 
 // Shared master-data sync controls (employees, managers, teams, projects, ...)
 document.getElementById("btn-master-pull").addEventListener("click", async () => {
-  if (!isOauthSignedIn()) {
-    alert("Log ind med Google først (i Rotation-fanen) — den delte data kræver login.");
+  if (!window.PLANNER_USER_EMAIL) {
+    alert("Log ind først.");
     return;
   }
   try {
-    await masterLoadAll();
+    await refreshPlannerFromServer();
+    renderAll();
   } catch (err) {
-    alert("Kunne ikke hente delt data: " + err.message);
+    alert("Kunne ikke hente data fra serveren: " + err.message);
   }
 });
-document.getElementById("btn-master-migrate").addEventListener("click", migrateLocalMaster);
 
 // Render the indicator once on page load so users see "⚪ Ikke logget ind"
 // before they even sign in.
@@ -4153,27 +3706,32 @@ function renderMgrFilter() {
 document.getElementById("mgr-filter").addEventListener("change", e => {
   state.viewedMgrFilter = e.target.value;
   saveState();
+  syncPlannerConfig();
   renderByPerson();
 });
 document.getElementById("wk-prev").addEventListener("click", () => {
   state.weekOffset = (state.weekOffset || 0) - 1;
   saveState();
+  syncPlannerConfig();
   renderByPerson();
 });
 document.getElementById("wk-next").addEventListener("click", () => {
   state.weekOffset = (state.weekOffset || 0) + 1;
   saveState();
+  syncPlannerConfig();
   renderByPerson();
 });
 document.getElementById("wk-now").addEventListener("click", () => {
   state.weekOffset = 0;
   saveState();
+  syncPlannerConfig();
   renderByPerson();
 });
 
 // Event modal
 document.getElementById("ev-cancel").addEventListener("click", closeEventModal);
 document.getElementById("ev-save-only").addEventListener("click", evSaveOnly);
+document.getElementById("ev-cancel-booking").addEventListener("click", evCancelBooking);
 document.getElementById("ev-create").addEventListener("click", evCreateInCalendar);
 document.getElementById("modal-event-bg").addEventListener("click", e => {
   if (e.target.id === "modal-event-bg") closeEventModal();
@@ -4194,6 +3752,37 @@ document.getElementById("oauth-help-close").addEventListener("click", () => {
   document.getElementById("modal-oauth-help").classList.remove("active");
 });
 
+
+function bindWeeksPerSession() {
+  const sel = document.getElementById("weeksPerSession");
+  if (!sel) return;
+  sel.value = String(getWeeksPerSession());
+  sel.addEventListener("change", async () => {
+    if (!canEditRoster()) return;
+    const next = parseInt(sel.value, 10) || DEFAULT_WEEKS_PER_SESSION;
+    if (next === getWeeksPerSession()) return;
+    state.weeksPerSession = next;
+    saveState();
+    setRotationTableLoading("Opdaterer rotation…");
+    try {
+      const ss = getStateSync();
+      if (ss && window.PlannerApi) {
+        await ss.runSync("config", () => ss.syncConfig({
+          workHours: state.workHours,
+          viewedMgrFilter: state.viewedMgrFilter,
+          weekOffset: state.weekOffset,
+          weeksPerSession: getWeeksPerSession(),
+        }));
+        await reloadRotationSessions(32);
+      }
+      renderCalendar();
+      renderByPerson();
+    } catch (err) {
+      handleSyncError(err);
+    }
+  });
+}
+
 function bindWorkHours() {
   document.getElementById("wh-start").value = state.workHours.start;
   document.getElementById("wh-end").value = state.workHours.end;
@@ -4205,7 +3794,9 @@ function bindWorkHours() {
       state.workHours.end = document.getElementById("wh-end").value;
       state.workHours.excludeLunch = document.getElementById("wh-lunch").checked;
       state.workHours.weekdaysOnly = document.getElementById("wh-weekdays").checked;
-      saveState(); renderByPerson();
+      saveState();
+      syncPlannerConfig();
+      renderByPerson();
     });
   });
 }
@@ -4214,8 +3805,11 @@ function bindWorkHours() {
 // INIT
 // ============================================
 function renderAll() {
+  applyViewerMode();
   syncPool();
   document.getElementById("startDate").value = state.startDate;
+  const wpsEl = document.getElementById("weeksPerSession");
+  if (wpsEl) wpsEl.value = String(getWeeksPerSession());
   renderMgrDropdowns();
   renderMgrFilter();
   oauthRenderConfig();
@@ -4370,21 +3964,69 @@ if (!window.PLANNER_USE_SHEET_JOURNAL && window.PlannerApi) {
     };
   };
 
-  // Boot: when not signed in to Google we still need the journal to load
-  // because Django is the source of truth now. Trigger it after first
-  // render.
-  setTimeout(() => {
-    journalLoadAll().catch((err) => console.warn("[journal] initial Django load failed", err));
-  }, 0);
 }
 
-renderAll();
-setupSortable();
-bindWorkHours();
-setupOauthAuto();
-if (isOauthSignedIn() && window.PlannerApi) {
-  oauthRefresh(true).catch(err => console.warn("[oauth] initial free/busy failed", err));
+async function evCancelBooking() {
+  const bg = document.getElementById("modal-event-bg");
+  const bookingId = bg.dataset.bookingId;
+  if (!bookingId) return;
+  if (!confirm("Annuller denne booking i kalenderen og databasen?")) return;
+  const btn = document.getElementById("ev-cancel-booking");
+  if (btn) btn.disabled = true;
+  try {
+    await window.PlannerApi.cancelBooking(bookingId);
+    const pid = bg.dataset.pid;
+    const sidx = bg.dataset.sidx;
+    if (pid && state.customDates[pid]) delete state.customDates[pid][sidx];
+    saveState();
+    syncCustomDates();
+    await reloadBookings();
+    closeEventModal();
+    renderByPerson();
+  } catch (err) {
+    alert("Kunne ikke annullere booking: " + (err.message || err));
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
+
+async function bootPlanner() {
+  const ss = getStateSync();
+  try {
+    if (ss && window.PLANNER_USER_EMAIL) {
+      const payload = await ss.loadFromServer();
+      try {
+        const sessions = await ss.loadRotation(32);
+        payload.rotationSessions = ss.mergeRotationSessions([], sessions);
+      } catch (rotErr) {
+        console.warn("[planner] rotation load failed", rotErr);
+      }
+      applyPlannerStatePayload(payload);
+    } else {
+      const cached = loadState();
+      if (cached) applyPlannerStatePayload(cached);
+    }
+  } catch (err) {
+    console.error("[planner] server boot failed, using cache", err);
+    const cached = loadState();
+    if (cached) applyPlannerStatePayload(cached);
+  }
+  await ensureRotationLoaded(32);
+  renderAll();
+  setupSortable();
+  bindWorkHours();
+  bindWeeksPerSession();
+  setupOauthAuto();
+  refreshMasterSyncIndicator();
+  if (!window.PLANNER_USE_SHEET_JOURNAL && typeof journalLoadAll === "function") {
+    journalLoadAll().catch((err) => console.warn("[journal] initial Django load failed", err));
+  }
+  if (canUseCalendar() && window.PlannerApi) {
+    oauthRefresh(true).catch((err) => console.warn("[oauth] initial free/busy failed", err));
+  }
+}
+
+bootPlanner();
 </script>
 </body>
 </html>

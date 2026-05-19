@@ -84,6 +84,13 @@ class SessionWindowTests(TestCase):
         keys = {(w.cycle_start, w.session_index) for w in windows}
         self.assertEqual(len(keys), 4)
 
+    def test_four_week_sessions_span_four_iso_weeks(self):
+        cfg = ensure_planner_config(date(2026, 1, 5))
+        cfg.weeks_per_session = 4
+        cfg.save()
+        window = rotation.session_window_for(date(2026, 1, 12))
+        self.assertEqual((window.week_end - window.week_start).days, 27)
+
 
 class BookingValidationTests(TestCase):
     def setUp(self):

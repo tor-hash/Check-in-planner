@@ -8,6 +8,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.planner.models import (
+    CheckInMeeting,
     CustomDate,
     FunctionTag,
     JournalEntry,
@@ -140,6 +141,15 @@ def build_state_payload() -> dict[str, Any]:
     for row in JournalEntry.objects.select_related("person", "manager").order_by("-date", "-updated_at"):
         journal.setdefault(row.person.legacy_id, []).append(serialize_journal_entry(row))
 
+    from .bookings import serialize_booking
+
+    bookings = [
+        serialize_booking(row)
+        for row in CheckInMeeting.objects.select_related("manager", "person")
+        .filter(status="scheduled")
+        .order_by("starts_at")[:200]
+    ]
+
     return {
         "people": people,
         "mgrs": mgrs,
@@ -150,9 +160,11 @@ def build_state_payload() -> dict[str, Any]:
         "oauth": {"lastFetch": None, "busy": {}, "autoRefresh": False, "lastErrors": []},
         "viewedMgrFilter": cfg.viewed_mgr_filter or "all",
         "weekOffset": cfg.week_offset or 0,
+        "weeksPerSession": cfg.weeks_per_session or 2,
         "projects": projects,
         "journal": journal,
         "fnTags": fn_tags,
+        "bookings": bookings,
         "_meta": {"version": state_version.version, "updatedAt": state_version.updated_at.isoformat()},
     }
 
@@ -344,11 +356,28 @@ def update_planner_config(payload: dict[str, Any], user) -> PlannerConfig:
             cfg.week_offset = int(payload.get("weekOffset") or 0)
         except (TypeError, ValueError):
             cfg.week_offset = 0
+    if "weeksPerSession" in payload:
+        try:
+            n = int(payload.get("weeksPerSession") or 2)
+            cfg.weeks_per_session = max(1, min(12, n))
+        except (TypeError, ValueError):
+            cfg.weeks_per_session = 2
     cfg.updated_by = user
     if not cfg.created_by:
         cfg.created_by = user
     cfg.save()
     return cfg
+
+
+def replace_function_tags(rows: list[dict[str, Any]], user) -> None:
+    incoming_names = {
+        (row.get("displayName") or "").strip()[:128]
+        for row in rows or []
+    }
+    incoming_names.discard("")
+    FunctionTag.objects.exclude(display_name__in=incoming_names).delete()
+    for row in rows or []:
+        upsert_function_tag(row, user)
 
 
 def replace_custom_dates(values: dict[str, str], user) -> None:

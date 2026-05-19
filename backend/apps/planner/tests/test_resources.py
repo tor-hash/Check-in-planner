@@ -301,6 +301,58 @@ class FunctionTagsResourceTests(TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertTrue(FunctionTag.objects.filter(display_name="Engineering").exists())
 
+    def test_replace_tags(self):
+        FunctionTag.objects.create(label="OLD", display_name="Old Tag", color="#000000")
+        response = self.client.put(
+            "/api/function-tags",
+            data=json.dumps(
+                {
+                    "fnTags": [
+                        {"label": "ENG", "displayName": "Engineering", "color": "#6ea8fe"},
+                        {"label": "BD", "displayName": "Business Development", "color": "#f5a97f"},
+                    ]
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        names = set(FunctionTag.objects.values_list("display_name", flat=True))
+        self.assertEqual(names, {"Engineering", "Business Development"})
+
+
+class CustomDatesResourceTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(
+            username="alice", email="alice@blackcapitaltechnology.com", password="x"
+        )
+        _as_manager(self.user)
+        self.client.force_login(self.user)
+
+    def test_put_flat_keys_round_trip(self):
+        response = self.client.put(
+            "/api/custom-dates",
+            data=json.dumps(
+                {"customDates": {"tor:0": "2026-05-12T10:00", "alice:1": "2026-05-26T14:30"}}
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["customDates"]["tor:0"], "2026-05-12T10:00")
+
+        get_response = self.client.get("/api/custom-dates")
+        self.assertEqual(get_response.status_code, 200)
+        self.assertEqual(get_response.json()["customDates"]["alice:1"], "2026-05-26T14:30")
+
+    def test_put_rejects_nested_values(self):
+        response = self.client.put(
+            "/api/custom-dates",
+            data=json.dumps({"customDates": {"tor": {"0": "2026-05-12T10:00"}}}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+
 
 class ConfigResourceTests(TestCase):
     def setUp(self):
@@ -317,6 +369,7 @@ class ConfigResourceTests(TestCase):
         body = response.json()
         self.assertIn("startDate", body)
         self.assertIn("workHours", body)
+        self.assertIn("weeksPerSession", body)
 
     def test_update_config(self):
         response = self.client.put(
@@ -326,6 +379,7 @@ class ConfigResourceTests(TestCase):
                     "startDate": "2026-06-01",
                     "workHours": {"start": "08:00", "end": "16:00"},
                     "weekOffset": 2,
+                    "weeksPerSession": 4,
                 }
             ),
             content_type="application/json",
@@ -334,6 +388,7 @@ class ConfigResourceTests(TestCase):
         body = response.json()
         self.assertEqual(body["startDate"], "2026-06-01")
         self.assertEqual(body["weekOffset"], 2)
+        self.assertEqual(body["weeksPerSession"], 4)
 
 
 class NonDestructivePersistTests(TestCase):

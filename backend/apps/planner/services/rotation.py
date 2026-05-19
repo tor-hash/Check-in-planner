@@ -36,10 +36,24 @@ from apps.planner.models import (
 logger = logging.getLogger(__name__)
 
 
-SESSIONS_PER_CYCLE = 3       # 3 biweekly sessions in a 6-week cycle
-WEEKS_PER_SESSION = 2        # biweekly
-CYCLE_WEEKS = SESSIONS_PER_CYCLE * WEEKS_PER_SESSION
+SESSIONS_PER_CYCLE = 3
+DEFAULT_WEEKS_PER_SESSION = 2
+MIN_WEEKS_PER_SESSION = 1
+MAX_WEEKS_PER_SESSION = 12
 TEAM_KEYS = ("team-1", "team-2", "team-3")
+
+
+def weeks_per_session_value() -> int:
+    """Weeks per check-in rotation block (from PlannerConfig, default 2)."""
+    try:
+        n = int(PlannerConfig.singleton().weeks_per_session)
+    except (TypeError, ValueError, AttributeError):
+        n = DEFAULT_WEEKS_PER_SESSION
+    return max(MIN_WEEKS_PER_SESSION, min(MAX_WEEKS_PER_SESSION, n))
+
+
+def cycle_weeks_value() -> int:
+    return SESSIONS_PER_CYCLE * weeks_per_session_value()
 
 
 class RotationError(ValueError):
@@ -80,8 +94,9 @@ def cycle_start_for(when: date | None = None) -> date:
         # Jobs in the past — fall back to the configured base.
         return base
     weeks_since_base = (when - base).days // 7
-    cycles_since_base = weeks_since_base // CYCLE_WEEKS
-    return base + timedelta(weeks=cycles_since_base * CYCLE_WEEKS)
+    cycle_weeks = cycle_weeks_value()
+    cycles_since_base = weeks_since_base // cycle_weeks
+    return base + timedelta(weeks=cycles_since_base * cycle_weeks)
 
 
 def session_window_for(when: date | datetime | None = None) -> SessionWindow:
@@ -90,10 +105,11 @@ def session_window_for(when: date | datetime | None = None) -> SessionWindow:
         when = when.date()
     when = when or timezone.now().date()
     cycle_start = cycle_start_for(when)
+    wps = weeks_per_session_value()
     weeks_into = (_monday_of(when) - cycle_start).days // 7
-    session_index = max(0, min(SESSIONS_PER_CYCLE - 1, weeks_into // WEEKS_PER_SESSION))
-    week_start = cycle_start + timedelta(weeks=session_index * WEEKS_PER_SESSION)
-    week_end = week_start + timedelta(weeks=WEEKS_PER_SESSION) - timedelta(days=1)
+    session_index = max(0, min(SESSIONS_PER_CYCLE - 1, weeks_into // wps))
+    week_start = cycle_start + timedelta(weeks=session_index * wps)
+    week_end = week_start + timedelta(weeks=wps) - timedelta(days=1)
     return SessionWindow(
         cycle_start=cycle_start,
         session_index=session_index,
@@ -112,11 +128,12 @@ def upcoming_session_windows(n: int = 4, *, from_date: date | None = None) -> li
     session_index = base.session_index
     while len(out) < n:
         session_index += 1
+        wps = weeks_per_session_value()
         if session_index >= SESSIONS_PER_CYCLE:
             session_index = 0
-            cycle_start = cycle_start + timedelta(weeks=CYCLE_WEEKS)
-        week_start = cycle_start + timedelta(weeks=session_index * WEEKS_PER_SESSION)
-        week_end = week_start + timedelta(weeks=WEEKS_PER_SESSION) - timedelta(days=1)
+            cycle_start = cycle_start + timedelta(weeks=cycle_weeks_value())
+        week_start = cycle_start + timedelta(weeks=session_index * wps)
+        week_end = week_start + timedelta(weeks=wps) - timedelta(days=1)
         out.append(
             SessionWindow(
                 cycle_start=cycle_start,

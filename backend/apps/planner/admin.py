@@ -48,7 +48,7 @@ class TeamMembershipAdmin(admin.ModelAdmin):
 
 @admin.register(PlannerConfig)
 class PlannerConfigAdmin(admin.ModelAdmin):
-    list_display = ("singleton_key", "start_date", "updated_at")
+    list_display = ("singleton_key", "start_date", "weeks_per_session", "updated_at")
 
 
 @admin.register(CustomDate)
