@@ -51,8 +51,9 @@ Kort version:
 
 Åbn derefter:
 - `http://127.0.0.1:8000/accounts/login/` (Google sign-in)
-- `http://127.0.0.1:8000/home/` (planner home)
-- `http://127.0.0.1:8000/app/` (selve planneren)
+- `http://127.0.0.1:8000/home/` (app hub — planner, onboarding, invites)
+- `http://127.0.0.1:8000/app/` (check-in planner)
+- `http://127.0.0.1:8000/onboarding/flows/` (onboarding editor, managers only)
 
 ## Roller og adgang
 
@@ -60,18 +61,24 @@ Kort version:
 - Kun brugere i gruppen `manager` eller `admin` (eller superuser) kan skrive planner-data via API.
 - Grupper kan styres i Django admin (`/admin`).
 
-## Onboarding API
+## Onboarding
 
-Et separat headless service i samme Django-projekt der lader ERP-systemet
-oprette nye medarbejdere og lader HR-værktøjer markere onboarding-steps
-færdige via REST. Onboardees logger aldrig ind (de gemmes som
-`is_active=False` Django-brugere så de ikke kan tilgå check-in-planneren).
+Onboarding kører i samme Django-app som planneren:
 
-- Endpoints: se [docs/onboarding-api.md](docs/onboarding-api.md).
-- Auth: shared API key i `ONBOARDING_API_TOKEN` env var (header
-  `X-API-Key: ...`). Tom = endpoints svarer 503.
-- Flow templates bygges i Django admin under `/admin/onboarding/`.
+- **Managers:** `/onboarding/flows/` — flow-trin og medarbejdere (CRUD). Top-nav
+  på `/home/`, `/app/` og invites linker mellem værktøjerne.
+- **ERP / HR (headless):** REST under `/api/onboarding/` med API key — opret
+  medarbejdere, hent flow via `erp_employee_id` eller **email**
+  (`GET|POST /employees/by-email`), opdater step-progress.
+- Onboardees logger aldrig ind (`is_active=False` Django-brugere).
+
+Se [docs/onboarding-api.md](docs/onboarding-api.md) for alle endpoints (service
+API + manage API).
+
+- `ONBOARDING_API_TOKEN` — shared secret for service API (`X-API-Key`). Tom =
+  service endpoints svarer 503.
 - Seed default flow: `python backend/manage.py seed_onboarding`.
+- Alternativ: Django admin `/admin/onboarding/`.
 
 ## Tests
 

@@ -22,9 +22,14 @@ from .models import (
     OnboardingProfile,
     StepProgress,
 )
-from .schemas import validate_create_employee, validate_step_progress_patch
+from .schemas import (
+    validate_create_employee,
+    validate_email_lookup,
+    validate_step_progress_patch,
+)
 from .services import (
     create_employee_with_flow,
+    list_assignments_by_email,
     serialize_assignment,
     serialize_flow,
     set_step_progress,
@@ -85,6 +90,41 @@ def employees_collection(request: HttpRequest):
             "page_size": page_size,
             "num_pages": paginator.num_pages,
             "results": [serialize_assignment(a) for a in page.object_list],
+        }
+    )
+
+
+@require_api_key
+@require_http_methods(["GET", "POST"])
+def employees_by_email(request: HttpRequest):
+    """Look up onboarding state by the employee's login email address."""
+    if request.method == "POST":
+        payload, err = _parse_json(request)
+        if err is not None:
+            return err
+        raw_email = payload.get("email") if isinstance(payload, dict) else None
+    else:
+        raw_email = request.GET.get("email")
+
+    email, err = validate_email_lookup(raw_email)
+    if err is not None:
+        return err
+
+    assignments = list_assignments_by_email(email=email)
+    if not assignments:
+        return JsonResponse(
+            {"detail": "No onboarding employee found for this email."},
+            status=404,
+        )
+
+    if len(assignments) == 1:
+        return JsonResponse(serialize_assignment(assignments[0]))
+
+    return JsonResponse(
+        {
+            "email": email,
+            "count": len(assignments),
+            "results": [serialize_assignment(a) for a in assignments],
         }
     )
 

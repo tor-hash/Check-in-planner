@@ -1,0 +1,22 @@
+{% load static %}
+<link rel="stylesheet" href="{% static 'planner/styles/app-nav.css' %}">
+<header class="app-shell" role="navigation" aria-label="App navigation">
+  <div class="app-shell-inner">
+    <a class="app-shell-brand" href="{% url 'planner:home' %}">BCT</a>
+    <nav class="app-shell-links">
+      <a href="{% url 'planner:home' %}"{% if nav_section == 'home' %} class="active" aria-current="page"{% endif %}>Home</a>
+      <a href="{% url 'planner:app' %}"{% if nav_section == 'planner' %} class="active" aria-current="page"{% endif %}>Check-in planner</a>
+      {% if planner_user_is_manager %}
+      <a href="{% url 'onboarding:flows-editor' %}"{% if nav_section == 'onboarding' %} class="active" aria-current="page"{% endif %}>Onboarding</a>
+      {% endif %}
+      <a href="{% url 'account-invitations' %}"{% if nav_section == 'invite' %} class="active" aria-current="page"{% endif %}>Invite</a>
+    </nav>
+    <div class="app-shell-user">
+      <span class="app-shell-email" title="{{ planner_user_email }}">{{ planner_user_email }}</span>
+      <form method="post" action="{% url 'logout' %}">
+        {% csrf_token %}
+        <button type="submit" class="app-shell-logout">Log out</button>
+      </form>
+    </div>
+  </div>
+</header>

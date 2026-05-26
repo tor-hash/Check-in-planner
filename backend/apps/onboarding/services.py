@@ -49,6 +49,129 @@ def get_flow_by_slug(slug: str) -> OnboardingFlow:
     return OnboardingFlow.objects.get(slug=slug, is_active=True)
 
 
+def get_flow_by_slug_any(slug: str) -> OnboardingFlow:
+    return OnboardingFlow.objects.get(slug=slug)
+
+
+class StepInUseError(ValidationError):
+    """Raised when a step cannot be deleted because assignments reference it."""
+
+
+# ---------------------------------------------------------------------------
+# Flow template management (manager UI)
+# ---------------------------------------------------------------------------
+
+
+def _validate_step_config(component_type: str, config: dict[str, Any]) -> None:
+    get_component(component_type).validate_config(config)
+
+
+@transaction.atomic
+def create_flow(*, data: dict[str, Any]) -> OnboardingFlow:
+    slug = data["slug"]
+    if OnboardingFlow.objects.filter(slug=slug).exists():
+        raise ValidationError(f"A flow with slug '{slug}' already exists.")
+    flow = OnboardingFlow.objects.create(
+        slug=slug,
+        name=data["name"],
+        description=data.get("description") or "",
+        is_default=data.get("is_default", False),
+        is_active=data.get("is_active", True),
+    )
+    return flow
+
+
+@transaction.atomic
+def update_flow(flow: OnboardingFlow, *, data: dict[str, Any]) -> OnboardingFlow:
+    if "name" in data:
+        flow.name = data["name"]
+    if "description" in data:
+        flow.description = data["description"]
+    if "is_default" in data:
+        flow.is_default = data["is_default"]
+    if "is_active" in data:
+        flow.is_active = data["is_active"]
+    flow.save()
+    return flow
+
+
+@transaction.atomic
+def delete_flow(flow: OnboardingFlow) -> dict[str, Any]:
+    """Soft-delete when assignments exist; hard-delete otherwise."""
+    has_assignments = OnboardingAssignment.objects.filter(flow=flow).exists()
+    if has_assignments:
+        flow.is_active = False
+        flow.save(update_fields=["is_active", "updated_at"])
+        return {"deleted": False, "deactivated": True, "slug": flow.slug}
+    flow.delete()
+    return {"deleted": True, "deactivated": False, "slug": flow.slug}
+
+
+@transaction.atomic
+def create_step(flow: OnboardingFlow, *, data: dict[str, Any]) -> FlowStep:
+    _validate_step_config(data["component_type"], data["config"])
+    if FlowStep.objects.filter(flow=flow, order=data["order"]).exists():
+        raise ValidationError(f"Step order {data['order']} is already used in this flow.")
+    return FlowStep.objects.create(
+        flow=flow,
+        order=data["order"],
+        component_type=data["component_type"],
+        title=data["title"],
+        description=data.get("description") or "",
+        config=data["config"],
+        is_required=data["is_required"],
+    )
+
+
+@transaction.atomic
+def update_step(flow: OnboardingFlow, step_id: int, *, data: dict[str, Any]) -> FlowStep:
+    step = FlowStep.objects.get(pk=step_id, flow=flow)
+    new_order = data["order"]
+    if new_order != step.order:
+        conflict = FlowStep.objects.filter(flow=flow, order=new_order).exclude(pk=step.pk).first()
+        if conflict is not None:
+            raise ValidationError(f"Step order {new_order} is already used in this flow.")
+    _validate_step_config(data["component_type"], data["config"])
+    step.order = new_order
+    step.component_type = data["component_type"]
+    step.title = data["title"]
+    step.description = data.get("description") or ""
+    step.config = data["config"]
+    step.is_required = data["is_required"]
+    step.save()
+    return step
+
+
+@transaction.atomic
+def delete_step(flow: OnboardingFlow, step_id: int) -> None:
+    step = FlowStep.objects.get(pk=step_id, flow=flow)
+    if StepProgress.objects.filter(step=step).exists():
+        raise StepInUseError(
+            "This step cannot be deleted because employees are already assigned to it. "
+            "Edit the step instead, or wait until no in-flight onboardings reference it."
+        )
+    step.delete()
+
+
+@transaction.atomic
+def reorder_steps(flow: OnboardingFlow, ordered_step_ids: list[int]) -> OnboardingFlow:
+    steps = list(FlowStep.objects.filter(flow=flow).order_by("order"))
+    existing_ids = {s.id for s in steps}
+    if set(ordered_step_ids) != existing_ids:
+        raise ValidationError("step_ids must list every step in this flow exactly once.")
+    id_to_step = {s.id: s for s in steps}
+    # Two-phase update avoids unique (flow, order) collisions while swapping.
+    for idx, step_id in enumerate(ordered_step_ids, start=1):
+        step = id_to_step[step_id]
+        step.order = idx + 10_000
+        step.save(update_fields=["order", "updated_at"])
+    for idx, step_id in enumerate(ordered_step_ids, start=1):
+        step = id_to_step[step_id]
+        step.order = idx
+        step.save(update_fields=["order", "updated_at"])
+    return flow
+
+
 # ---------------------------------------------------------------------------
 # Employee creation
 # ---------------------------------------------------------------------------
@@ -127,6 +250,95 @@ def create_employee_with_flow(*, data: dict[str, Any]) -> tuple[OnboardingAssign
     )
     assignment = _create_assignment_with_progress(profile=profile, flow=flow)
     return assignment, True
+
+
+def get_profile_by_erp_id(erp_id: str) -> OnboardingProfile:
+    return OnboardingProfile.objects.select_related("user").get(erp_employee_id=erp_id)
+
+
+def get_latest_assignment(profile: OnboardingProfile) -> OnboardingAssignment | None:
+    return (
+        OnboardingAssignment.objects.select_related("flow")
+        .filter(profile=profile)
+        .order_by("-assigned_at")
+        .first()
+    )
+
+
+def list_assignments_by_email(*, email: str) -> list[OnboardingAssignment]:
+    """Return the latest onboarding assignment per profile matching ``email``."""
+    profiles = OnboardingProfile.objects.select_related("user").filter(
+        user__email__iexact=email
+    )
+    out: list[OnboardingAssignment] = []
+    for profile in profiles:
+        assignment = get_latest_assignment(profile)
+        if assignment is not None:
+            out.append(assignment)
+    return out
+
+
+@transaction.atomic
+def update_employee(*, erp_id: str, data: dict[str, Any]) -> OnboardingAssignment:
+    profile = get_profile_by_erp_id(erp_id)
+    user = profile.user
+
+    if "email" in data:
+        new_email = data["email"]
+        User = get_user_model()
+        if User.objects.filter(email__iexact=new_email).exclude(pk=user.pk).exists():
+            raise ValidationError("email is already in use by another account.")
+        user.email = new_email
+
+    for field in ("first_name", "last_name", "position", "department"):
+        if field in data:
+            setattr(profile, field, data[field])
+            if field in ("first_name", "last_name"):
+                setattr(user, field, data[field])
+
+    if "start_date" in data:
+        profile.start_date = data["start_date"]
+
+    profile.save()
+    user.save()
+
+    assignment = None
+    if "flow_slug" in data:
+        try:
+            flow = get_flow_by_slug(data["flow_slug"])
+        except OnboardingFlow.DoesNotExist as exc:
+            raise ValidationError(f"Unknown flow_slug '{data['flow_slug']}'.") from exc
+        assignment = OnboardingAssignment.objects.filter(profile=profile, flow=flow).first()
+        if assignment is None:
+            assignment = _create_assignment_with_progress(profile=profile, flow=flow)
+    else:
+        assignment = get_latest_assignment(profile)
+
+    if assignment is None:
+        raise ValidationError("Employee has no onboarding flow assignment.")
+    return assignment
+
+
+@transaction.atomic
+def delete_employee(*, erp_id: str) -> None:
+    profile = get_profile_by_erp_id(erp_id)
+    user = profile.user
+    if user.is_active:
+        raise ValidationError(
+            "Cannot delete this record because the linked user account is active."
+        )
+    profile.delete()
+    user.delete()
+
+
+def list_employee_assignments() -> list[OnboardingAssignment]:
+    profiles = OnboardingProfile.objects.select_related("user").order_by("-created_at")
+    out: list[OnboardingAssignment] = []
+    for profile in profiles:
+        assignment = get_latest_assignment(profile)
+        if assignment is not None:
+            out.append(assignment)
+    return out
 
 
 def _create_assignment_with_progress(

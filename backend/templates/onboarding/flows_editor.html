@@ -1,0 +1,194 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="da">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Onboarding — BCT</title>
+  <link rel="stylesheet" href="{% static 'onboarding/flows-editor.css' %}">
+</head>
+<body>
+  {% include "includes/app_shell_nav.html" %}
+
+  <header class="topbar page-topbar">
+    <div class="topbar-inner">
+      <h1>Onboarding</h1>
+    </div>
+  </header>
+
+  <nav class="view-tabs" aria-label="Sektioner">
+    <div class="view-tabs-inner">
+      <button type="button" class="tab active" id="tab-flows" data-view="flows">Flows</button>
+      <button type="button" class="tab" id="tab-employees" data-view="employees">Medarbejdere</button>
+    </div>
+  </nav>
+
+  <div id="banner" class="banner hidden" role="alert"></div>
+
+  <div id="flows-view">
+  <main class="layout">
+    <aside class="panel list-panel" id="list-panel">
+      <div class="panel-head">
+        <h2>Flows</h2>
+        <button type="button" class="btn" id="btn-new-flow">+ Ny flow</button>
+      </div>
+      <div id="flow-list" class="flow-list"></div>
+    </aside>
+
+    <section class="panel editor-panel hidden" id="editor-panel">
+      <div class="panel-head">
+        <h2 id="editor-title">Rediger flow</h2>
+        <div class="panel-head-actions">
+          <button type="button" class="btn ghost" id="btn-back-list">← Liste</button>
+          <button type="button" class="btn danger ghost" id="btn-delete-flow">Slet / deaktiver</button>
+          <button type="button" class="btn" id="btn-save-flow">Gem flow</button>
+        </div>
+      </div>
+
+      <form id="flow-form" class="flow-form">
+        <div class="field" id="field-slug">
+          <label for="flow-slug">Slug</label>
+          <input type="text" id="flow-slug" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="fx default-onboarding">
+          <span class="hint">Kun små bogstaver, tal og bindestreg. Kan ikke ændres efter oprettelse.</span>
+        </div>
+        <div class="field">
+          <label for="flow-name">Navn</label>
+          <input type="text" id="flow-name" required maxlength="128">
+        </div>
+        <div class="field">
+          <label for="flow-description">Beskrivelse</label>
+          <textarea id="flow-description" rows="2"></textarea>
+        </div>
+        <div class="field-row">
+          <label class="check"><input type="checkbox" id="flow-default"> Standard-flow</label>
+          <label class="check"><input type="checkbox" id="flow-active" checked> Aktiv</label>
+        </div>
+      </form>
+
+      <div class="steps-section">
+        <div class="panel-head sub">
+          <h3>Trin</h3>
+          <button type="button" class="btn" id="btn-add-step">+ Tilføj trin</button>
+        </div>
+        <div id="steps-list" class="steps-list"></div>
+      </div>
+    </section>
+
+    <section class="panel empty-state" id="empty-state">
+      <p>Vælg en flow i listen, eller opret en ny.</p>
+    </section>
+  </main>
+  </div>
+
+  <div id="employees-view" class="hidden">
+    <main class="layout">
+      <aside class="panel list-panel" id="emp-list-panel">
+        <div class="panel-head">
+          <h2>Medarbejdere</h2>
+          <button type="button" class="btn" id="btn-new-employee">+ Ny medarbejder</button>
+        </div>
+        <div id="employee-list" class="flow-list"></div>
+      </aside>
+
+      <section class="panel editor-panel hidden" id="emp-editor-panel">
+        <div class="panel-head">
+          <h2 id="emp-editor-title">Rediger medarbejder</h2>
+          <div class="panel-head-actions">
+            <button type="button" class="btn ghost" id="btn-emp-back-list">← Liste</button>
+            <button type="button" class="btn danger ghost" id="btn-delete-employee">Slet</button>
+            <button type="button" class="btn" id="btn-save-employee">Gem</button>
+          </div>
+        </div>
+
+        <form id="employee-form" class="flow-form">
+          <div class="field" id="field-emp-erp">
+            <label for="emp-erp-id">ERP medarbejder-ID</label>
+            <input type="text" id="emp-erp-id" required maxlength="64" placeholder="fx E1234">
+            <span class="hint">Kan ikke ændres efter oprettelse.</span>
+          </div>
+          <div class="field">
+            <label for="emp-email">E-mail</label>
+            <input type="email" id="emp-email" required maxlength="254">
+          </div>
+          <div class="field-row">
+            <div class="field" style="flex:1;margin:0">
+              <label for="emp-first-name">Fornavn</label>
+              <input type="text" id="emp-first-name" maxlength="128">
+            </div>
+            <div class="field" style="flex:1;margin:0">
+              <label for="emp-last-name">Efternavn</label>
+              <input type="text" id="emp-last-name" maxlength="128">
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field" style="flex:1;margin:0">
+              <label for="emp-position">Stilling</label>
+              <input type="text" id="emp-position" maxlength="128">
+            </div>
+            <div class="field" style="flex:1;margin:0">
+              <label for="emp-department">Afdeling</label>
+              <input type="text" id="emp-department" maxlength="128">
+            </div>
+          </div>
+          <div class="field">
+            <label for="emp-start-date">Startdato</label>
+            <input type="date" id="emp-start-date">
+          </div>
+          <div class="field">
+            <label for="emp-flow-slug">Onboarding-flow</label>
+            <select id="emp-flow-slug" required></select>
+          </div>
+          <p id="emp-meta" class="hint hidden"></p>
+        </form>
+      </section>
+
+      <section class="panel empty-state" id="emp-empty-state">
+        <p>Vælg en medarbejder i listen, eller opret en ny.</p>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="step-dialog" class="step-dialog">
+    <form id="step-form" method="dialog">
+      <h3 id="step-dialog-title">Trin</h3>
+      <div class="field">
+        <label for="step-order">Rækkefølge</label>
+        <input type="number" id="step-order" min="1" required>
+      </div>
+      <div class="field">
+        <label for="step-type">Type</label>
+        <select id="step-type" required></select>
+      </div>
+      <div class="field">
+        <label for="step-title">Titel</label>
+        <input type="text" id="step-title" required maxlength="200">
+      </div>
+      <div class="field">
+        <label for="step-description">Beskrivelse</label>
+        <textarea id="step-description" rows="2"></textarea>
+      </div>
+      <label class="check"><input type="checkbox" id="step-required" checked> Påkrævet</label>
+
+      <div id="config-fields" class="config-fields"></div>
+
+      <details class="advanced-json">
+        <summary>Avanceret JSON (config)</summary>
+        <textarea id="step-config-json" rows="8" spellcheck="false"></textarea>
+        <span id="config-json-error" class="error-text"></span>
+      </details>
+
+      <div class="dialog-actions">
+        <button type="button" class="btn ghost" id="btn-step-cancel">Annuller</button>
+        <button type="submit" class="btn" id="btn-step-save">Gem trin</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+    window.ONBOARDING_API_BASE = "{{ onboarding_api_base|escapejs }}";
+  </script>
+  <script src="{% static 'onboarding/onboarding-api.js' %}"></script>
+  <script src="{% static 'onboarding/flows-editor.js' %}"></script>
+  <script src="{% static 'onboarding/employees-editor.js' %}"></script>
+</body>
+</html>

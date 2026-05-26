@@ -18,7 +18,7 @@
     }
     * { box-sizing: border-box; }
     body { font-family: Segoe UI, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; }
-    .wrap { max-width: 880px; margin: 4rem auto; padding: 0 1.5rem; }
+    .wrap { max-width: 880px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
     h1 { margin: 0 0 .25rem; }
     .sub { color: var(--muted); margin: 0 0 2rem; }
     .card {
@@ -64,15 +64,11 @@
     .msg.success { color: var(--success); border-color: #1f4a2a; background: #0f2017; }
     .msg.error   { color: var(--danger);  border-color: #4a1f23; background: #20100f; }
     .meta { color: var(--muted); font-size: .9rem; }
-    .topnav { display: flex; gap: .5rem; margin-bottom: 1.5rem; }
   </style>
 </head>
 <body>
+  {% include "includes/app_shell_nav.html" %}
   <main class="wrap">
-    <div class="topnav">
-      <a class="btn ghost" href="{% url 'planner:home' %}">← Back to planner</a>
-    </div>
-
     <h1>Invitations</h1>
     <p class="sub">
       Invite a colleague so they can sign in with Google.

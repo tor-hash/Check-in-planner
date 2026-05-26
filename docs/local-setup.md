@@ -68,11 +68,29 @@ python backend/manage.py runserver
 ```
 
 Open: <http://127.0.0.1:8000/accounts/login/> → sign in with your
-`@blackcapitaltechnology.com` account → you'll land on the planner.
+`@blackcapitaltechnology.com` account → you'll land on the app hub at
+`/home/` (links to the planner, onboarding editor, and invites).
 
-## 7. Run the tests (optional but recommended)
+Managers can open the onboarding flow editor at
+<http://127.0.0.1:8000/onboarding/flows/>.
+
+## 7. Onboarding API (optional, for integrations)
+
+To exercise `/api/onboarding/*` locally, set in `backend/.env`:
+
+```
+ONBOARDING_API_TOKEN=local-dev-secret
+```
+
+Then seed the default flow:
+
 ```bash
-python backend/manage.py test apps.planner.tests apps.accounts.tests
+python backend/manage.py seed_onboarding
+```
+
+## 8. Run the tests (optional but recommended)
+```bash
+python backend/manage.py test apps.planner.tests apps.accounts.tests apps.onboarding.tests
 ```
 
 ---

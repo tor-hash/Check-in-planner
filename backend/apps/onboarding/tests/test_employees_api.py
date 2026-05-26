@@ -134,3 +134,77 @@ class GetEmployeeTests(TestCase):
         body = response.json()
         self.assertEqual(body["count"], 1)
         self.assertEqual(body["results"][0]["erp_employee_id"], "E1")
+
+
+@override_settings(ONBOARDING_API_TOKEN="secret")
+class EmployeesByEmailTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        make_default_flow()
+        self.client.post(
+            "/api/onboarding/employees",
+            data=json.dumps(
+                {
+                    "erp_employee_id": "E1",
+                    "email": "lookup@blackcapitaltechnology.com",
+                    "first_name": "Look",
+                    "last_name": "Up",
+                }
+            ),
+            content_type="application/json",
+            HTTP_X_API_KEY="secret",
+        )
+
+    def test_get_by_email_query_returns_assignment(self):
+        response = self.client.get(
+            "/api/onboarding/employees/by-email",
+            {"email": "lookup@blackcapitaltechnology.com"},
+            HTTP_X_API_KEY="secret",
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["erp_employee_id"], "E1")
+        self.assertEqual(body["email"], "lookup@blackcapitaltechnology.com")
+        self.assertEqual(body["flow"]["slug"], "default")
+        self.assertGreaterEqual(len(body["steps"]), 1)
+
+    def test_get_by_email_is_case_insensitive(self):
+        response = self.client.get(
+            "/api/onboarding/employees/by-email",
+            {"email": "LOOKUP@blackcapitaltechnology.com"},
+            HTTP_X_API_KEY="secret",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["erp_employee_id"], "E1")
+
+    def test_post_by_email_body_returns_assignment(self):
+        response = self.client.post(
+            "/api/onboarding/employees/by-email",
+            data=json.dumps({"email": "lookup@blackcapitaltechnology.com"}),
+            content_type="application/json",
+            HTTP_X_API_KEY="secret",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["erp_employee_id"], "E1")
+
+    def test_unknown_email_returns_404(self):
+        response = self.client.get(
+            "/api/onboarding/employees/by-email",
+            {"email": "nobody@blackcapitaltechnology.com"},
+            HTTP_X_API_KEY="secret",
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_missing_email_returns_400(self):
+        response = self.client.get(
+            "/api/onboarding/employees/by-email",
+            HTTP_X_API_KEY="secret",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_requires_api_key(self):
+        response = self.client.get(
+            "/api/onboarding/employees/by-email",
+            {"email": "lookup@blackcapitaltechnology.com"},
+        )
+        self.assertEqual(response.status_code, 401)

@@ -10,7 +10,11 @@ from apps.planner.services.state import is_manager_or_admin
 
 @login_required
 def home_view(request):
-    return render(request, "planner/index.html")
+    return render(
+        request,
+        "planner/index.html",
+        {"nav_section": "home"},
+    )
 
 
 @login_required
@@ -20,6 +24,7 @@ def app_view(request):
         request,
         "checkin-planner.html",
         {
+            "nav_section": "planner",
             "planner_api_base": "/api",
             "planner_user_email": request.user.email,
             "planner_user_is_manager": is_manager_or_admin(request.user),

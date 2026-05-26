@@ -103,6 +103,7 @@ def invitations_view(request):
         request,
         "accounts/invitations.html",
         {
+            "nav_section": "invite",
             "pending": pending,
             "accepted": accepted,
             "allowed_domains": sorted(_allowed_domains()),

@@ -92,6 +92,195 @@ def validate_create_employee(payload: Any) -> tuple[dict[str, Any] | None, JsonR
     )
 
 
+def validate_email_lookup(value: Any) -> tuple[str | None, JsonResponse | None]:
+    if not isinstance(value, str) or not value.strip():
+        return None, _err("email is required.")
+    email = value.strip().lower()
+    if not _EMAIL_RE.match(email):
+        return None, _err("email must be a valid email address.")
+    return email, None
+
+
+def validate_update_employee(payload: Any) -> tuple[dict[str, Any] | None, JsonResponse | None]:
+    if not isinstance(payload, dict):
+        return None, _err("Body must be a JSON object.")
+
+    cleaned: dict[str, Any] = {}
+
+    if "email" in payload:
+        email = payload.get("email")
+        if not isinstance(email, str) or not _EMAIL_RE.match(email.strip().lower()):
+            return None, _err("email must be a valid email address.")
+        cleaned["email"] = email.strip().lower()
+
+    for field in ("first_name", "last_name", "position", "department"):
+        if field in payload:
+            val, err = _opt_str(payload.get(field), field, max_length=_NAME_MAX)
+            if err is not None:
+                return None, err
+            cleaned[field] = val
+
+    if "start_date" in payload:
+        raw = payload.get("start_date")
+        if raw in (None, ""):
+            cleaned["start_date"] = None
+        else:
+            if not isinstance(raw, str):
+                return None, _err("start_date must be an ISO date string (YYYY-MM-DD).")
+            try:
+                cleaned["start_date"] = date.fromisoformat(raw)
+            except ValueError:
+                return None, _err("start_date must be an ISO date string (YYYY-MM-DD).")
+
+    if "flow_slug" in payload:
+        slug = payload.get("flow_slug")
+        if not isinstance(slug, str) or not slug.strip():
+            return None, _err("flow_slug must be a non-empty string when provided.")
+        cleaned["flow_slug"] = slug.strip()
+
+    if not cleaned:
+        return None, _err("No fields to update.")
+
+    return cleaned, None
+
+
+def validate_create_employee_manage(
+    payload: Any, *, require_flow: bool = True
+) -> tuple[dict[str, Any] | None, JsonResponse | None]:
+    cleaned, err = validate_create_employee(payload)
+    if err is not None:
+        return None, err
+    if require_flow and not cleaned.get("flow_slug"):
+        return None, _err("flow_slug is required.")
+    return cleaned, None
+
+
+_SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+_COMPONENT_TYPES = {"info_link", "checkbox", "form", "calendar_meeting"}
+
+
+def _require_bool(value: Any, name: str) -> tuple[bool, JsonResponse | None]:
+    if not isinstance(value, bool):
+        return False, _err(f"{name} must be a boolean.")
+    return value, None
+
+
+def validate_flow_payload(
+    payload: Any, *, require_slug: bool
+) -> tuple[dict[str, Any] | None, JsonResponse | None]:
+    if not isinstance(payload, dict):
+        return None, _err("Body must be a JSON object.")
+
+    cleaned: dict[str, Any] = {}
+
+    if require_slug:
+        slug = payload.get("slug")
+        if not isinstance(slug, str) or not _SLUG_RE.match(slug.strip()):
+            return None, _err(
+                "slug is required and must be lowercase letters, numbers, and hyphens."
+            )
+        cleaned["slug"] = slug.strip()
+    else:
+        if "slug" in payload:
+            return None, _err("slug cannot be changed on update.")
+
+    if "name" in payload or require_slug:
+        name, err = _opt_str(payload.get("name"), "name", max_length=_NAME_MAX)
+        if err is not None:
+            return None, err
+        if require_slug and not name:
+            return None, _err("name is required.")
+        if name or require_slug:
+            cleaned["name"] = name
+
+    if "description" in payload:
+        description, err = _opt_str(payload.get("description"), "description", max_length=2000)
+        if err is not None:
+            return None, err
+        cleaned["description"] = description
+
+    if "is_default" in payload:
+        is_default, err = _require_bool(payload.get("is_default"), "is_default")
+        if err is not None:
+            return None, err
+        cleaned["is_default"] = is_default
+
+    if "is_active" in payload:
+        is_active, err = _require_bool(payload.get("is_active"), "is_active")
+        if err is not None:
+            return None, err
+        cleaned["is_active"] = is_active
+
+    return cleaned, None
+
+
+def validate_step_payload(payload: Any) -> tuple[dict[str, Any] | None, JsonResponse | None]:
+    if not isinstance(payload, dict):
+        return None, _err("Body must be a JSON object.")
+
+    component_type = payload.get("component_type")
+    if not isinstance(component_type, str) or component_type not in _COMPONENT_TYPES:
+        return None, _err(
+            f"component_type must be one of {sorted(_COMPONENT_TYPES)}."
+        )
+
+    title, err = _opt_str(payload.get("title"), "title", max_length=_TITLE_MAX)
+    if err is not None:
+        return None, err
+    if not title:
+        return None, _err("title is required.")
+
+    description, err = _opt_str(payload.get("description"), "description", max_length=2000)
+    if err is not None:
+        return None, err
+
+    order_raw = payload.get("order")
+    if order_raw is None:
+        return None, _err("order is required.")
+    try:
+        order = int(order_raw)
+    except (TypeError, ValueError):
+        return None, _err("order must be a positive integer.")
+    if order < 1:
+        return None, _err("order must be at least 1.")
+
+    is_required = payload.get("is_required", True)
+    is_required_bool, err = _require_bool(is_required, "is_required")
+    if err is not None:
+        return None, err
+
+    config = payload.get("config")
+    if not isinstance(config, dict):
+        return None, _err("config must be a JSON object.")
+
+    return (
+        {
+            "component_type": component_type,
+            "title": title,
+            "description": description,
+            "order": order,
+            "is_required": is_required_bool,
+            "config": config,
+        },
+        None,
+    )
+
+
+def validate_reorder_payload(payload: Any) -> tuple[list[int] | None, JsonResponse | None]:
+    if not isinstance(payload, dict):
+        return None, _err("Body must be a JSON object.")
+    step_ids = payload.get("step_ids")
+    if not isinstance(step_ids, list) or not step_ids:
+        return None, _err("step_ids must be a non-empty list of integers.")
+    cleaned: list[int] = []
+    for raw in step_ids:
+        try:
+            cleaned.append(int(raw))
+        except (TypeError, ValueError):
+            return None, _err("step_ids must contain integers only.")
+    return cleaned, None
+
+
 _PROGRESS_STATUSES = {"pending", "completed", "skipped"}
 
 
