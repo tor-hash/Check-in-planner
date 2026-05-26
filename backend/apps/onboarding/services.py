@@ -15,6 +15,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from .components import get_component
+from .seed_baseline import DEFAULT_FLOW_SLUG, ensure_default_flow
 from .models import (
     FlowStep,
     OnboardingAssignment,
@@ -252,6 +253,20 @@ def create_employee_with_flow(*, data: dict[str, Any]) -> tuple[OnboardingAssign
     return assignment, True
 
 
+@transaction.atomic
+def provision_employee_with_default_flow(
+    *, data: dict[str, Any]
+) -> tuple[OnboardingAssignment, bool, bool]:
+    """Ensure default flow exists, then create/upsert employee on that flow.
+
+    Returns ``(assignment, employee_created, default_flow_created)``.
+    """
+    flow, flow_created = ensure_default_flow()
+    payload = {**data, "flow_slug": flow.slug}
+    assignment, employee_created = create_employee_with_flow(data=payload)
+    return assignment, employee_created, flow_created
+
+
 def get_profile_by_erp_id(erp_id: str) -> OnboardingProfile:
     return OnboardingProfile.objects.select_related("user").get(erp_employee_id=erp_id)
 
@@ -448,6 +463,43 @@ def serialize_step_progress(progress: StepProgress) -> dict[str, Any]:
         "completion_data": progress.completion_data,
         "completed_at": progress.completed_at.isoformat() if progress.completed_at else None,
         "completed_by": progress.completed_by,
+    }
+
+
+def serialize_employee_summary(assignment: OnboardingAssignment) -> dict[str, Any]:
+    profile = assignment.profile
+    return {
+        "erp_employee_id": profile.erp_employee_id,
+        "email": profile.user.email,
+        "first_name": profile.first_name,
+        "last_name": profile.last_name,
+        "position": profile.position,
+        "department": profile.department,
+        "start_date": profile.start_date.isoformat() if profile.start_date else None,
+    }
+
+
+def serialize_provision_response(
+    *,
+    assignment: OnboardingAssignment,
+    employee_created: bool,
+    default_flow_created: bool,
+) -> dict[str, Any]:
+    """Structured payload for integrators provisioning a new hire."""
+    assignment_body = serialize_assignment(assignment)
+    return {
+        "created": employee_created,
+        "default_flow_created": default_flow_created,
+        "default_flow_slug": DEFAULT_FLOW_SLUG,
+        "employee": serialize_employee_summary(assignment),
+        "assignment": {
+            "status": assignment_body["status"],
+            "assigned_at": assignment_body["assigned_at"],
+            "started_at": assignment_body["started_at"],
+            "completed_at": assignment_body["completed_at"],
+        },
+        "flow": serialize_flow(assignment.flow),
+        "steps": assignment_body["steps"],
     }
 
 

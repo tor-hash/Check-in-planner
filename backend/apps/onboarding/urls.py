@@ -46,6 +46,7 @@ urlpatterns = [
         manage_api.employees_detail,
         name="manage-employees-detail",
     ),
+    path("api/onboarding/provision", api.provision_employee, name="provision-employee"),
     path("api/onboarding/employees", api.employees_collection, name="employees-collection"),
     path(
         "api/onboarding/employees/by-email",

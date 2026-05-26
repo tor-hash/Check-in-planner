@@ -67,9 +67,10 @@ Onboarding kører i samme Django-app som planneren:
 
 - **Managers:** `/onboarding/flows/` — flow-trin og medarbejdere (CRUD). Top-nav
   på `/home/`, `/app/` og invites linker mellem værktøjerne.
-- **ERP / HR (headless):** REST under `/api/onboarding/` med API key — opret
-  medarbejdere, hent flow via `erp_employee_id` eller **email**
-  (`GET|POST /employees/by-email`), opdater step-progress.
+- **ERP / HR (headless):** REST under `/api/onboarding/` med API key —
+  `POST /provision` opretter medarbejder + default flow i ét kald; hent
+  status via `erp_employee_id` eller **email** (`GET|POST /employees/by-email`);
+  opdater step-progress med PATCH.
 - Onboardees logger aldrig ind (`is_active=False` Django-brugere).
 
 Se [docs/onboarding-api.md](docs/onboarding-api.md) for alle endpoints (service

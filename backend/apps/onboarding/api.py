@@ -25,13 +25,16 @@ from .models import (
 from .schemas import (
     validate_create_employee,
     validate_email_lookup,
+    validate_provision_employee,
     validate_step_progress_patch,
 )
 from .services import (
     create_employee_with_flow,
     list_assignments_by_email,
+    provision_employee_with_default_flow,
     serialize_assignment,
     serialize_flow,
+    serialize_provision_response,
     set_step_progress,
 )
 
@@ -52,6 +55,32 @@ def _validation_error(exc: ValidationError) -> JsonResponse:
 # ---------------------------------------------------------------------------
 # Employees
 # ---------------------------------------------------------------------------
+
+
+@require_api_key
+@require_http_methods(["POST"])
+def provision_employee(request: HttpRequest):
+    """Create a new hire on the default flow (seeds the flow template if missing)."""
+    payload, err = _parse_json(request)
+    if err is not None:
+        return err
+    cleaned, err = validate_provision_employee(payload)
+    if err is not None:
+        return err
+    try:
+        assignment, employee_created, flow_created = provision_employee_with_default_flow(
+            data=cleaned
+        )
+    except ValidationError as exc:
+        return _validation_error(exc)
+    return JsonResponse(
+        serialize_provision_response(
+            assignment=assignment,
+            employee_created=employee_created,
+            default_flow_created=flow_created,
+        ),
+        status=201 if employee_created else 200,
+    )
 
 
 @require_api_key

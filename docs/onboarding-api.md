@@ -48,6 +48,72 @@ CSRF is disabled on these endpoints (they're service-to-service).
 
 Base path: `/api/onboarding/` (all routes below are relative to this prefix).
 
+### `POST /provision` (recommended for new hires)
+
+One-call setup for external apps (ERP, HR portal): **ensures the default
+flow template exists** (creates/updates it from the built-in baseline if
+missing), **creates the employee**, assigns them to that flow, and returns
+structured employee + flow + step progress.
+
+Request body — same required fields as `POST /employees`, but **`flow_slug`
+must not be sent** (the default flow is always used):
+
+```json
+{
+  "erp_employee_id": "E1234",
+  "email": "jane@blackcapitaltechnology.com",
+  "first_name": "Jane",
+  "last_name": "Doe",
+  "position": "Backend dev",
+  "department": "Tech",
+  "start_date": "2026-06-01"
+}
+```
+
+Response (`201` first time, `200` idempotent replay on `erp_employee_id`):
+
+```json
+{
+  "created": true,
+  "default_flow_created": true,
+  "default_flow_slug": "default",
+  "employee": {
+    "erp_employee_id": "E1234",
+    "email": "jane@blackcapitaltechnology.com",
+    "first_name": "Jane",
+    "last_name": "Doe",
+    "position": "Backend dev",
+    "department": "Tech",
+    "start_date": "2026-06-01"
+  },
+  "assignment": {
+    "status": "pending",
+    "assigned_at": "2026-05-12T09:00:00+00:00",
+    "started_at": null,
+    "completed_at": null
+  },
+  "flow": {
+    "slug": "default",
+    "name": "BCT onboarding",
+    "description": "...",
+    "is_default": true,
+    "is_active": true,
+    "steps": [ { "id": 1, "order": 1, "component_type": "info_link", ... } ]
+  },
+  "steps": [ { "id": 1, "order": 1, "status": "pending", ... } ]
+}
+```
+
+- `default_flow_created` — `true` only when this call inserted the default
+  flow row (subsequent calls update steps in place via `seed_onboarding` logic).
+- `flow.steps` — flow **template** (config for each step).
+- `steps` — this employee's **progress** rows for the assignment.
+
+This reuses the same service layer as `POST /employees`; use `/provision`
+when you want the server to guarantee the default flow exists. Use
+`POST /employees` when you manage flow templates yourself or pass an
+explicit `flow_slug`.
+
 ### `POST /employees`
 
 Create or upsert an employee. **Idempotent on `erp_employee_id`** — a
@@ -215,6 +281,7 @@ renders a step-by-step preview before an employee exists.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
+| POST | `/provision` | Seed default flow (if needed) + create employee + assign |
 | POST | `/employees` | Create / upsert employee + assign flow |
 | GET | `/employees` | Paginated list of assignments |
 | GET/POST | `/employees/by-email` | Look up current assignment by email |
@@ -325,7 +392,18 @@ python backend/manage.py seed_onboarding
 TOKEN=...  # match ONBOARDING_API_TOKEN
 BASE=https://checkin-planner-prod.onrender.com/api/onboarding
 
-# 1. ERP creates an employee on hire-finalisation
+# 1. ERP provisions a new hire (default flow + employee in one call)
+curl -X POST "$BASE/provision" \
+  -H "X-API-Key: $TOKEN" -H "Content-Type: application/json" \
+  -d '{
+    "erp_employee_id":"E1234",
+    "email":"jane@blackcapitaltechnology.com",
+    "first_name":"Jane","last_name":"Doe",
+    "position":"Backend dev","department":"Tech",
+    "start_date":"2026-06-01"
+  }'
+
+# Or POST /employees when the default flow is already seeded and you omit flow_slug:
 curl -X POST "$BASE/employees" \
   -H "X-API-Key: $TOKEN" -H "Content-Type: application/json" \
   -d '{

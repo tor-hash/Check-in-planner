@@ -92,6 +92,21 @@ def validate_create_employee(payload: Any) -> tuple[dict[str, Any] | None, JsonR
     )
 
 
+def validate_provision_employee(
+    payload: Any,
+) -> tuple[dict[str, Any] | None, JsonResponse | None]:
+    """Like ``validate_create_employee`` but always uses the default flow."""
+    cleaned, err = validate_create_employee(payload)
+    if err is not None:
+        return None, err
+    if cleaned.get("flow_slug"):
+        return None, _err(
+            "flow_slug is not accepted on provision; the default flow is assigned automatically."
+        )
+    cleaned.pop("flow_slug", None)
+    return cleaned, None
+
+
 def validate_email_lookup(value: Any) -> tuple[str | None, JsonResponse | None]:
     if not isinstance(value, str) or not value.strip():
         return None, _err("email is required.")
