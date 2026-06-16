@@ -10,6 +10,7 @@ urlpatterns = [
     path("healthz", views.healthz_view, name="healthz"),
     path("home/", views.home_view, name="home"),
     path("app/", views.app_view, name="app"),
+    path("manager/settings/", views.manager_settings_view, name="manager-settings"),
 
     # Aggregate state (legacy contract — read still preferred for boot)
     path("api/state", api.state_get, name="api-state-get"),
@@ -33,6 +34,7 @@ urlpatterns = [
     # Managers
     path("api/managers", api.managers_collection, name="api-managers-collection"),
     path("api/managers/<str:manager_id>", api.managers_detail, name="api-managers-detail"),
+    path("api/managers/<str:manager_id>/settings", api.manager_settings, name="api-manager-settings"),
 
     # Journal entries + attachments
     path("api/journal-entries", api.journal_collection, name="api-journal-collection"),
@@ -54,9 +56,17 @@ urlpatterns = [
 
     # Server-side Google Calendar
     path("api/freebusy", api.freebusy_endpoint, name="api-freebusy"),
+    path(
+        "api/calendar-share-requests",
+        api.calendar_share_requests,
+        name="api-calendar-share-requests",
+    ),
     path("api/bookings", api.bookings_collection, name="api-bookings-collection"),
     path("api/bookings/<int:booking_id>", api.bookings_detail, name="api-bookings-detail"),
+    path("api/bookings/<int:booking_id>/rebook", api.bookings_rebook, name="api-bookings-rebook"),
 
-    # Rotation introspection
-    path("api/rotation", api.rotation_endpoint, name="api-rotation"),
+    # Notifications
+    path("api/notifications", api.notifications_collection, name="api-notifications-collection"),
+    path("api/notifications/<int:notification_id>/read", api.notification_mark_read, name="api-notification-mark-read"),
+    path("api/notifications/read-all", api.notifications_mark_all_read, name="api-notifications-read-all"),
 ]

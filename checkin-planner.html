@@ -34,7 +34,7 @@
         <span class="oauth-mini-signed" id="oauth-mini-signed" style="display:none;">
           <span class="oauth-mini-dot" id="oauth-status">●</span>
           <span class="oauth-mini-user" id="oauth-user"></span>
-          <button class="ghost icon-btn" id="btn-oauth-refresh" title="Hent free/busy igen">↻</button>
+          <button class="ghost icon-btn" id="btn-oauth-refresh" title="Hent kalender igen">↻</button>
           <button class="ghost icon-btn" id="btn-oauth-help" title="Hjælp / fejlsøgning">?</button>
           <button class="ghost icon-btn" id="btn-oauth-signout" title="Log ud">⏻</button>
         </span>
@@ -53,7 +53,7 @@
     <span class="swb-icon">⚠️</span>
     <div class="swb-body">
       <div class="swb-title">Du er ikke logget ind med Google</div>
-      <div class="swb-msg">Log ind med Google for kalender (free/busy og booking). Roster og journal gemmes i den delte database når du er logget ind som manager.</div>
+      <div class="swb-msg">Log ind med Google for kalender og booking. Roster og journal gemmes i den delte database når du er logget ind som manager.</div>
     </div>
     <button id="btn-swb-signin">Log ind nu</button>
   </div>
@@ -243,7 +243,10 @@
               <button class="now-btn" id="wk-now" style="display:none;" title="Tilbage til nuværende uge">Nu</button>
             </div>
           </div>
-          <div style="margin-left: auto; color: var(--muted); font-size: 11px;" id="filter-count"></div>
+          <div style="margin-left: auto; display: flex; align-items: center; gap: 8px;">
+            <button class="ghost" type="button" id="btn-request-calendar-share-all" title="Send email til medarbejdere hvis kalender ikke kan læses" style="font-size: 11px; display: none;">📧 Bed om kalenderdeling</button>
+            <span style="color: var(--muted); font-size: 11px;" id="filter-count"></span>
+          </div>
         </div>
         <table class="cal person-schedule">
           <thead>
@@ -271,7 +274,10 @@
         <strong>Login-vinduet lukker uden at logge ind</strong> — tredjeparts-cookies blokeres i browseren. Tillad <code>accounts.google.com</code> eller skift browser.
       </p>
       <p style="margin: 8px 0;">
-        <strong>"Hent free/busy" viser fejl på en medarbejder</strong> — den person har ikke delt sin kalender med dig. Bed dem om at tilføje dig under Calendar settings → Share with specific people → "See only free/busy".
+        <strong>"Hent kalender" viser fejl på en medarbejder</strong> — den person har ikke delt sin kalender med dig. Klik <strong>📧 Bed om kalenderdeling</strong> på rækken (eller brug knappen øverst) for at sende en vejledende email fra din Gmail-konto. Medarbejderen skal tilføje dig under Calendar settings → Share with specific people → "See only free/busy".
+      </p>
+      <p style="margin: 8px 0;">
+        <strong>Email om kalenderdeling fejler</strong> — log ind igen og godkend Gmail-tilladelsen (<code>gmail.send</code>). Samme konto som manager-login.
       </p>
       <div class="modal-actions" style="margin-top: 16px;">
         <div></div>
@@ -675,7 +681,7 @@ function emptyState() {
     startDate: nextMonday().toISOString().slice(0, 10),
     customDates: {},
     workHours: { start: "09:00", end: "17:00", excludeLunch: true, weekdaysOnly: true },
-    oauth: { lastFetch: null, busy: {}, autoRefresh: false, lastErrors: [] },
+    oauth: { lastFetch: null, busy: {}, calendarErrors: {}, autoRefresh: false, lastErrors: [] },
     viewedMgrFilter: "all",
     weekOffset: 0,
     weeksPerSession: 2,
@@ -777,9 +783,10 @@ function loadState() {
     if (!s.bookings) s.bookings = [];
     delete s.ics; // ICS upload feature removed 2026-05-05 — OAuth/freeBusy handles all calendar work
     if (!s.workHours) s.workHours = { start: "09:00", end: "17:00", excludeLunch: true, weekdaysOnly: true };
-    if (!s.oauth) s.oauth = { lastFetch: null, busy: {}, autoRefresh: false, lastErrors: [] };
+    if (!s.oauth) s.oauth = { lastFetch: null, busy: {}, calendarErrors: {}, autoRefresh: false, lastErrors: [] };
     delete s.oauth.clientId; // legacy field — Client ID is now hardcoded
     if (!s.oauth.busy) s.oauth.busy = {};
+    if (!s.oauth.calendarErrors) s.oauth.calendarErrors = {};
     if (!s.oauth.lastErrors) s.oauth.lastErrors = [];
     // Drop legacy Apps Script state if it exists in old localStorage data.
     delete s.liveCal;
@@ -1395,12 +1402,21 @@ async function renderByPerson() {
       const customDate = scheduledTimeForSlot(id, sessionIdx);
       const booking = findBookingForSlot(id, sessionIdx);
       const defaultDateValue = customDate || (sd.toISOString().slice(0,10) + "T10:00");
-      const allSlots = suggestSlots(mgrId, id, sessionIdx);
-      const dayGridHTML = renderDayGrid(id, sessionIdx, allSlots, customDate || null, view.weekInSession);
+      const slotState = getSlotAvailabilityState(mgrId, id);
+      const allSlots = slotState.ready
+        ? suggestSlots(mgrId, id, sessionIdx, 15, null, view.weekInSession)
+        : [];
+      const dayGridHTML = renderDayGrid(
+        id, sessionIdx, allSlots, customDate || null, view.weekInSession,
+        slotState.message, slotState.showFetchCalendar
+      );
       const bookedTag = booking ? `<span class="session-tag now" style="margin-left:6px">Booket</span>` : "";
+      const shareBtn = hasCalendarError(id)
+        ? `<button type="button" class="ghost" data-act="request-calendar-share" data-pid="${id}" style="font-size:11px;margin-top:4px;padding:2px 6px;">📧 Bed om kalenderdeling</button>`
+        : "";
       rows.push(`
         <tr>
-          <td><strong>${p.name}</strong>${projectDots(p)}<br><span style="color:var(--muted); font-size:11px;">${p.title || ""}</span></td>
+          <td><strong>${p.name}</strong>${projectDots(p)}<br><span style="color:var(--muted); font-size:11px;">${p.title || ""}</span>${shareBtn}</td>
           <td>${teamBadge(teamId)}</td>
           <td class="schedule-mgr">${mgr ? mgr.name.split(" ")[0] : "—"}</td>
           <td class="slot-cell">
@@ -1457,6 +1473,16 @@ async function renderByPerson() {
       renderByPerson();
     });
   });
+  tbody.querySelectorAll("button[data-act='request-calendar-share']").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const pid = btn.dataset.pid;
+      if (pid) requestCalendarShare([pid], { force: false });
+    });
+  });
+  tbody.querySelectorAll("button[data-act='fetch-calendar']").forEach(btn => {
+    btn.addEventListener("click", () => oauthRefresh(false));
+  });
+  updateCalendarShareBulkButton();
   tbody.querySelectorAll("button[data-act='clear-date']").forEach(btn => {
     btn.addEventListener("click", () => {
       const pid = btn.dataset.pid, sidx = btn.dataset.sidx;
@@ -1704,6 +1730,7 @@ function deletePerson(id) {
   ["pool","team-1","team-2","team-3"].forEach(t => state.teams[t] = state.teams[t].filter(x => x !== id));
   delete state.customDates[id];
   if (state.oauth?.busy) delete state.oauth.busy[id];
+  if (state.oauth?.calendarErrors) delete state.oauth.calendarErrors[id];
   saveState();
   const ss = getStateSync();
   if (canEditRoster() && ss) {
@@ -1722,15 +1749,48 @@ function deletePerson(id) {
 // ============================================
 // JOURNAL
 // ============================================
+/** Parse trivsel from API (string) or legacy local state (number). */
+function trivselScore(value) {
+  if (value == null || value === "") return null;
+  const n = typeof value === "number" ? value : parseInt(String(value), 10);
+  return Number.isFinite(n) && n >= 1 && n <= 10 ? n : null;
+}
+function journalTextField(value) {
+  if (value == null || value === false) return "";
+  return String(value);
+}
+function journalPayloadForApi(entry, personId) {
+  return {
+    id: entry.id,
+    personId: personId,
+    managerId: entry.managerId || "",
+    date: entry.date,
+    trivsel: journalTextField(entry.trivsel),
+    faglig: journalTextField(entry.faglig),
+    personlig: journalTextField(entry.personlig),
+    udfordringer: journalTextField(entry.udfordringer),
+    maal: journalTextField(entry.maal),
+    noter: journalTextField(entry.noter),
+    opfolgning: journalTextField(entry.opfolgning),
+    obs: journalTextField(entry.obs),
+    files: entry.files || [],
+  };
+}
 function trivselClass(score) {
-  if (score == null) return "";
-  if (score >= 7) return "t-green";
-  if (score >= 4) return "t-yellow";
+  const n = trivselScore(score);
+  if (n == null) return "";
+  if (n >= 7) return "t-green";
+  if (n >= 4) return "t-yellow";
   return "t-red";
 }
 function trivselSpan(score) {
-  if (score == null) return `<span class="trivsel-pill">–</span>`;
-  return `<span class="trivsel-pill ${trivselClass(score)}">${score}/10</span>`;
+  const n = trivselScore(score);
+  if (n == null) return `<span class="trivsel-pill">–</span>`;
+  return `<span class="trivsel-pill ${trivselClass(score)}">${n}/10</span>`;
+}
+function formatTrivselScore(value) {
+  const n = trivselScore(value);
+  return n == null ? "—" : `${n}/10`;
 }
 // Renders an attachment chip. Handles both legacy local-only files
 // (dataUrl, base64-inline) and Drive-stored files (webViewLink).
@@ -1778,7 +1838,7 @@ function getLatestTrivsel(personId) {
   const entries = getJournal(personId);
   if (!entries.length) return null;
   const sorted = [...entries].sort(compareEntriesDesc);
-  return sorted[0].trivsel;
+  return trivselScore(sorted[0].trivsel);
 }
 function trivselBadge(personId) {
   const score = getLatestTrivsel(personId);
@@ -1813,14 +1873,15 @@ function renderSparkline(scores) {
 // nemmere at se trenden. Bruges på person-kortet i Trivsel & historik-fanen.
 function renderTrendChart(entries) {
   const ordered = [...entries].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
-  const scoredEntries = ordered.filter(e => e.trivsel != null);
+  const scoredEntries = ordered.filter(e => trivselScore(e.trivsel) != null);
   if (!scoredEntries.length) return `<div class="sparkline-empty-block">Ingen trivsel-data registreret endnu</div>`;
   const w = 320, h = 48, padX = 4, padY = 4;
   const min = 1, max = 10;
   const step = scoredEntries.length === 1 ? 0 : (w - 2*padX) / (scoredEntries.length - 1);
   const pts = scoredEntries.map((e, i) => {
     const x = padX + i * step;
-    const y = h - padY - ((e.trivsel - min) / (max - min)) * (h - 2*padY);
+    const score = trivselScore(e.trivsel);
+    const y = h - padY - ((score - min) / (max - min)) * (h - 2*padY);
     return { x, y, e };
   });
   const path = pts.map((p, i) => (i === 0 ? "M" : "L") + p.x.toFixed(1) + "," + p.y.toFixed(1)).join(" ");
@@ -1830,7 +1891,7 @@ function renderTrendChart(entries) {
     const cls = trivselClass(p.e.trivsel);
     const color = cls === "t-green" ? "#a6da95" : cls === "t-yellow" ? "#eed49f" : "#ed8796";
     const dateLabel = p.e.date ? new Date(p.e.date).toLocaleDateString("da-DK", { day: "2-digit", month: "short", year: "numeric" }) : "";
-    return `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="${color}" stroke="#1a1a1a" stroke-width="1"><title>${escapeHtml(dateLabel)}: ${p.e.trivsel}/10</title></circle>`;
+    return `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="${color}" stroke="#1a1a1a" stroke-width="1"><title>${escapeHtml(dateLabel)}: ${trivselScore(p.e.trivsel)}/10</title></circle>`;
   }).join("");
   // Vandrette gridlines ved 4 og 7 (grænserne for gul/grøn)
   const yFor = v => h - padY - ((v - min) / (max - min)) * (h - 2*padY);
@@ -1939,7 +2000,7 @@ function clearObs(personId, entryId) {
   entry.updatedAt = Date.now();
   saveState();
   renderJournalOverview();
-  if (isOauthSignedIn() && entry._rowIndex) {
+  if (isOauthSignedIn()) {
     journalUpsertEntry(entry, personId).catch(err => {
       console.error("[journal sync] clear-obs failed", err);
       alert("Kunne ikke synkronisere OBS-rydningen til den delte journal: " + err.message + "\n\nDen er ryddet lokalt — prøv 'Hent delt journal' senere.");
@@ -1956,16 +2017,16 @@ function renderJournalCard(personId) {
   const teamId = getTeamForPerson(personId);
   const teamLabel = teamId === "pool" ? "Ikke tildelt" : teamId ? "Team " + teamId.split("-")[1] : "—";
   const lastDate = latest?.date ? new Date(latest.date).toLocaleDateString("da-DK", { day: "2-digit", month: "short", year: "numeric" }) : "Aldrig";
-  const scoredEntries = entries.filter(e => e.trivsel != null);
-  const allScores = scoredEntries.map(e => e.trivsel);
+  const scoredEntries = entries.filter(e => trivselScore(e.trivsel) != null);
+  const allScores = scoredEntries.map(e => trivselScore(e.trivsel));
   const avg = allScores.length ? (allScores.reduce((a,b) => a+b, 0) / allScores.length).toFixed(1) : null;
   const minScore = allScores.length ? Math.min(...allScores) : null;
   const maxScore = allScores.length ? Math.max(...allScores) : null;
   // Trend-retning: sammenlign de seneste 3 mod de forrige 3
   let trendIcon = "", trendClass = "neu";
   if (scoredEntries.length >= 4) {
-    const recent3 = scoredEntries.slice(0, 3).map(e => e.trivsel);
-    const prev3 = scoredEntries.slice(3, 6).map(e => e.trivsel);
+    const recent3 = scoredEntries.slice(0, 3).map(e => trivselScore(e.trivsel));
+    const prev3 = scoredEntries.slice(3, 6).map(e => trivselScore(e.trivsel));
     const recAvg = recent3.reduce((a,b) => a+b, 0) / recent3.length;
     const prevAvg = prev3.length ? prev3.reduce((a,b) => a+b, 0) / prev3.length : recAvg;
     const diff = recAvg - prevAvg;
@@ -2115,13 +2176,13 @@ function renderHistoryModal() {
   }
 
   // Stats
-  const scored = entries.filter(e => e.trivsel != null);
-  const allScores = scored.map(e => e.trivsel);
+  const scored = entries.filter(e => trivselScore(e.trivsel) != null);
+  const allScores = scored.map(e => trivselScore(e.trivsel));
   const avg = allScores.length ? (allScores.reduce((a,b) => a+b, 0) / allScores.length).toFixed(1) : "–";
   const minScore = allScores.length ? Math.min(...allScores) : "–";
   const maxScore = allScores.length ? Math.max(...allScores) : "–";
   const latest = entries[0];
-  const latestScore = latest?.trivsel != null ? latest.trivsel + "/10" : "–";
+  const latestScore = formatTrivselScore(latest?.trivsel);
   const latestCls = trivselClass(latest?.trivsel);
   const latestColorClass = latestCls === "t-green" ? "pos" : latestCls === "t-yellow" ? "neu" : latestCls === "t-red" ? "neg" : "";
   const firstDate = entries[entries.length - 1]?.date;
@@ -2133,8 +2194,8 @@ function renderHistoryModal() {
   // Trend-retning
   let trendIcon = "—", trendCls = "";
   if (scored.length >= 4) {
-    const r3 = scored.slice(0, 3).map(e => e.trivsel);
-    const p3 = scored.slice(3, 6).map(e => e.trivsel);
+    const r3 = scored.slice(0, 3).map(e => trivselScore(e.trivsel));
+    const p3 = scored.slice(3, 6).map(e => trivselScore(e.trivsel));
     const rAvg = r3.reduce((a,b) => a+b, 0) / r3.length;
     const pAvg = p3.length ? p3.reduce((a,b) => a+b, 0) / p3.length : rAvg;
     const diff = rAvg - pAvg;
@@ -2223,7 +2284,7 @@ function renderHistoryModal() {
 // Stor version af trend-charten — bruges i fuld-historik modalen.
 function renderHistoryChart(entries) {
   const ordered = [...entries].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
-  const scored = ordered.filter(e => e.trivsel != null);
+  const scored = ordered.filter(e => trivselScore(e.trivsel) != null);
   if (!scored.length) return `<div class="history-empty">Ingen trivsel-scores registreret endnu.</div>`;
   const w = 700, h = 140, padX = 30, padY = 10;
   const min = 1, max = 10;
@@ -2231,7 +2292,7 @@ function renderHistoryChart(entries) {
   const yFor = v => h - padY - ((v - min) / (max - min)) * (h - 2*padY);
   const pts = scored.map((e, i) => ({
     x: padX + i * step,
-    y: yFor(e.trivsel),
+    y: yFor(trivselScore(e.trivsel)),
     e,
   }));
   const path = pts.map((p, i) => (i === 0 ? "M" : "L") + p.x.toFixed(1) + "," + p.y.toFixed(1)).join(" ");
@@ -2240,7 +2301,7 @@ function renderHistoryChart(entries) {
     const cls = trivselClass(p.e.trivsel);
     const color = cls === "t-green" ? "#a6da95" : cls === "t-yellow" ? "#eed49f" : "#ed8796";
     const dateLabel = p.e.date ? new Date(p.e.date).toLocaleDateString("da-DK", { day:"2-digit", month:"short", year:"numeric" }) : "";
-    return `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4.5" fill="${color}" stroke="#1a1a1a" stroke-width="1.5"><title>${escapeHtml(dateLabel)}: ${p.e.trivsel}/10</title></circle>`;
+    return `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4.5" fill="${color}" stroke="#1a1a1a" stroke-width="1.5"><title>${escapeHtml(dateLabel)}: ${trivselScore(p.e.trivsel)}/10</title></circle>`;
   }).join("");
   // Y-akse labels
   const yLabels = [10, 7, 4, 1].map(v => `<text x="4" y="${(yFor(v) + 4).toFixed(1)}" font-size="10" fill="rgba(176,189,212,0.6)">${v}</text>`).join("");
@@ -2347,7 +2408,7 @@ function entryCardHtml(e, personName, includeNotes) {
       <div class="entry-card-head">
         <strong>${date}</strong>
         <span style="color:#666;">${mgr ? mgr.name : "—"}</span>
-        <span class="trivsel-pill-rep ${tCls}">${e.trivsel != null ? e.trivsel + "/10" : "—"}</span>
+        <span class="trivsel-pill-rep ${tCls}">${formatTrivselScore(e.trivsel)}</span>
         ${personName ? `<span style="margin-left:auto; color:#666;">${escapeHtml(personName)}</span>` : ""}
       </div>
       ${fields.map(([label, content]) => `
@@ -2371,15 +2432,18 @@ function printBarHtml(title) {
 function buildOrgReport(cutoff, includeNotes) {
   const allIds = [...state.teams["team-1"], ...state.teams["team-2"], ...state.teams["team-3"], ...state.teams["pool"]];
   const allEntries = allIds.flatMap(id => getEntriesInPeriod(id, cutoff).map(e => ({...e, personId: id})));
-  const allTrivsel = allEntries.map(e => e.trivsel).filter(s => s != null);
+  const allTrivsel = allEntries.map(e => trivselScore(e.trivsel)).filter(s => s != null);
   const avg = allTrivsel.length ? (allTrivsel.reduce((a,b) => a+b, 0) / allTrivsel.length).toFixed(1) : "–";
-  const lowEntries = allEntries.filter(e => e.trivsel != null && e.trivsel < 5).length;
+  const lowEntries = allEntries.filter(e => {
+    const s = trivselScore(e.trivsel);
+    return s != null && s < 5;
+  }).length;
 
   // Per team summary
   const teamSummary = ["team-1","team-2","team-3"].map(t => {
     const ids = state.teams[t];
     const entries = ids.flatMap(id => getEntriesInPeriod(id, cutoff));
-    const tScores = entries.map(e => e.trivsel).filter(s => s != null);
+    const tScores = entries.map(e => trivselScore(e.trivsel)).filter(s => s != null);
     const tAvg = tScores.length ? (tScores.reduce((a,b) => a+b, 0) / tScores.length).toFixed(1) : "–";
     return {
       team: t.replace("team-", "Team "),
@@ -2398,8 +2462,8 @@ function buildOrgReport(cutoff, includeNotes) {
     const teamLbl = teamId === "pool" ? "—" : "Team " + (teamId || "").split("-")[1];
     return { p, entries, latest, teamLbl };
   }).filter(r => r.p).sort((a, b) => {
-    const ta = a.latest?.trivsel ?? 99;
-    const tb = b.latest?.trivsel ?? 99;
+    const ta = trivselScore(a.latest?.trivsel) ?? 99;
+    const tb = trivselScore(b.latest?.trivsel) ?? 99;
     return ta - tb;
   });
 
@@ -2438,7 +2502,7 @@ function buildOrgReport(cutoff, includeNotes) {
               <td>${r.teamLbl}</td>
               <td>${r.latest?.date ? new Date(r.latest.date).toLocaleDateString("da-DK") : "—"}</td>
               <td>${r.entries.length}</td>
-              <td><span class="trivsel-pill-rep ${trivselClass(r.latest?.trivsel)}">${r.latest?.trivsel != null ? r.latest.trivsel + "/10" : "—"}</span></td>
+              <td><span class="trivsel-pill-rep ${trivselClass(r.latest?.trivsel)}">${formatTrivselScore(r.latest?.trivsel)}</span></td>
             </tr>`).join("")}
         </tbody>
       </table>
@@ -2454,7 +2518,7 @@ function buildOrgReport(cutoff, includeNotes) {
 function buildTeamReport(teamId, cutoff, includeNotes) {
   const ids = state.teams[teamId] || [];
   const entries = ids.flatMap(id => getEntriesInPeriod(id, cutoff).map(e => ({...e, personId: id})));
-  const tScores = entries.map(e => e.trivsel).filter(s => s != null);
+  const tScores = entries.map(e => trivselScore(e.trivsel)).filter(s => s != null);
   const avg = tScores.length ? (tScores.reduce((a,b) => a+b, 0) / tScores.length).toFixed(1) : "–";
   const teamN = teamId.split("-")[1];
 
@@ -2462,7 +2526,7 @@ function buildTeamReport(teamId, cutoff, includeNotes) {
     const p = findPerson(id);
     const e = getEntriesInPeriod(id, cutoff);
     return { p, entries: e, latest: e[0] };
-  }).filter(r => r.p).sort((a,b) => (a.latest?.trivsel ?? 99) - (b.latest?.trivsel ?? 99));
+  }).filter(r => r.p).sort((a,b) => (trivselScore(a.latest?.trivsel) ?? 99) - (trivselScore(b.latest?.trivsel) ?? 99));
 
   return `
     <div class="report-output">
@@ -2486,7 +2550,7 @@ function buildTeamReport(teamId, cutoff, includeNotes) {
               <td>${escapeHtml(r.p.title || "")}</td>
               <td>${r.latest?.date ? new Date(r.latest.date).toLocaleDateString("da-DK") : "—"}</td>
               <td>${r.entries.length}</td>
-              <td><span class="trivsel-pill-rep ${trivselClass(r.latest?.trivsel)}">${r.latest?.trivsel != null ? r.latest.trivsel + "/10" : "—"}</span></td>
+              <td><span class="trivsel-pill-rep ${trivselClass(r.latest?.trivsel)}">${formatTrivselScore(r.latest?.trivsel)}</span></td>
             </tr>`).join("")}
         </tbody>
       </table>
@@ -2506,7 +2570,7 @@ function buildPersonReport(personId, cutoff, includeNotes) {
   const p = findPerson(personId);
   if (!p) return `<div class="report-output"><h1>Person ikke fundet</h1></div>`;
   const entries = getEntriesInPeriod(personId, cutoff);
-  const scores = entries.map(e => e.trivsel).filter(s => s != null);
+  const scores = entries.map(e => trivselScore(e.trivsel)).filter(s => s != null);
   const avg = scores.length ? (scores.reduce((a,b) => a+b, 0) / scores.length).toFixed(1) : "–";
   const teamId = getTeamForPerson(personId);
   const teamLabel = teamId === "pool" ? "Ikke tildelt" : teamId ? "Team " + teamId.split("-")[1] : "—";
@@ -2569,7 +2633,7 @@ function openEntryModal(personId, entryId = null) {
   if (existing) {
     document.getElementById("je-date").value = existing.date ? existing.date.slice(0,10) : new Date().toISOString().slice(0,10);
     document.getElementById("je-manager").value = existing.managerId || state.mgrs[0];
-    document.getElementById("je-trivsel").value = existing.trivsel ?? 7;
+    document.getElementById("je-trivsel").value = trivselScore(existing.trivsel) ?? 7;
     document.getElementById("je-faglig").value = existing.faglig || "";
     document.getElementById("je-personlig").value = existing.personlig || "";
     document.getElementById("je-udfordringer").value = existing.udfordringer || "";
@@ -2690,7 +2754,7 @@ function saveEntry() {
     id: editingEntryId || ("e_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8)),
     date: document.getElementById("je-date").value,
     managerId: document.getElementById("je-manager").value,
-    trivsel: parseInt(document.getElementById("je-trivsel").value, 10),
+    trivsel: document.getElementById("je-trivsel").value,
     faglig: document.getElementById("je-faglig").value.trim(),
     personlig: document.getElementById("je-personlig").value.trim(),
     udfordringer: document.getElementById("je-udfordringer").value.trim(),
@@ -2998,28 +3062,94 @@ function saveFnTags() {
 // ============================================
 // CALENDAR HELPERS
 // ============================================
-function hasLive(pid) { return !!(state.oauth?.busy?.[pid]?.length); }
+function hasCalendarFetched(pid) {
+  return !!(pid && state.oauth?.busy && Object.prototype.hasOwnProperty.call(state.oauth.busy, pid));
+}
+function hasCalendarError(pid) {
+  return !!(pid && state.oauth?.calendarErrors?.[pid]);
+}
 function getBusy(pid) {
   return (state.oauth?.busy?.[pid] || [])
     .map(e => ({ start: new Date(e.start), end: new Date(e.end) }));
 }
 
+function getSlotAvailabilityState(mgrId, empId) {
+  if (!isOauthSignedIn()) {
+    return {
+      ready: false,
+      message: "Log ind med Google og klik ↻ Hent kalender for at se ledige tider.",
+      showFetchCalendar: false,
+    };
+  }
+  if (!mgrId) {
+    return { ready: false, message: "Ingen manager i rotation for denne periode.", showFetchCalendar: false };
+  }
+  const emp = findPerson(empId);
+  if (!emp?.email) {
+    return { ready: false, message: "Medarbejderen mangler email — tilføj email for at tjekke kalender.", showFetchCalendar: false };
+  }
+  const mgr = findPerson(mgrId);
+  if (!mgr?.email) {
+    return { ready: false, message: "Manager mangler email i roster.", showFetchCalendar: false };
+  }
+  if (!hasCalendarFetched(mgrId)) {
+    return {
+      ready: false,
+      message: "Kalender ikke hentet for manager.",
+      showFetchCalendar: true,
+    };
+  }
+  if (!hasCalendarFetched(empId)) {
+    return {
+      ready: false,
+      message: "Kalender ikke hentet for medarbejder.",
+      showFetchCalendar: true,
+    };
+  }
+  if (hasCalendarError(mgrId)) {
+    return {
+      ready: false,
+      message: "Kan ikke læse managers kalender. Del ledig/optaget i Google Calendar.",
+      showFetchCalendar: false,
+    };
+  }
+  if (hasCalendarError(empId)) {
+    return {
+      ready: false,
+      message: "Kan ikke læse medarbejders kalender — brug 📧 Bed om kalenderdeling.",
+      showFetchCalendar: false,
+    };
+  }
+  return { ready: true, message: null, showFetchCalendar: false };
+}
+
 // ============================================
 // SLOT FINDER
 // ============================================
-function suggestSlots(mgrId, empId, sessionIdx, slotMin = 15, maxResults = null) {
-  const mgrHas = hasLive(mgrId);
-  const empHas = hasLive(empId);
-  if (!mgrHas && !empHas) return [];
+function suggestSlots(mgrId, empId, sessionIdx, slotMin = 15, maxResults = null, weekInSession = null) {
+  if (!mgrId || !empId) return [];
+  const slotState = getSlotAvailabilityState(mgrId, empId);
+  if (!slotState.ready) return [];
+
   const sd = sessionDate(sessionIdx);
-  const start = new Date(sd); start.setHours(0,0,0,0);
-  const end = new Date(start);
-  const sess = findRotationSession(sessionIdx);
-  if (sess && sess.weekEnd) {
-    end.setTime(new Date(sess.weekEnd + "T23:59:59").getTime());
-  } else {
-    end.setDate(start.getDate() + sessionSpanDays());
+  const start = new Date(sd);
+  start.setHours(0, 0, 0, 0);
+  if (weekInSession != null && weekInSession >= 0) {
+    start.setDate(start.getDate() + weekInSession * 7);
   }
+  const end = new Date(start);
+  if (weekInSession != null && weekInSession >= 0) {
+    end.setDate(start.getDate() + 7);
+    end.setHours(23, 59, 59, 999);
+  } else {
+    const sess = findRotationSession(sessionIdx);
+    if (sess && sess.weekEnd) {
+      end.setTime(new Date(sess.weekEnd + "T23:59:59").getTime());
+    } else {
+      end.setDate(start.getDate() + sessionSpanDays());
+    }
+  }
+  // Both calendars must be free — union of busy blocks from manager + employee.
   const busy = [...getBusy(mgrId), ...getBusy(empId)];
 
   const wh = state.workHours;
@@ -3082,11 +3212,15 @@ function dtLocalValue(d) {
   return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0") + "T" + String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
 }
 
-function renderDayGrid(personId, sessionIdx, slots, customDateStr, weekInSession) {
+function renderDayGrid(personId, sessionIdx, slots, customDateStr, weekInSession, statusMessage, showFetchCalendar) {
   if (!slots.length) {
-    const mgrId = getManagerForSession(getTeamForPerson(personId), sessionIdx);
-    const hasAny = hasLive(mgrId) || hasLive(personId);
-    return `<div class="no-slots-msg">${hasAny ? "Ingen ledige slots fundet i sessionsvinduet" : "Forbind kalender for slot-forslag"}</div>`;
+    if (statusMessage) {
+      const fetchBtn = showFetchCalendar
+        ? `<button type="button" class="ghost" data-act="fetch-calendar" style="font-size:11px;margin-top:6px;padding:2px 8px;">↻ Hent kalender</button>`
+        : "";
+      return `<div class="no-slots-msg">${statusMessage}${fetchBtn}</div>`;
+    }
+    return `<div class="no-slots-msg">Ingen fælles ledige tider i den valgte uge (tjek begge kalendere).</div>`;
   }
   const weekdays = getSessionWeekdays(sessionIdx);
   const slotsByDay = groupSlotsByDay(slots);
@@ -3186,7 +3320,7 @@ function oauthRenderSignedInUI() {
     if (userEl) userEl.textContent = window.PLANNER_USER_EMAIL || "Logget ind";
     if (state.oauth?.lastFetch) {
       const ts = new Date(state.oauth.lastFetch).toLocaleTimeString("da-DK", { hour:"2-digit", minute:"2-digit" });
-      setOauthStatus("Sidste free/busy hent " + ts, "ok");
+      setOauthStatus("Sidste kalender hentet " + ts, "ok");
     } else {
       setOauthStatus("Logget ind", "ok");
     }
@@ -3251,19 +3385,22 @@ async function oauthRefresh(silent = false) {
   const peopleToFetch = [...new Set([...state.mgrs, ...getAssignedIds()])];
   const today = new Date(); today.setHours(0,0,0,0);
   const sd = new Date(state.startDate); sd.setHours(0,0,0,0);
-  const start = today < sd ? today : sd;
+  // Start from the later of today and startDate, so we fetch current/future
+  // events instead of a stale historical window when startDate is in the past.
+  const start = today > sd ? today : sd;
   const end = new Date(start); end.setDate(start.getDate() + 56);
 
-  // Build a map: email -> internal personId. Skip people without an email.
+  // Build a map: email (lowercase) -> internal personId. Skip people without an email.
   const emailToPid = {};
   const calendarIds = [];
   const skipped = [];
   for (const pid of peopleToFetch) {
     const p = findPerson(pid);
     if (!p?.email) { skipped.push((p?.name || pid) + ": mangler email"); continue; }
-    if (!emailToPid[p.email]) {
-      emailToPid[p.email] = pid;
-      calendarIds.push(p.email);
+    const key = p.email.trim().toLowerCase();
+    if (!emailToPid[key]) {
+      emailToPid[key] = pid;
+      calendarIds.push(p.email.trim());
     }
   }
 
@@ -3281,35 +3418,58 @@ async function oauthRefresh(silent = false) {
     });
   } catch (err) {
     console.error("[oauth] freeBusy failed", err);
-    if (err && err.status === 401 && err.body && err.body.needs_consent) {
+    const needsConsent = err && err.body && err.body.needs_consent;
+    const invalidScope = /invalid_scope/i.test(String(err?.body?.detail || err?.message || ""));
+    if (needsConsent || invalidScope) {
       setOauthStatus("Kalender-tilladelse mangler", "err");
-      if (!silent && confirm("Google Calendar-adgang mangler. Log ind igen for at give tilladelse?")) {
-        oauthSignIn();
+      if (!silent && confirm(
+        "Google kalender-tilladelse skal opdateres. Log ud og log ind igen for at give tilladelse?"
+      )) {
+        oauthSignOut();
       }
       return;
     }
-    setOauthStatus("Fejl: " + (err.message || "free/busy").slice(0, 60), "err");
-    if (!silent) alert("Free/busy fejl:\n\n" + (err.message || err));
+    setOauthStatus("Fejl: " + (err.message || "kalender").slice(0, 60), "err");
+    if (!silent) alert("Kalender-fejl:\n\n" + (err?.body?.detail || err.message || err));
     return;
   }
 
-  const newBusy = {};
+  const newBusy = { ...(state.oauth.busy || {}) };
+  const newErrors = { ...(state.oauth.calendarErrors || {}) };
   let okCount = 0;
+  let errCount = skipped.length;
   const errorDetails = [...skipped];
   const calendars = (response && response.calendars) || {};
-  for (const [email, busy] of Object.entries(calendars)) {
-    const pid = emailToPid[email];
+  const apiErrors = (response && response.errors) || {};
+
+  // Mark every requested person as fetched (empty busy = fully free, not "unknown").
+  for (const email of calendarIds) {
+    const pid = emailToPid[email.trim().toLowerCase()];
     if (!pid) continue;
+    newBusy[pid] = [];
+    newErrors[pid] = false;
+  }
+
+  for (const [email, busy] of Object.entries(calendars)) {
+    const pid = emailToPid[String(email).trim().toLowerCase()];
+    if (!pid) continue;
+    const calErr = apiErrors[email];
+    if (calErr) {
+      newErrors[pid] = true;
+      errCount++;
+      errorDetails.push((findPerson(pid)?.name || pid) + ": kalender utilgængelig");
+    } else {
+      okCount++;
+    }
     newBusy[pid] = (busy || []).map(b => ({
       start: b.start,
       end: b.end,
       summary: "",
     }));
-    okCount++;
   }
-  const errCount = calendarIds.length - okCount + skipped.length;
 
   state.oauth.busy = newBusy;
+  state.oauth.calendarErrors = newErrors;
   state.oauth.lastFetch = Date.now();
   state.oauth.lastErrors = errorDetails;
   saveState();
@@ -3322,6 +3482,72 @@ async function oauthRefresh(silent = false) {
     el.style.cursor = "pointer";
     el.onclick = () => alert("Fejldetaljer:\n\n" + errorDetails.join("\n"));
   }
+  updateCalendarShareBulkButton();
+  autoSendCalendarShareRequests().catch(err =>
+    console.warn("[calendar-share] auto-send failed", err)
+  );
+}
+
+function calendarShareErrorPersonIds() {
+  return getAssignedIds().filter(pid => hasCalendarError(pid));
+}
+
+function updateCalendarShareBulkButton() {
+  const btn = document.getElementById("btn-request-calendar-share-all");
+  if (!btn) return;
+  const ids = calendarShareErrorPersonIds();
+  const show = isOauthSignedIn() && ids.length > 0;
+  btn.style.display = show ? "" : "none";
+  btn.disabled = !show;
+  btn.title = show
+    ? `Send vejledning til ${ids.length} medarbejder(e) uden kalenderdeling`
+    : "Ingen medarbejdere med kalenderfejl";
+}
+
+async function requestCalendarShare(personIds, { force = false, silent = false } = {}) {
+  if (!isOauthSignedIn()) {
+    if (!silent) alert("Log ind med Google først.");
+    return null;
+  }
+  if (!window.PlannerApi || typeof window.PlannerApi.requestCalendarShare !== "function") {
+    if (!silent) alert("Planner API er ikke klar.");
+    return null;
+  }
+  const ids = [...new Set((personIds || []).filter(Boolean))];
+  if (!ids.length) {
+    if (!silent) alert("Ingen medarbejdere valgt.");
+    return null;
+  }
+  try {
+    const summary = await window.PlannerApi.requestCalendarShare(ids, { force });
+    if (!silent) {
+      const parts = [];
+      if (summary.sent) parts.push(`${summary.sent} sendt`);
+      if (summary.skipped) parts.push(`${summary.skipped} sprunget over (cooldown)`);
+      if (summary.failed) parts.push(`${summary.failed} fejlede`);
+      alert("Kalenderdeling:\n\n" + (parts.join(" · ") || "Ingen ændringer"));
+    } else if (summary.sent) {
+      console.info("[calendar-share] sent", summary.sent, "request(s)");
+    }
+    return summary;
+  } catch (err) {
+    console.error("[calendar-share] failed", err);
+    if (!silent) {
+      const detail = err?.body?.detail || err?.message || String(err);
+      const consent = err?.status === 401 || /insufficient|scope|consent/i.test(detail)
+        ? "\n\nLog ind igen og godkend Gmail-tilladelse (send email)."
+        : "";
+      alert("Kunne ikke sende kalenderanmodning:\n\n" + detail + consent);
+    }
+    throw err;
+  }
+}
+
+async function autoSendCalendarShareRequests() {
+  if (!isOauthSignedIn()) return;
+  const ids = calendarShareErrorPersonIds();
+  if (!ids.length) return;
+  await requestCalendarShare(ids, { force: false, silent: true });
 }
 
 // Auto-refresh free/busy hver 10. min så slot-availability holdes opdateret
@@ -3346,7 +3572,7 @@ function maybeAutoRefreshFreeBusy() {
   const peopleWeNeed = [...new Set([...state.mgrs, ...getAssignedIds()])];
   const missing = peopleWeNeed.filter(pid => {
     const p = findPerson(pid);
-    return p && p.email && !state.oauth?.busy?.[pid];
+    return p && p.email && !hasCalendarFetched(pid);
   });
   if (missing.length === 0) return;
   if (_autoRefreshTimer) clearTimeout(_autoRefreshTimer);
@@ -3621,6 +3847,10 @@ document.querySelectorAll(".tab").forEach(btn => {
     document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
     btn.classList.add("active");
     document.getElementById("panel-" + btn.dataset.tab).classList.add("active");
+    if (btn.dataset.tab === "byperson") {
+      maybeAutoRefreshFreeBusy();
+      renderByPerson();
+    }
   });
 });
 
@@ -3821,6 +4051,21 @@ document.getElementById("modal-event-bg").addEventListener("click", e => {
 document.getElementById("btn-oauth-signin").addEventListener("click", oauthSignIn);
 document.getElementById("btn-oauth-signout").addEventListener("click", oauthSignOut);
 document.getElementById("btn-oauth-refresh").addEventListener("click", () => oauthRefresh(false));
+const btnShareAll = document.getElementById("btn-request-calendar-share-all");
+if (btnShareAll) {
+  btnShareAll.addEventListener("click", () => {
+    const ids = calendarShareErrorPersonIds();
+    if (!ids.length) {
+      alert("Ingen medarbejdere med kalenderfejl lige nu.");
+      return;
+    }
+    if (!confirm(
+      `Send email til ${ids.length} medarbejder(e) uden kalenderdeling?\n\n` +
+      "Medarbejdere der allerede fik en mail inden for 7 dage springes over."
+    )) return;
+    requestCalendarShare(ids, { force: false });
+  });
+}
 // "Log ind nu"-knap i den store advarselsbanner: starter OAuth-flow direkte
 // så brugeren ikke behøver at finde signin-knappen i Kalender-fanen.
 document.getElementById("btn-swb-signin").addEventListener("click", oauthSignIn);
@@ -3928,7 +4173,7 @@ if (!window.PLANNER_USE_SHEET_JOURNAL && window.PlannerApi) {
         personId: pid,
         managerId: e.managerId || "",
         date: e.date,
-        trivsel: e.trivsel || "",
+        trivsel: journalTextField(e.trivsel),
         faglig: e.faglig || "",
         personlig: e.personlig || "",
         udfordringer: e.udfordringer || "",
@@ -3981,21 +4226,7 @@ if (!window.PLANNER_USE_SHEET_JOURNAL && window.PlannerApi) {
   window.journalUpsertEntry = async function djangoJournalUpsertEntry(entry, personId) {
     journalBeginRequest();
     try {
-      const payload = {
-        id: entry.id,
-        personId: personId,
-        managerId: entry.managerId || "",
-        date: entry.date,
-        trivsel: entry.trivsel || "",
-        faglig: entry.faglig || "",
-        personlig: entry.personlig || "",
-        udfordringer: entry.udfordringer || "",
-        maal: entry.maal || "",
-        noter: entry.noter || "",
-        opfolgning: entry.opfolgning || "",
-        obs: entry.obs || "",
-        files: entry.files || [],
-      };
+      const payload = journalPayloadForApi(entry, personId);
       // Try update first; if it 404s, fall back to create.
       try {
         await window.PlannerApi.updateJournalEntry(entry.id, payload);

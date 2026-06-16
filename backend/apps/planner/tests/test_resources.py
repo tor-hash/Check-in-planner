@@ -254,6 +254,31 @@ class JournalResourceTests(TestCase):
         entry = JournalEntry.objects.get(entry_id="entry-1")
         self.assertEqual(entry.trivsel, "Updated")
 
+    def test_update_entry_accepts_numeric_trivsel(self):
+        JournalEntry.objects.create(
+            entry_id="entry-obs",
+            person=self.person,
+            manager=self.manager,
+            date="2026-05-27",
+        )
+        response = self.client.put(
+            "/api/journal-entries/entry-obs",
+            data=json.dumps(
+                {
+                    "personId": "alice",
+                    "managerId": "tor",
+                    "date": "2026-05-27",
+                    "trivsel": 7,
+                    "obs": "TEST",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        entry = JournalEntry.objects.get(entry_id="entry-obs")
+        self.assertEqual(entry.trivsel, "7")
+        self.assertEqual(entry.obs, "TEST")
+
     def test_soft_delete_entry(self):
         JournalEntry.objects.create(
             entry_id="entry-1", person=self.person, manager=self.manager, date="2026-05-12"

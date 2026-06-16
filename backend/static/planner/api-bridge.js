@@ -193,6 +193,17 @@
       if (team) params.set("team", team);
       return request("/freebusy?" + params.toString());
     },
+    requestCalendarShare(personIds, { force = false } = {}) {
+      return request("/calendar-share-requests", {
+        method: "POST",
+        body: { person_ids: personIds, force: !!force },
+      });
+    },
+    getCalendarShareStatus(personIds) {
+      const params = new URLSearchParams();
+      params.set("person_ids", (personIds || []).join(","));
+      return request("/calendar-share-requests?" + params.toString());
+    },
     listBookings({ managerId, personId, status } = {}) {
       const params = new URLSearchParams();
       if (managerId) params.set("managerId", managerId);

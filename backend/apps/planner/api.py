@@ -23,7 +23,9 @@ from .models import (
     Project,
 )
 from .schemas import (
+    normalize_journal_entry_payload,
     validate_booking_payload,
+    validate_calendar_share_payload,
     validate_freebusy_query,
     validate_function_tag_payload,
     validate_journal_entry_payload,
@@ -365,6 +367,124 @@ def managers_detail(request: HttpRequest, manager_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Manager booking settings
+# ---------------------------------------------------------------------------
+
+_VALID_WEEKDAYS = {"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
+
+
+def _validate_blocked_windows(windows: object) -> str | None:
+    """Return an error message, or None if valid."""
+    if not isinstance(windows, list):
+        return "bookingBlockedWindows must be a list."
+    for i, w in enumerate(windows):
+        if not isinstance(w, dict):
+            return f"bookingBlockedWindows[{i}] must be an object."
+        days = w.get("days")
+        if days != "all" and not (
+            isinstance(days, list) and all(isinstance(d, str) and d in _VALID_WEEKDAYS for d in days)
+        ):
+            return (
+                f'bookingBlockedWindows[{i}].days must be "all" or a list of '
+                f"weekday names (monday–sunday)."
+            )
+        for field in ("start_time", "end_time"):
+            val = w.get(field)
+            if not isinstance(val, str) or len(val) != 5 or val[2] != ":":
+                return f'bookingBlockedWindows[{i}].{field} must be "HH:MM".'
+    return None
+
+
+def _serialize_manager_settings(manager: "ManagerProfile") -> dict:
+    return {
+        "managerId": manager.legacy_id,
+        "autoBookingEnabled": manager.auto_booking_enabled,
+        "bookingBlockedWindows": manager.booking_blocked_windows,
+        "preferredMeetingDurationMinutes": manager.preferred_meeting_duration_minutes,
+        "bookingPreferredDays": manager.booking_preferred_days,
+        "notificationEmail": manager.notification_email,
+    }
+
+
+@login_required
+@require_http_methods(["GET", "PUT"])
+def manager_settings(request: HttpRequest, manager_id: str):
+    """GET/PUT the booking preferences for a single manager.
+
+    GET is open to any authenticated user (manager IDs are not secret).
+    PUT requires the user to be the manager themselves, or an admin/superuser.
+    """
+    manager = ManagerProfile.objects.filter(legacy_id=manager_id).first()
+    if not manager:
+        return JsonResponse({"detail": "Manager not found."}, status=404)
+
+    if request.method == "GET":
+        return JsonResponse(_serialize_manager_settings(manager))
+
+    # --- PUT ---
+    # Only the manager themselves or an admin may change these settings.
+    own_manager = getattr(request.user, "manager_profile", None)
+    is_own = own_manager is not None and own_manager.pk == manager.pk
+    if not is_own and not is_manager_or_admin(request.user):
+        return JsonResponse({"detail": "You may only update your own settings."}, status=403)
+
+    payload, err = _parse_json(request)
+    if err:
+        return err
+
+    # Apply each field if present in the payload (partial update).
+    if "autoBookingEnabled" in payload:
+        val = payload["autoBookingEnabled"]
+        if not isinstance(val, bool):
+            return JsonResponse({"detail": "autoBookingEnabled must be a boolean."}, status=400)
+        manager.auto_booking_enabled = val
+
+    if "bookingBlockedWindows" in payload:
+        err_msg = _validate_blocked_windows(payload["bookingBlockedWindows"])
+        if err_msg:
+            return JsonResponse({"detail": err_msg}, status=400)
+        manager.booking_blocked_windows = payload["bookingBlockedWindows"]
+
+    if "preferredMeetingDurationMinutes" in payload:
+        dur = payload["preferredMeetingDurationMinutes"]
+        if not isinstance(dur, int) or dur < 15 or dur > 120:
+            return JsonResponse(
+                {"detail": "preferredMeetingDurationMinutes must be an integer between 15 and 120."},
+                status=400,
+            )
+        manager.preferred_meeting_duration_minutes = dur
+
+    if "bookingPreferredDays" in payload:
+        days = payload["bookingPreferredDays"]
+        if not isinstance(days, list) or not all(
+            isinstance(d, str) and d in _VALID_WEEKDAYS for d in days
+        ):
+            return JsonResponse(
+                {"detail": "bookingPreferredDays must be a list of weekday names (monday–sunday)."},
+                status=400,
+            )
+        manager.booking_preferred_days = days
+
+    if "notificationEmail" in payload:
+        email = payload["notificationEmail"]
+        if not isinstance(email, str):
+            return JsonResponse({"detail": "notificationEmail must be a string."}, status=400)
+        email = email.strip()
+        if email:
+            from django.core.validators import validate_email
+            from django.core.exceptions import ValidationError as DjangoValidationError
+            try:
+                validate_email(email)
+            except DjangoValidationError:
+                return JsonResponse({"detail": "notificationEmail is not a valid email address."}, status=400)
+        manager.notification_email = email
+
+    manager.updated_by = request.user
+    manager.save()
+    return JsonResponse(_serialize_manager_settings(manager))
+
+
+# ---------------------------------------------------------------------------
 # Journal entries
 # ---------------------------------------------------------------------------
 
@@ -384,6 +504,7 @@ def journal_collection(request: HttpRequest):
     payload, err = _parse_json(request)
     if err:
         return err
+    payload = normalize_journal_entry_payload(payload)
     validation = validate_journal_entry_payload(payload, require_id=True)
     if not validation.valid:
         return _validation_error(validation)
@@ -477,7 +598,7 @@ def journal_detail(request: HttpRequest, entry_id: str):
     payload, err = _parse_json(request)
     if err:
         return err
-    payload = {**payload, "id": entry_id}
+    payload = normalize_journal_entry_payload({**payload, "id": entry_id})
     validation = validate_journal_entry_payload(payload, require_id=True)
     if not validation.valid:
         return _validation_error(validation)
@@ -621,7 +742,7 @@ def freebusy_endpoint(request: HttpRequest):
         )
 
     try:
-        result = query_freebusy(
+        busy_result, calendar_errors = query_freebusy(
             requesting_user=request.user,
             emails=emails,
             time_min=time_min,
@@ -632,19 +753,79 @@ def freebusy_endpoint(request: HttpRequest):
         return JsonResponse({"detail": str(exc), "needs_consent": True}, status=401)
     except Exception as exc:
         logger.exception("FreeBusy query failed")
-        return JsonResponse({"detail": f"Calendar API error: {exc}"}, status=502)
+        detail = f"Calendar API error: {exc}"
+        if "invalid_scope" in str(exc).lower():
+            return JsonResponse(
+                {
+                    "detail": (
+                        "Google-tilladelse skal opdateres. Log ud og log ind igen "
+                        "(accepter kalender-tilladelser)."
+                    ),
+                    "needs_consent": True,
+                },
+                status=401,
+            )
+        return JsonResponse({"detail": detail}, status=502)
 
     serialized = {
         email: [interval.as_dict() for interval in intervals]
-        for email, intervals in result.items()
+        for email, intervals in busy_result.items()
     }
     return JsonResponse(
         {
             "calendars": serialized,
+            "errors": calendar_errors,
             "from": time_min.isoformat(),
             "to": time_max.isoformat(),
         }
     )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def calendar_share_requests(request: HttpRequest):
+    """Ask employees (by email) to share Google Calendar free/busy with the manager."""
+    if not is_manager_or_admin(request.user):
+        return JsonResponse(
+            {"detail": "Only manager/admin users can send calendar share requests."},
+            status=403,
+        )
+
+    if request.method == "GET":
+        from .services.calendar_share import serialize_share_status
+
+        raw_ids = request.GET.get("person_ids", "")
+        person_ids = [p.strip() for p in raw_ids.split(",") if p.strip()]
+        if not person_ids:
+            return JsonResponse({"detail": "person_ids query param required."}, status=400)
+        people = Person.objects.filter(legacy_id__in=person_ids)
+        by_id = {p.legacy_id: p for p in people}
+        results = []
+        for pid in person_ids:
+            person = by_id.get(pid)
+            if person is None:
+                results.append({"person_id": pid, "error": "Person not found."})
+                continue
+            results.append(
+                serialize_share_status(person=person, requested_by=request.user)
+            )
+        return JsonResponse({"results": results})
+
+    payload, err = _parse_json(request)
+    if err:
+        return err
+    validation = validate_calendar_share_payload(payload)
+    if not validation.valid:
+        return _validation_error(validation)
+
+    from .services.calendar_share import send_share_requests
+
+    summary = send_share_requests(
+        person_ids=payload["person_ids"],
+        requested_by=request.user,
+        force=bool(payload.get("force", False)),
+    )
+    return JsonResponse(summary)
 
 
 @login_required
@@ -741,9 +922,214 @@ def bookings_detail(request: HttpRequest, booking_id: int):
     return JsonResponse(serialize_booking(meeting))
 
 
+@login_required
+@require_http_methods(["POST"])
+def bookings_rebook(request: HttpRequest, booking_id: int):
+    """POST /api/bookings/<id>/rebook
+
+    Cancels the original meeting (if not already cancelled) and books a
+    replacement in the same session window.
+
+    Optional body fields:
+      ``startsAt`` -- ISO-8601 datetime for an explicit new time.  When omitted
+                     the slot-finder finds the next free slot.
+      ``durationMinutes`` -- override meeting length.
+    """
+    meeting = (
+        CheckInMeeting.objects.select_related(
+            "manager", "manager__user", "manager__person", "person", "session"
+        )
+        .filter(pk=booking_id)
+        .first()
+    )
+    if not meeting:
+        return JsonResponse({"detail": "Not found."}, status=404)
+
+    if not is_manager_or_admin(request.user):
+        return JsonResponse({"detail": "Only manager/admin users can rebook meetings."}, status=403)
+
+    if meeting.status not in ("declined", "scheduled", "cancelled"):
+        return JsonResponse(
+            {"detail": f"Cannot rebook a meeting with status '{meeting.status}'."},
+            status=409,
+        )
+
+    payload, err = _parse_json(request)
+    if err:
+        return err
+
+    from .services.bookings import (
+        BookingError,
+        BookingRequest,
+        GoogleBookingError,
+        cancel_booking,
+        create_booking,
+        serialize_booking,
+    )
+    from .services.rotation import SessionWindow, session_window_for, weeks_per_session_value
+    from .google.credentials import GoogleCredentialsUnavailable
+    from datetime import timedelta
+
+    # Determine the session window to search in.  Prefer the existing session's
+    # window; fall back to the window that contains the original starts_at.
+    if meeting.session:
+        wps = weeks_per_session_value()
+        week_start = meeting.session.cycle_start + timedelta(
+            weeks=meeting.session.session_index * wps
+        )
+        week_end = week_start + timedelta(weeks=wps) - timedelta(days=1)
+        window = SessionWindow(
+            cycle_start=meeting.session.cycle_start,
+            session_index=meeting.session.session_index,
+            week_start=week_start,
+            week_end=week_end,
+        )
+    else:
+        window = session_window_for(meeting.starts_at)
+
+    duration_minutes = int(payload.get("durationMinutes", meeting.duration_minutes or 30))
+    starts_at_raw = payload.get("startsAt")
+
+    if starts_at_raw:
+        # Explicit time provided by the manager.
+        try:
+            starts_at = datetime.fromisoformat(starts_at_raw.replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            return JsonResponse({"detail": "Invalid startsAt."}, status=400)
+        if starts_at.tzinfo is None:
+            starts_at = starts_at.replace(tzinfo=UTC)
+    else:
+        # Auto-find next free slot.
+        organizer = meeting.manager.user
+        if organizer is None:
+            return JsonResponse(
+                {"detail": "Manager has no linked user account -- cannot query calendar."},
+                status=422,
+            )
+        from .services.slot_finder import find_available_slot
+
+        slot = find_available_slot(
+            manager=meeting.manager,
+            person=meeting.person,
+            window=window,
+            organizer_user=organizer,
+            duration_minutes=duration_minutes,
+        )
+        if slot is None:
+            return JsonResponse(
+                {
+                    "detail": (
+                        f"No free slot found in the session window "
+                        f"{window.week_start} – {window.week_end}."
+                    )
+                },
+                status=409,
+            )
+        starts_at = slot.starts_at
+
+    # Cancel the original meeting.
+    if meeting.status not in ("cancelled",):
+        try:
+            cancel_booking(meeting, organizer_user=request.user, audit_user=request.user)
+        except Exception:
+            pass  # best-effort; proceed to rebook regardless
+
+    # Create the replacement booking.
+    tz_name = getattr(settings, "GOOGLE_CALENDAR_TIMEZONE", "Europe/Copenhagen")
+    req = BookingRequest(
+        manager=meeting.manager,
+        person=meeting.person,
+        organizer_user=request.user,
+        starts_at=starts_at,
+        duration_minutes=duration_minutes,
+        title=meeting.title or "Check-in samtale",
+        agenda=meeting.agenda or "",
+        timezone=tz_name,
+    )
+    try:
+        new_meeting = create_booking(req, audit_user=request.user)
+    except BookingError as exc:
+        return JsonResponse({"detail": str(exc)}, status=409)
+    except GoogleCredentialsUnavailable as exc:
+        return JsonResponse({"detail": str(exc), "needs_consent": True}, status=401)
+    except GoogleBookingError as exc:
+        return JsonResponse({"detail": f"Google rejected the booking: {exc}"}, status=502)
+
+    return JsonResponse(serialize_booking(new_meeting), status=201)
+
+
 # ---------------------------------------------------------------------------
-# Rotation introspection (lets the UI render upcoming sessions without
-# duplicating the rotation logic on the client).
+# Notifications
+# ---------------------------------------------------------------------------
+
+
+@login_required
+@require_http_methods(["GET"])
+def notifications_collection(request: HttpRequest):
+    """GET /api/notifications -- return unread (or recent) notifications for the
+    requesting manager.
+
+    Query params:
+      ``unread_only=1``  (default true) -- return only unread notifications.
+      ``limit=<n>``      -- cap at n results (default 50, max 200).
+    """
+    manager = getattr(request.user, "manager_profile", None)
+    if manager is None:
+        return JsonResponse({"notifications": []})
+
+    from .models import ManagerNotification
+
+    unread_only = request.GET.get("unread_only", "1") not in ("0", "false", "no")
+    try:
+        limit = max(1, min(200, int(request.GET.get("limit", "50"))))
+    except ValueError:
+        limit = 50
+
+    qs = ManagerNotification.objects.filter(manager=manager)
+    if unread_only:
+        qs = qs.filter(is_read=False)
+    qs = qs.order_by("-created_at")[:limit]
+
+    return JsonResponse({"notifications": [n.serialize() for n in qs]})
+
+
+@login_required
+@require_http_methods(["POST"])
+def notification_mark_read(request: HttpRequest, notification_id: int):
+    """POST /api/notifications/<id>/read -- mark a single notification as read."""
+    manager = getattr(request.user, "manager_profile", None)
+    if manager is None:
+        return JsonResponse({"detail": "Not a manager."}, status=403)
+
+    from .models import ManagerNotification
+
+    notif = ManagerNotification.objects.filter(pk=notification_id, manager=manager).first()
+    if not notif:
+        return JsonResponse({"detail": "Not found."}, status=404)
+
+    notif.is_read = True
+    notif.save(update_fields=["is_read"])
+    return JsonResponse(notif.serialize())
+
+
+@login_required
+@require_http_methods(["POST"])
+def notifications_mark_all_read(request: HttpRequest):
+    """POST /api/notifications/read-all -- mark all unread notifications as read."""
+    manager = getattr(request.user, "manager_profile", None)
+    if manager is None:
+        return JsonResponse({"detail": "Not a manager."}, status=403)
+
+    from .models import ManagerNotification
+
+    updated = ManagerNotification.objects.filter(manager=manager, is_read=False).update(
+        is_read=True
+    )
+    return JsonResponse({"markedRead": updated})
+
+
+# ---------------------------------------------------------------------------
+# Rotation introspection
 # ---------------------------------------------------------------------------
 
 

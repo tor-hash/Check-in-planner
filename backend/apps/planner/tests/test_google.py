@@ -49,16 +49,40 @@ class FreeBusyTests(TestCase):
         service.freebusy.return_value = _FakeFreeBusyResource(payload)
         mock_build.return_value = service
 
-        result = fb_module.query_freebusy(
+        busy, errors = fb_module.query_freebusy(
             requesting_user=MagicMock(),
             emails=["alice@example.com", "bob@example.com"],
             time_min=datetime(2026, 1, 12, tzinfo=UTC),
             time_max=datetime(2026, 1, 13, tzinfo=UTC),
         )
-        self.assertEqual(set(result.keys()), {"alice@example.com", "bob@example.com"})
-        self.assertEqual(len(result["alice@example.com"]), 1)
-        self.assertEqual(result["alice@example.com"][0].start.isoformat(), "2026-01-12T09:00:00+00:00")
-        self.assertEqual(result["bob@example.com"], [])
+        self.assertEqual(errors, {})
+        self.assertEqual(set(busy.keys()), {"alice@example.com", "bob@example.com"})
+        self.assertEqual(len(busy["alice@example.com"]), 1)
+        self.assertEqual(busy["alice@example.com"][0].start.isoformat(), "2026-01-12T09:00:00+00:00")
+        self.assertEqual(busy["bob@example.com"], [])
+
+    @patch("apps.planner.google.freebusy._build_calendar_service")
+    def test_query_freebusy_records_calendar_errors(self, mock_build):
+        payload = {
+            "calendars": {
+                "alice@example.com": {
+                    "busy": [],
+                    "errors": [{"domain": "calendar", "reason": "notFound"}],
+                },
+            }
+        }
+        service = MagicMock()
+        service.freebusy.return_value = _FakeFreeBusyResource(payload)
+        mock_build.return_value = service
+
+        busy, errors = fb_module.query_freebusy(
+            requesting_user=MagicMock(),
+            emails=["alice@example.com"],
+            time_min=datetime(2026, 1, 12, tzinfo=UTC),
+            time_max=datetime(2026, 1, 13, tzinfo=UTC),
+        )
+        self.assertEqual(busy["alice@example.com"], [])
+        self.assertIn("alice@example.com", errors)
 
     @patch("apps.planner.google.freebusy._build_calendar_service")
     def test_query_freebusy_chunks_at_50(self, mock_build):
@@ -67,15 +91,13 @@ class FreeBusyTests(TestCase):
         service.freebusy.return_value = _FakeFreeBusyResource({"calendars": {}})
         mock_build.return_value = service
 
-        result = fb_module.query_freebusy(
+        busy, _errors = fb_module.query_freebusy(
             requesting_user=MagicMock(),
             emails=emails,
             time_min=datetime(2026, 1, 12, tzinfo=UTC),
             time_max=datetime(2026, 1, 13, tzinfo=UTC),
         )
-        # Two chunks: 50 + 25.
-        self.assertEqual(service.freebusy.return_value.query.call_count if hasattr(service.freebusy.return_value.query, "call_count") else 2, 2)
-        self.assertEqual(len(result), 75)
+        self.assertEqual(len(busy), 75)
 
 
 class CreateEventTests(TestCase):

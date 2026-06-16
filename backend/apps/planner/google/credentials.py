@@ -65,15 +65,30 @@ def credentials_for_user(user):
             "prompt=consent + access_type=offline."
         )
 
-    creds = Credentials(
-        token=access_token,
-        refresh_token=refresh_token,
-        token_uri="https://oauth2.googleapis.com/token",
-        client_id=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY,
-        client_secret=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET,
-        scopes=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SCOPE,
-    )
-    return creds
+    # Use scopes Google actually granted at sign-in. Passing the full
+    # SOCIAL_AUTH_GOOGLE_OAUTH2_SCOPE list on refresh causes invalid_scope
+    # when new scopes were added to settings but the user has not re-consented.
+    creds_kwargs: dict = {
+        "token": access_token,
+        "refresh_token": refresh_token,
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "client_id": settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY,
+        "client_secret": settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET,
+    }
+    granted_scopes = _granted_scopes_from_extra(extra)
+    if granted_scopes:
+        creds_kwargs["scopes"] = granted_scopes
+
+    return Credentials(**creds_kwargs)
+
+
+def _granted_scopes_from_extra(extra: dict) -> list[str] | None:
+    raw = extra.get("scope") or extra.get("scopes")
+    if isinstance(raw, str) and raw.strip():
+        return [s for s in raw.split() if s]
+    if isinstance(raw, list):
+        return [s for s in raw if isinstance(s, str) and s]
+    return None
 
 
 def credentials_for_manager(manager_profile):

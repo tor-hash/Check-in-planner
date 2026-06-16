@@ -34,7 +34,8 @@ For at verificere: gå til https://console.cloud.google.com → vælg `blackcapi
 
 1. Sidebar → **APIs & Services** → **Library**
 2. Søg `Google Calendar API` → klik **Enable**
-3. Senere: kom tilbage og enable `Gmail API`, `Google Drive API`, etc. når Onboarding Planner / PA kræver det. Tager 5 sek pr. API.
+3. Søg `Gmail API` → klik **Enable** (kræves for automatisk email når medarbejdere skal dele kalender i Check-in Planner)
+4. Senere: kom tilbage og enable `Google Drive API`, etc. når andre apps kræver det. Tager 5 sek pr. API.
 
 ## 3. Konfigurér OAuth consent screen (engangs)
 
@@ -51,11 +52,11 @@ For at verificere: gå til https://console.cloud.google.com → vælg `blackcapi
    - For Check-in Planner (start her):
      - `https://www.googleapis.com/auth/calendar.freebusy`
      - `https://www.googleapis.com/auth/calendar.events`
+     - `https://www.googleapis.com/auth/gmail.send` (send vejledning til medarbejdere om kalenderdeling)
    - For Onboarding Planner (tilføj når relevant):
      - `https://www.googleapis.com/auth/calendar.events` (allerede tilføjet)
      - eventuelt `https://www.googleapis.com/auth/admin.directory.user.readonly` hvis I vil hente medarbejder-info
    - For PA (tilføj når relevant):
-     - `https://www.googleapis.com/auth/gmail.send`
      - `https://www.googleapis.com/auth/gmail.readonly`
      - eller hvad PA nu skal bruge
 

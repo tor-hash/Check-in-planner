@@ -33,6 +33,29 @@ def app_view(request):
     )
 
 
+@login_required
+def manager_settings_view(request):
+    """Per-manager booking preference page.
+
+    Only accessible to users who are managers (or admins).  The page itself is
+    a thin shell that loads settings via the JSON API, so the template just
+    needs the manager's legacy_id to build the API URL.
+    """
+    if not is_manager_or_admin(request.user):
+        return redirect("planner:home")
+    manager = getattr(request.user, "manager_profile", None)
+    if manager is None:
+        return redirect("planner:home")
+    return render(
+        request,
+        "planner/manager_settings.html",
+        {
+            "nav_section": "settings",
+            "manager_id": manager.legacy_id,
+        },
+    )
+
+
 def root_redirect(request):
     return redirect("planner:home")
 

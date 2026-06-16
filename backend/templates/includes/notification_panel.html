@@ -1,0 +1,486 @@
+{% comment %}
+Notification bell + slide-in panel for managers.
+Include after app_shell_nav.html on any page where managers can view notifications.
+
+Requires: planner_user_is_manager=True in context (provided by context processor).
+The panel fetches /api/notifications on open and every 5 min in the background.
+The rebook modal is rendered here and wired to "rebook" notification actions.
+{% endcomment %}
+{% if planner_user_is_manager %}
+<style>
+  /* ── Bell button ── */
+  .notif-bell {
+    position: relative; background: transparent; border: none; cursor: pointer;
+    padding: 6px; border-radius: 8px; color: var(--app-nav-text, #9aa3b2);
+    display: flex; align-items: center; justify-content: center;
+    transition: color 0.15s;
+  }
+  .notif-bell:hover { color: var(--app-nav-text-hover, #e7eaf0); }
+  .notif-bell svg { width: 20px; height: 20px; }
+  .notif-badge {
+    position: absolute; top: 2px; right: 2px;
+    background: #ef4444; color: #fff; border-radius: 9px;
+    font-size: 10px; font-weight: 700; min-width: 16px; height: 16px;
+    padding: 0 4px; display: flex; align-items: center; justify-content: center;
+    pointer-events: none; display: none;
+  }
+
+  /* ── Panel overlay ── */
+  .notif-overlay {
+    position: fixed; inset: 0; z-index: 990;
+    background: rgba(0,0,0,0.45);
+    opacity: 0; pointer-events: none; transition: opacity 0.2s;
+  }
+  .notif-overlay.open { opacity: 1; pointer-events: auto; }
+
+  /* ── Panel drawer ── */
+  .notif-panel {
+    position: fixed; top: 0; right: 0; bottom: 0; z-index: 991;
+    width: min(420px, 100vw);
+    background: #171a21; border-left: 1px solid #2a2f3d;
+    display: flex; flex-direction: column;
+    transform: translateX(100%); transition: transform 0.25s cubic-bezier(.4,0,.2,1);
+    box-shadow: -8px 0 32px rgba(0,0,0,.5);
+  }
+  .notif-panel.open { transform: none; }
+
+  .notif-panel-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 16px 20px; border-bottom: 1px solid #2a2f3d; flex-shrink: 0;
+  }
+  .notif-panel-head h2 { margin: 0; font-size: 1rem; color: #e7eaf0; flex: 1; }
+  .notif-mark-all {
+    background: transparent; border: none; font-size: 0.78rem;
+    color: #6ea8fe; cursor: pointer; padding: 4px 8px; border-radius: 6px;
+    transition: background 0.1s;
+  }
+  .notif-mark-all:hover { background: rgba(110,168,254,.1); }
+  .notif-close {
+    background: transparent; border: none; cursor: pointer; font-size: 1.25rem;
+    color: #9aa3b2; padding: 2px 6px; border-radius: 6px; line-height: 1;
+    transition: color 0.1s;
+  }
+  .notif-close:hover { color: #e7eaf0; }
+
+  /* ── Notification list ── */
+  .notif-list { flex: 1; overflow-y: auto; padding: 12px 0; }
+  .notif-empty {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 100%; gap: 8px; color: #9aa3b2; font-size: 0.9rem;
+  }
+  .notif-empty svg { width: 40px; height: 40px; opacity: 0.4; }
+
+  .notif-item {
+    padding: 14px 20px; border-bottom: 1px solid #1e2130; cursor: default;
+    transition: background 0.1s;
+  }
+  .notif-item.unread { background: rgba(110,168,254,.04); }
+  .notif-item:hover { background: rgba(110,168,254,.07); }
+  .notif-item-meta {
+    display: flex; align-items: center; gap: 6px; margin-bottom: 6px;
+  }
+  .notif-dot {
+    width: 7px; height: 7px; border-radius: 50%; background: #6ea8fe;
+    flex-shrink: 0; display: none;
+  }
+  .notif-item.unread .notif-dot { display: block; }
+  .notif-type-tag {
+    font-size: 0.72rem; font-weight: 600; padding: 2px 7px; border-radius: 6px;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .tag-declined { background: rgba(248,113,113,.15); color: #f87171; }
+  .tag-no-slot  { background: rgba(251,191,36,.15);  color: #fbbf24; }
+  .notif-time   { font-size: 0.75rem; color: #6b7280; margin-left: auto; }
+
+  .notif-msg { font-size: 0.875rem; color: #d1d5db; line-height: 1.5; }
+  .notif-actions { margin-top: 10px; display: flex; gap: 8px; }
+  .notif-btn-rebook {
+    background: #6ea8fe; color: #0c1320; border: none; border-radius: 7px;
+    padding: 6px 14px; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .notif-btn-rebook:hover { opacity: 0.85; }
+  .notif-btn-read {
+    background: transparent; border: 1px solid #2a2f3d; border-radius: 7px;
+    color: #9aa3b2; padding: 6px 12px; font-size: 0.8rem; cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .notif-btn-read:hover { border-color: #6ea8fe; color: #e7eaf0; }
+
+  /* ── Rebook modal ── */
+  .rebook-overlay {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none; transition: opacity 0.2s;
+  }
+  .rebook-overlay.open { opacity: 1; pointer-events: auto; }
+  .rebook-modal {
+    background: #171a21; border: 1px solid #2a2f3d; border-radius: 14px;
+    width: min(480px, calc(100vw - 2rem)); padding: 28px;
+    box-shadow: 0 16px 48px rgba(0,0,0,.7);
+    transform: translateY(12px); transition: transform 0.2s;
+  }
+  .rebook-overlay.open .rebook-modal { transform: none; }
+  .rebook-modal h3 { margin: 0 0 6px; font-size: 1.1rem; color: #e7eaf0; }
+  .rebook-modal .rebook-sub { color: #9aa3b2; font-size: 0.85rem; margin: 0 0 20px; }
+  .rebook-mode-row { display: flex; gap: 10px; margin-bottom: 18px; }
+  .rebook-mode-btn {
+    flex: 1; padding: 9px; border-radius: 8px; border: 1px solid #2a2f3d;
+    background: #0f1115; color: #9aa3b2; font-size: 0.85rem; cursor: pointer;
+    transition: all 0.15s; text-align: center;
+  }
+  .rebook-mode-btn.active { border-color: #6ea8fe; color: #e7eaf0; background: rgba(110,168,254,.1); }
+  .rebook-explicit-fields { display: none; margin-bottom: 16px; }
+  .rebook-explicit-fields.shown { display: block; }
+  .rebook-explicit-fields label { display: block; font-size: 0.83rem; color: #9aa3b2; margin-bottom: 6px; }
+  .rebook-explicit-fields input[type="datetime-local"] {
+    width: 100%; background: #0f1115; border: 1px solid #2a2f3d; border-radius: 8px;
+    color: #e7eaf0; padding: 9px 12px; font-size: 0.9rem;
+  }
+  .rebook-explicit-fields input[type="datetime-local"]:focus { outline: none; border-color: #6ea8fe; }
+  .rebook-footer { display: flex; align-items: center; gap: 10px; margin-top: 20px; }
+  .rebook-submit {
+    background: #6ea8fe; color: #0c1320; border: none; border-radius: 8px;
+    padding: 10px 22px; font-weight: 600; font-size: 0.9rem; cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .rebook-submit:hover { opacity: 0.85; }
+  .rebook-submit:disabled { opacity: 0.45; cursor: not-allowed; }
+  .rebook-cancel {
+    background: transparent; border: 1px solid #2a2f3d; border-radius: 8px;
+    color: #9aa3b2; padding: 10px 18px; font-size: 0.9rem; cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .rebook-cancel:hover { border-color: #6ea8fe; }
+  .rebook-status { font-size: 0.83rem; }
+  .rebook-status.ok  { color: #4ade80; }
+  .rebook-status.err { color: #f87171; }
+</style>
+
+<!-- Bell button (injected into nav by JS below) -->
+<button class="notif-bell" id="notif-bell-btn" aria-label="Notifications" title="Notifications">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+    <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+  </svg>
+  <span class="notif-badge" id="notif-badge">0</span>
+</button>
+
+<!-- Overlay backdrop -->
+<div class="notif-overlay" id="notif-overlay"></div>
+
+<!-- Notification panel -->
+<div class="notif-panel" id="notif-panel" role="dialog" aria-label="Notifications" aria-modal="true">
+  <div class="notif-panel-head">
+    <h2>Notifications</h2>
+    <button class="notif-mark-all" id="notif-mark-all-btn">Mark all read</button>
+    <button class="notif-close" id="notif-close-btn" aria-label="Close">×</button>
+  </div>
+  <div class="notif-list" id="notif-list">
+    <div class="notif-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+      </svg>
+      <span>No notifications</span>
+    </div>
+  </div>
+</div>
+
+<!-- Rebook modal -->
+<div class="rebook-overlay" id="rebook-overlay" role="dialog" aria-modal="true" aria-label="Rebook meeting">
+  <div class="rebook-modal">
+    <h3>Rebook meeting</h3>
+    <p class="rebook-sub" id="rebook-sub">Finding the next available slot…</p>
+    <div class="rebook-mode-row">
+      <button class="rebook-mode-btn active" data-mode="auto" id="rebook-mode-auto">Auto-find slot</button>
+      <button class="rebook-mode-btn" data-mode="manual" id="rebook-mode-manual">Pick a time</button>
+    </div>
+    <div class="rebook-explicit-fields" id="rebook-explicit-fields">
+      <label for="rebook-datetime">New date &amp; time</label>
+      <input type="datetime-local" id="rebook-datetime">
+    </div>
+    <div class="rebook-footer">
+      <button class="rebook-submit" id="rebook-submit-btn">Rebook</button>
+      <button class="rebook-cancel" id="rebook-cancel-btn">Cancel</button>
+      <span class="rebook-status" id="rebook-status"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ── helpers ── */
+  function csrf() {
+    return document.cookie.split(';').map(c => c.trim())
+      .find(c => c.startsWith('csrftoken='))?.split('=')[1] ?? '';
+  }
+  function relTime(iso) {
+    const d = new Date(iso);
+    const diff = Math.round((Date.now() - d) / 1000);
+    if (diff < 60)   return 'just now';
+    if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+    return d.toLocaleDateString();
+  }
+
+  /* ── state ── */
+  let notifications = [];
+  let rebookMeetingId = null;
+  let rebookMode = 'auto';
+  let pollTimer = null;
+
+  /* ── DOM refs ── */
+  const bellBtn    = document.getElementById('notif-bell-btn');
+  const badge      = document.getElementById('notif-badge');
+  const overlay    = document.getElementById('notif-overlay');
+  const panel      = document.getElementById('notif-panel');
+  const closeBtn   = document.getElementById('notif-close-btn');
+  const markAllBtn = document.getElementById('notif-mark-all-btn');
+  const listEl     = document.getElementById('notif-list');
+
+  const rebookOverlay  = document.getElementById('rebook-overlay');
+  const rebookSub      = document.getElementById('rebook-sub');
+  const rebookModeAuto = document.getElementById('rebook-mode-auto');
+  const rebookModeMan  = document.getElementById('rebook-mode-manual');
+  const rebookFields   = document.getElementById('rebook-explicit-fields');
+  const rebookDt       = document.getElementById('rebook-datetime');
+  const rebookSubmit   = document.getElementById('rebook-submit-btn');
+  const rebookCancel   = document.getElementById('rebook-cancel-btn');
+  const rebookStatus   = document.getElementById('rebook-status');
+
+  /* ── Move bell into nav (next to logout / email) ── */
+  const navUser = document.querySelector('.app-shell-user');
+  if (navUser) navUser.insertBefore(bellBtn, navUser.firstChild);
+
+  /* ── Panel open / close ── */
+  function openPanel() {
+    overlay.classList.add('open');
+    panel.classList.add('open');
+    document.body.style.overflow = 'hidden';
+    fetchNotifications();
+  }
+  function closePanel() {
+    overlay.classList.remove('open');
+    panel.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+
+  bellBtn.addEventListener('click', openPanel);
+  overlay.addEventListener('click', closePanel);
+  closeBtn.addEventListener('click', closePanel);
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { closePanel(); closeRebookModal(); }
+  });
+
+  /* ── Fetch & render notifications ── */
+  async function fetchNotifications() {
+    listEl.innerHTML = '<div style="padding:20px;color:#9aa3b2;font-size:.875rem">Loading…</div>';
+    try {
+      const res = await fetch('/api/notifications?unread_only=0&limit=50', { credentials: 'same-origin' });
+      if (!res.ok) throw new Error(res.status);
+      const data = await res.json();
+      notifications = data.notifications ?? [];
+      renderList();
+      updateBadge(data.unread_count ?? 0);
+    } catch (e) {
+      listEl.innerHTML = '<div style="padding:20px;color:#f87171;font-size:.875rem">Failed to load. Try again.</div>';
+    }
+  }
+
+  function updateBadge(count) {
+    if (count > 0) {
+      badge.textContent = count > 99 ? '99+' : count;
+      badge.style.display = 'flex';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+
+  async function pollBadge() {
+    try {
+      const res = await fetch('/api/notifications?unread_only=1&limit=1', { credentials: 'same-origin' });
+      if (!res.ok) return;
+      const data = await res.json();
+      updateBadge(data.unread_count ?? 0);
+    } catch (_) { /* silent */ }
+  }
+
+  /* Poll badge every 5 minutes */
+  pollTimer = setInterval(pollBadge, 5 * 60 * 1000);
+  pollBadge(); // immediate first check
+
+  function renderList() {
+    if (!notifications.length) {
+      listEl.innerHTML = `
+        <div class="notif-empty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+          </svg>
+          <span>You're all caught up</span>
+        </div>`;
+      return;
+    }
+
+    listEl.innerHTML = '';
+    notifications.forEach(n => {
+      const el = document.createElement('div');
+      el.className = 'notif-item' + (n.is_read ? '' : ' unread');
+      el.dataset.id = n.id;
+
+      const isDeclined = n.notification_type === 'meeting_declined';
+      const tagClass = isDeclined ? 'tag-declined' : 'tag-no-slot';
+      const tagLabel = isDeclined ? 'Declined' : 'No slot';
+
+      let actionsHtml = '';
+      if (isDeclined && n.meeting_id) {
+        actionsHtml += `<button class="notif-btn-rebook" data-meeting="${n.meeting_id}" data-notif="${n.id}">Rebook</button>`;
+      }
+      if (!n.is_read) {
+        actionsHtml += `<button class="notif-btn-read" data-notif="${n.id}">Mark read</button>`;
+      }
+
+      el.innerHTML = `
+        <div class="notif-item-meta">
+          <span class="notif-dot"></span>
+          <span class="notif-type-tag ${tagClass}">${tagLabel}</span>
+          <span class="notif-time">${relTime(n.created_at)}</span>
+        </div>
+        <div class="notif-msg">${escHtml(n.message)}</div>
+        ${actionsHtml ? `<div class="notif-actions">${actionsHtml}</div>` : ''}`;
+
+      el.querySelector('.notif-btn-rebook')?.addEventListener('click', e => {
+        const meetingId = e.currentTarget.dataset.meeting;
+        const notifId   = e.currentTarget.dataset.notif;
+        openRebookModal(meetingId, notifId);
+      });
+      el.querySelector('.notif-btn-read')?.addEventListener('click', e => {
+        markRead(e.currentTarget.dataset.notif);
+      });
+
+      listEl.appendChild(el);
+    });
+  }
+
+  function escHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  /* ── Mark read ── */
+  async function markRead(notifId) {
+    try {
+      await fetch(`/api/notifications/${notifId}/read`, {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'X-CSRFToken': csrf() },
+      });
+      const n = notifications.find(x => x.id == notifId);
+      if (n) n.is_read = true;
+      const unread = notifications.filter(x => !x.is_read).length;
+      updateBadge(unread);
+      renderList();
+    } catch (_) { /* silent */ }
+  }
+
+  markAllBtn.addEventListener('click', async () => {
+    try {
+      await fetch('/api/notifications/read-all', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'X-CSRFToken': csrf() },
+      });
+      notifications.forEach(n => n.is_read = true);
+      updateBadge(0);
+      renderList();
+    } catch (_) { /* silent */ }
+  });
+
+  /* ── Rebook modal ── */
+  function openRebookModal(meetingId, notifId) {
+    rebookMeetingId = meetingId;
+    rebookMode = 'auto';
+    rebookModeAuto.classList.add('active');
+    rebookModeMan.classList.remove('active');
+    rebookFields.classList.remove('shown');
+    rebookDt.value = '';
+    rebookStatus.textContent = '';
+    rebookStatus.className = 'rebook-status';
+    rebookSubmit.disabled = false;
+    rebookSub.textContent = `Meeting #${meetingId} — choose how to rebook.`;
+    rebookOverlay.classList.add('open');
+  }
+
+  function closeRebookModal() {
+    rebookOverlay.classList.remove('open');
+    rebookMeetingId = null;
+  }
+
+  rebookCancel.addEventListener('click', closeRebookModal);
+  rebookOverlay.addEventListener('click', e => {
+    if (e.target === rebookOverlay) closeRebookModal();
+  });
+
+  rebookModeAuto.addEventListener('click', () => {
+    rebookMode = 'auto';
+    rebookModeAuto.classList.add('active');
+    rebookModeMan.classList.remove('active');
+    rebookFields.classList.remove('shown');
+  });
+  rebookModeMan.addEventListener('click', () => {
+    rebookMode = 'manual';
+    rebookModeMan.classList.add('active');
+    rebookModeAuto.classList.remove('active');
+    rebookFields.classList.add('shown');
+  });
+
+  rebookSubmit.addEventListener('click', async () => {
+    if (!rebookMeetingId) return;
+
+    if (rebookMode === 'manual' && !rebookDt.value) {
+      rebookStatus.textContent = 'Please pick a date and time.';
+      rebookStatus.className = 'rebook-status err';
+      return;
+    }
+
+    rebookSubmit.disabled = true;
+    rebookStatus.textContent = 'Booking…';
+    rebookStatus.className = 'rebook-status';
+
+    const body = {};
+    if (rebookMode === 'manual') {
+      // datetime-local gives "YYYY-MM-DDTHH:MM"; add :00Z so the API gets ISO
+      body.startsAt = rebookDt.value + ':00';
+    }
+
+    try {
+      const res = await fetch(`/api/bookings/${rebookMeetingId}/rebook`, {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        rebookStatus.textContent = data.detail ?? 'Rebook failed.';
+        rebookStatus.className = 'rebook-status err';
+        rebookSubmit.disabled = false;
+        return;
+      }
+      rebookStatus.textContent = '✓ Meeting rebooked!';
+      rebookStatus.className = 'rebook-status ok';
+      // Mark the triggering notification as read then refresh list
+      setTimeout(() => {
+        closeRebookModal();
+        fetchNotifications();
+      }, 1200);
+    } catch (e) {
+      rebookStatus.textContent = 'Network error. Please try again.';
+      rebookStatus.className = 'rebook-status err';
+      rebookSubmit.disabled = false;
+    }
+  });
+})();
+</script>
+{% endif %}

@@ -2,6 +2,7 @@ from datetime import date
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 TEAM_CHOICES = (
     ("team-1", "Team 1"),
@@ -92,6 +93,30 @@ class ManagerProfile(AuditFieldsModel):
         on_delete=models.SET_NULL,
         related_name="manager_profile",
     )
+
+    # -------------------------------------------------------------------------
+    # Automatic booking preferences
+    # -------------------------------------------------------------------------
+
+    # Whether the system should auto-book check-ins for this manager's team.
+    auto_booking_enabled = models.BooleanField(default=True)
+
+    # Blocked time windows. Each element is a dict:
+    #   {"days": "all" | ["monday","tuesday",...], "start_time": "HH:MM", "end_time": "HH:MM"}
+    # The slot-finder will never propose a slot that overlaps one of these windows.
+    booking_blocked_windows = models.JSONField(default=list, blank=True)
+
+    # Default meeting duration in minutes used when auto-booking.
+    preferred_meeting_duration_minutes = models.PositiveSmallIntegerField(default=30)
+
+    # Optional list of preferred weekday names (lowercase English), e.g.
+    # ["tuesday", "thursday"].  When set the slot-finder tries these days first
+    # before falling back to all working days.
+    booking_preferred_days = models.JSONField(default=list, blank=True)
+
+    # Override email for system notifications (declined meetings, no-slot-found).
+    # Falls back to user.email when blank.
+    notification_email = models.EmailField(blank=True, default="")
 
     class Meta:
         ordering = ["legacy_id"]
@@ -245,6 +270,7 @@ class CheckInMeeting(AuditFieldsModel):
         ("scheduled", "Scheduled"),
         ("cancelled", "Cancelled"),
         ("completed", "Completed"),
+        ("declined", "Declined by attendee"),
     )
 
     manager = models.ForeignKey(
@@ -285,3 +311,93 @@ class CheckInMeeting(AuditFieldsModel):
 
     def __str__(self) -> str:
         return f"{self.manager_id} x {self.person_id} @ {self.starts_at.isoformat()}"
+
+
+class CalendarShareRequest(models.Model):
+    """Log when a manager asked an employee to share calendar free/busy."""
+
+    CHANNEL_EMAIL = "email"
+
+    person = models.ForeignKey(
+        Person, on_delete=models.CASCADE, related_name="calendar_share_requests"
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="calendar_share_requests_sent",
+    )
+    sent_at = models.DateTimeField(default=timezone.now)
+    channel = models.CharField(max_length=16, default=CHANNEL_EMAIL)
+    success = models.BooleanField(default=False)
+    error_message = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-sent_at"]
+        indexes = [
+            models.Index(fields=["person", "requested_by", "-sent_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.person_id} ← {self.requested_by_id} @ {self.sent_at.isoformat()}"
+
+
+# ---------------------------------------------------------------------------
+# Manager notifications
+# ---------------------------------------------------------------------------
+
+
+class ManagerNotification(models.Model):
+    """In-app notification for a manager, e.g. a declined meeting or a slot
+    that could not be auto-booked.
+
+    Rows are never hard-deleted -- ``is_read`` is set to True when the manager
+    dismisses them.
+    """
+
+    TYPE_MEETING_DECLINED = "meeting_declined"
+    TYPE_NO_SLOT_FOUND = "no_slot_found"
+
+    NOTIFICATION_TYPE_CHOICES = (
+        (TYPE_MEETING_DECLINED, "Meeting declined by attendee"),
+        (TYPE_NO_SLOT_FOUND, "No available slot found for auto-booking"),
+    )
+
+    manager = models.ForeignKey(
+        ManagerProfile,
+        on_delete=models.CASCADE,
+        related_name="notifications",
+    )
+    notification_type = models.CharField(max_length=32, choices=NOTIFICATION_TYPE_CHOICES)
+    message = models.TextField()
+    # Optional link to the declined / unbooked meeting for context.
+    meeting = models.ForeignKey(
+        CheckInMeeting,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="notifications",
+    )
+    is_read = models.BooleanField(default=False)
+    # Prevents sending the same notification email twice when the cron runs
+    # multiple times before the manager reads it.
+    email_sent = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["manager", "is_read", "-created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.notification_type} → {self.manager_id} ({'read' if self.is_read else 'unread'})"
+
+    def serialize(self) -> dict:
+        return {
+            "id": self.pk,
+            "type": self.notification_type,
+            "message": self.message,
+            "meetingId": self.meeting_id,
+            "isRead": self.is_read,
+            "createdAt": int(self.created_at.timestamp() * 1000),
+        }

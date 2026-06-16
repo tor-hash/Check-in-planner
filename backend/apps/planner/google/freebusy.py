@@ -48,15 +48,16 @@ def query_freebusy(
     time_min: datetime,
     time_max: datetime,
     timezone: str = "Europe/Copenhagen",
-) -> dict[str, list[BusyInterval]]:
-    """Return ``{email: [BusyInterval, ...]}`` for the supplied window.
+) -> tuple[dict[str, list[BusyInterval]], dict[str, dict[str, Any]]]:
+    """Return busy intervals and per-calendar errors for the supplied window.
 
-    Calls the Google Calendar FreeBusy API once per 50-email chunk using the
-    requesting manager's credentials. Emails that the manager cannot read
-    return an empty list (Google reports them as ``errors`` per calendar).
+    Returns ``(busy_by_email, errors_by_email)``. Calls the Google Calendar
+    FreeBusy API once per 50-email chunk using the requesting manager's
+    credentials. Emails the manager cannot read have empty busy lists and an
+    entry in ``errors_by_email`` (do not treat as "fully free").
     """
     if not emails:
-        return {}
+        return {}, {}
     if time_min.tzinfo is None:
         time_min = time_min.replace(tzinfo=UTC)
     if time_max.tzinfo is None:
@@ -67,6 +68,7 @@ def query_freebusy(
     unique_emails = list(dict.fromkeys(e for e in emails if e))
     service = _build_calendar_service(requesting_user)
     out: dict[str, list[BusyInterval]] = {email: [] for email in unique_emails}
+    errors: dict[str, dict[str, Any]] = {}
 
     for chunk in _chunked(unique_emails, _MAX_ITEMS_PER_REQUEST):
         body = {
@@ -83,12 +85,14 @@ def query_freebusy(
         calendars = response.get("calendars", {})
         for email in chunk:
             entry = calendars.get(email, {})
+            if entry.get("errors"):
+                errors[email] = entry["errors"]
             for block in entry.get("busy", []) or []:
                 start = _parse_iso(block.get("start"))
                 end = _parse_iso(block.get("end"))
                 if start and end:
                     out[email].append(BusyInterval(start=start, end=end))
-    return out
+    return out, errors
 
 
 def _parse_iso(value: Any) -> datetime | None:

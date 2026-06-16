@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Booking settings · BCT Check-in Planner</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #171a21;
+      --border: #2a2f3d;
+      --text: #e7eaf0;
+      --muted: #9aa3b2;
+      --accent: #6ea8fe;
+      --danger: #f87171;
+      --success: #4ade80;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: Segoe UI, sans-serif; background: var(--bg); color: var(--text); margin: 0; }
+    .page { max-width: 680px; margin: 0 auto; padding: 2rem 1.5rem 5rem; }
+    h1 { font-size: 1.5rem; margin: 0 0 0.35rem; }
+    .subtitle { color: var(--muted); margin: 0 0 2rem; font-size: 0.9rem; }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.75rem;
+      margin-bottom: 1.25rem;
+    }
+    .card h2 { font-size: 1rem; margin: 0 0 1.25rem; color: var(--text); }
+
+    label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 0.35rem; }
+    .field { margin-bottom: 1.25rem; }
+
+    /* Toggle */
+    .toggle-row { display: flex; align-items: center; gap: 0.75rem; }
+    .toggle { position: relative; width: 40px; height: 22px; flex-shrink: 0; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute; inset: 0; background: var(--border); border-radius: 22px;
+      cursor: pointer; transition: background 0.2s;
+    }
+    .toggle-slider::before {
+      content: ""; position: absolute; left: 3px; top: 3px;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: var(--muted); transition: transform 0.2s, background 0.2s;
+    }
+    .toggle input:checked + .toggle-slider { background: var(--accent); }
+    .toggle input:checked + .toggle-slider::before { background: #0c1320; transform: translateX(18px); }
+    .toggle-label { font-size: 0.95rem; color: var(--text); }
+
+    /* Number input */
+    input[type="number"] {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); padding: 8px 12px; width: 100px; font-size: 0.95rem;
+    }
+    input[type="number"]:focus { outline: none; border-color: var(--accent); }
+
+    /* Email input */
+    input[type="email"], input[type="text"] {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); padding: 8px 12px; width: 100%; font-size: 0.95rem;
+    }
+    input[type="email"]:focus, input[type="text"]:focus { outline: none; border-color: var(--accent); }
+
+    /* Day picker */
+    .day-grid { display: flex; gap: 6px; flex-wrap: wrap; }
+    .day-btn {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--muted); padding: 6px 12px; font-size: 0.8rem; cursor: pointer;
+      text-transform: capitalize; transition: all 0.15s; user-select: none;
+    }
+    .day-btn.selected { background: var(--accent); border-color: var(--accent); color: #0c1320; font-weight: 600; }
+
+    /* Blocked windows */
+    .window-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 1rem; }
+    .window-row {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+    }
+    .window-row select, .window-row input[type="time"] {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text); padding: 5px 8px; font-size: 0.85rem;
+    }
+    .window-row select:focus, .window-row input[type="time"]:focus { outline: none; border-color: var(--accent); }
+    .window-label { font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
+    .rm-btn {
+      background: transparent; border: none; color: var(--danger); cursor: pointer;
+      font-size: 1.1rem; line-height: 1; padding: 0 4px; margin-left: auto;
+    }
+    .add-btn {
+      background: transparent; border: 1px dashed var(--border); border-radius: 8px;
+      color: var(--accent); padding: 8px 14px; font-size: 0.85rem; cursor: pointer; width: 100%;
+      transition: border-color 0.15s;
+    }
+    .add-btn:hover { border-color: var(--accent); }
+
+    /* Hint text */
+    .hint { font-size: 0.78rem; color: var(--muted); margin-top: 0.35rem; }
+
+    /* Actions */
+    .actions { display: flex; align-items: center; gap: 12px; margin-top: 1.5rem; }
+    .btn-primary {
+      background: var(--accent); color: #0c1320; border: none; border-radius: 8px;
+      padding: 10px 20px; font-weight: 600; font-size: 0.95rem; cursor: pointer; transition: opacity 0.15s;
+    }
+    .btn-primary:hover { opacity: 0.85; }
+    .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+    .status-msg { font-size: 0.85rem; }
+    .status-msg.ok  { color: var(--success); }
+    .status-msg.err { color: var(--danger); }
+
+    /* Loading skeleton */
+    .skeleton { background: var(--border); border-radius: 6px; height: 1em; animation: pulse 1.2s ease-in-out infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  </style>
+</head>
+<body>
+  {% include "includes/app_shell_nav.html" %}
+
+  <main class="page">
+    <h1>Booking settings</h1>
+    <p class="subtitle">Configure how the system schedules automatic check-ins on your behalf.</p>
+
+    <div id="settings-form" style="display:none">
+
+      <!-- Automatic booking toggle -->
+      <div class="card">
+        <h2>Automatic booking</h2>
+        <div class="field">
+          <div class="toggle-row">
+            <label class="toggle">
+              <input type="checkbox" id="auto-booking-toggle">
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">Enable automatic booking</span>
+          </div>
+          <p class="hint">When enabled, the system books one check-in per team member per biweekly session window, once a month.</p>
+        </div>
+      </div>
+
+      <!-- Meeting duration + preferred days -->
+      <div class="card">
+        <h2>Scheduling preferences</h2>
+        <div class="field">
+          <label for="duration-input">Default meeting duration (minutes)</label>
+          <input type="number" id="duration-input" min="15" max="120" step="5" value="30">
+          <p class="hint">Must be between 15 and 120 minutes.</p>
+        </div>
+        <div class="field">
+          <label>Preferred days <span style="color:var(--muted)">(optional — leave empty for any weekday)</span></label>
+          <div class="day-grid" id="preferred-days">
+            <button type="button" class="day-btn" data-day="monday">Monday</button>
+            <button type="button" class="day-btn" data-day="tuesday">Tuesday</button>
+            <button type="button" class="day-btn" data-day="wednesday">Wednesday</button>
+            <button type="button" class="day-btn" data-day="thursday">Thursday</button>
+            <button type="button" class="day-btn" data-day="friday">Friday</button>
+          </div>
+          <p class="hint">The slot-finder tries these days first before falling back to all working days.</p>
+        </div>
+      </div>
+
+      <!-- Blocked time windows -->
+      <div class="card">
+        <h2>Blocked time windows</h2>
+        <p class="hint" style="margin-bottom:1rem">
+          The system will never book meetings in these windows.
+          Each window can apply to all days or specific weekdays.
+        </p>
+        <div class="window-list" id="window-list"></div>
+        <button type="button" class="add-btn" id="add-window-btn">+ Add blocked window</button>
+      </div>
+
+      <!-- Notification email -->
+      <div class="card">
+        <h2>Notification email</h2>
+        <div class="field">
+          <label for="notification-email">Override notification address <span style="color:var(--muted)">(optional)</span></label>
+          <input type="email" id="notification-email" placeholder="Leave blank to use your account email">
+          <p class="hint">System alerts (declined meetings, no slot found) are sent here. Falls back to your account email when blank.</p>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="btn-primary" id="save-btn" type="button">Save settings</button>
+        <span class="status-msg" id="status-msg"></span>
+      </div>
+    </div>
+
+    <!-- Shown while loading -->
+    <div id="loading-state">
+      <div class="card"><div class="skeleton" style="width:60%;margin-bottom:1rem"></div><div class="skeleton" style="width:80%"></div></div>
+      <div class="card"><div class="skeleton" style="width:40%;margin-bottom:1rem"></div><div class="skeleton" style="width:90%"></div></div>
+    </div>
+    <div id="error-state" style="display:none; color:var(--danger); padding:1rem">
+      Failed to load settings. Please reload the page.
+    </div>
+  </main>
+
+  <script>
+    (function () {
+      const MANAGER_ID = "{{ manager_id|escapejs }}";
+      const API_URL = `/api/managers/${MANAGER_ID}/settings`;
+
+      /* ---------- helpers ---------- */
+      function csrfToken() {
+        return document.cookie.split(';')
+          .map(c => c.trim())
+          .find(c => c.startsWith('csrftoken='))
+          ?.split('=')[1] ?? '';
+      }
+
+      function showStatus(msg, isError) {
+        const el = document.getElementById('status-msg');
+        el.textContent = msg;
+        el.className = 'status-msg ' + (isError ? 'err' : 'ok');
+      }
+
+      /* ---------- blocked window builder ---------- */
+      const DAY_OPTIONS = ['all','monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+
+      function buildWindowRow(data) {
+        const row = document.createElement('div');
+        row.className = 'window-row';
+
+        // Day selector
+        const dayLabel = document.createElement('span');
+        dayLabel.className = 'window-label';
+        dayLabel.textContent = 'Days:';
+
+        const daySel = document.createElement('select');
+        daySel.className = 'day-select';
+        DAY_OPTIONS.forEach(d => {
+          const opt = document.createElement('option');
+          opt.value = d;
+          opt.textContent = d === 'all' ? 'All days' : d.charAt(0).toUpperCase() + d.slice(1);
+          daySel.appendChild(opt);
+        });
+
+        // Pre-select
+        if (data && data.days === 'all') {
+          daySel.value = 'all';
+        } else if (data && Array.isArray(data.days) && data.days.length === 1) {
+          daySel.value = data.days[0];
+        } else {
+          daySel.value = 'all';
+        }
+
+        // Start time
+        const fromLabel = document.createElement('span');
+        fromLabel.className = 'window-label';
+        fromLabel.textContent = 'From:';
+        const fromInput = document.createElement('input');
+        fromInput.type = 'time';
+        fromInput.value = data?.start_time ?? '09:00';
+
+        // End time
+        const toLabel = document.createElement('span');
+        toLabel.className = 'window-label';
+        toLabel.textContent = 'To:';
+        const toInput = document.createElement('input');
+        toInput.type = 'time';
+        toInput.value = data?.end_time ?? '10:00';
+
+        // Remove button
+        const rmBtn = document.createElement('button');
+        rmBtn.type = 'button';
+        rmBtn.className = 'rm-btn';
+        rmBtn.title = 'Remove';
+        rmBtn.textContent = '×';
+        rmBtn.addEventListener('click', () => row.remove());
+
+        row.append(dayLabel, daySel, fromLabel, fromInput, toLabel, toInput, rmBtn);
+        return row;
+      }
+
+      function readWindows() {
+        const rows = document.querySelectorAll('#window-list .window-row');
+        return Array.from(rows).map(row => {
+          const dayVal = row.querySelector('.day-select').value;
+          return {
+            days: dayVal === 'all' ? 'all' : [dayVal],
+            start_time: row.querySelectorAll('input[type="time"]')[0].value,
+            end_time:   row.querySelectorAll('input[type="time"]')[1].value,
+          };
+        });
+      }
+
+      /* ---------- preferred days ---------- */
+      document.getElementById('preferred-days').addEventListener('click', e => {
+        const btn = e.target.closest('.day-btn');
+        if (!btn) return;
+        btn.classList.toggle('selected');
+      });
+
+      function setPreferredDays(days) {
+        document.querySelectorAll('.day-btn').forEach(btn => {
+          btn.classList.toggle('selected', days.includes(btn.dataset.day));
+        });
+      }
+
+      function readPreferredDays() {
+        return Array.from(document.querySelectorAll('.day-btn.selected'))
+          .map(btn => btn.dataset.day);
+      }
+
+      /* ---------- add window ---------- */
+      document.getElementById('add-window-btn').addEventListener('click', () => {
+        document.getElementById('window-list').appendChild(buildWindowRow(null));
+      });
+
+      /* ---------- load ---------- */
+      async function loadSettings() {
+        try {
+          const res = await fetch(API_URL, { credentials: 'same-origin' });
+          if (!res.ok) throw new Error(await res.text());
+          const s = await res.json();
+
+          document.getElementById('auto-booking-toggle').checked = s.autoBookingEnabled;
+          document.getElementById('duration-input').value = s.preferredMeetingDurationMinutes;
+          document.getElementById('notification-email').value = s.notificationEmail ?? '';
+          setPreferredDays(s.bookingPreferredDays ?? []);
+
+          const list = document.getElementById('window-list');
+          list.innerHTML = '';
+          (s.bookingBlockedWindows ?? []).forEach(w => list.appendChild(buildWindowRow(w)));
+
+          document.getElementById('loading-state').style.display = 'none';
+          document.getElementById('settings-form').style.display = '';
+        } catch (err) {
+          document.getElementById('loading-state').style.display = 'none';
+          document.getElementById('error-state').style.display = '';
+          console.error(err);
+        }
+      }
+
+      /* ---------- save ---------- */
+      document.getElementById('save-btn').addEventListener('click', async () => {
+        const btn = document.getElementById('save-btn');
+        btn.disabled = true;
+        showStatus('', false);
+
+        const dur = parseInt(document.getElementById('duration-input').value, 10);
+        if (isNaN(dur) || dur < 15 || dur > 120) {
+          showStatus('Duration must be between 15 and 120 minutes.', true);
+          btn.disabled = false;
+          return;
+        }
+
+        const payload = {
+          autoBookingEnabled: document.getElementById('auto-booking-toggle').checked,
+          bookingBlockedWindows: readWindows(),
+          preferredMeetingDurationMinutes: dur,
+          bookingPreferredDays: readPreferredDays(),
+          notificationEmail: document.getElementById('notification-email').value.trim(),
+        };
+
+        try {
+          const res = await fetch(API_URL, {
+            method: 'PUT',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken() },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            showStatus(data.detail ?? 'Save failed.', true);
+          } else {
+            showStatus('Settings saved.', false);
+          }
+        } catch (err) {
+          showStatus('Network error — please try again.', true);
+          console.error(err);
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      /* ---------- boot ---------- */
+      loadSettings();
+    })();
+  </script>
+</body>
+</html>

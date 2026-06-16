@@ -46,6 +46,14 @@ services:
         sync: false
       - key: ONBOARDING_API_TOKEN
         sync: false
+      - key: EMAIL_HOST
+        sync: false
+      - key: EMAIL_HOST_USER
+        sync: false
+      - key: EMAIL_HOST_PASSWORD
+        sync: false
+      - key: DEFAULT_FROM_EMAIL
+        value: noreply@blackcapitaltechnology.com
 
   - type: web
     name: checkin-planner-prod
@@ -88,3 +96,89 @@ services:
         sync: false
       - key: ONBOARDING_API_TOKEN
         sync: false
+      - key: EMAIL_HOST
+        sync: false
+      - key: EMAIL_HOST_USER
+        sync: false
+      - key: EMAIL_HOST_PASSWORD
+        sync: false
+      - key: DEFAULT_FROM_EMAIL
+        value: noreply@blackcapitaltechnology.com
+
+  # ── Cron: auto-booking (1st of every month at 06:00 Copenhagen / 05:00 UTC) ──
+  - type: cron
+    name: auto-booking-prod
+    runtime: python
+    plan: starter
+    rootDir: .
+    region: frankfurt
+    schedule: "0 5 1 * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python backend/manage.py run_auto_bookings
+    envVars:
+      - key: DJANGO_ENVIRONMENT
+        value: production
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: checkin-planner-prod.onrender.com
+      - key: DATABASE_URL
+        fromDatabase:
+          name: checkin-planner-db
+          property: connectionString
+      - key: DJANGO_SECRET_KEY
+        fromService:
+          name: checkin-planner-prod
+          type: web
+          envVarKey: DJANGO_SECRET_KEY
+      - key: GOOGLE_OAUTH2_KEY
+        sync: false
+      - key: GOOGLE_OAUTH2_SECRET
+        sync: false
+      - key: EMAIL_HOST
+        sync: false
+      - key: EMAIL_HOST_USER
+        sync: false
+      - key: EMAIL_HOST_PASSWORD
+        sync: false
+      - key: DEFAULT_FROM_EMAIL
+        value: noreply@blackcapitaltechnology.com
+
+  # ── Cron: decline sync (every 4 hours) ────────────────────────────────────
+  - type: cron
+    name: decline-sync-prod
+    runtime: python
+    plan: starter
+    rootDir: .
+    region: frankfurt
+    schedule: "0 */4 * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python backend/manage.py sync_meeting_statuses
+    envVars:
+      - key: DJANGO_ENVIRONMENT
+        value: production
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: checkin-planner-prod.onrender.com
+      - key: DATABASE_URL
+        fromDatabase:
+          name: checkin-planner-db
+          property: connectionString
+      - key: DJANGO_SECRET_KEY
+        fromService:
+          name: checkin-planner-prod
+          type: web
+          envVarKey: DJANGO_SECRET_KEY
+      - key: GOOGLE_OAUTH2_KEY
+        sync: false
+      - key: GOOGLE_OAUTH2_SECRET
+        sync: false
+      - key: EMAIL_HOST
+        sync: false
+      - key: EMAIL_HOST_USER
+        sync: false
+      - key: EMAIL_HOST_PASSWORD
+        sync: false
+      - key: DEFAULT_FROM_EMAIL
+        value: noreply@blackcapitaltechnology.com

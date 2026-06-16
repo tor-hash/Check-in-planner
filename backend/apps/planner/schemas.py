@@ -126,6 +126,46 @@ def validate_function_tag_payload(payload: Any) -> ValidationResult:
 # Journal entry
 # ---------------------------------------------------------------------------
 
+JOURNAL_TEXT_FIELDS = (
+    "trivsel",
+    "faglig",
+    "personlig",
+    "udfordringer",
+    "maal",
+    "noter",
+    "opfolgning",
+    "obs",
+)
+
+
+def _coerce_journal_text(value: Any, *, max_len: int = 16384) -> str | None:
+    """Coerce journal text fields to strings (accepts numeric trivsel from UI)."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and not value.is_integer():
+            return None
+        value = str(int(value))
+    elif not isinstance(value, str):
+        value = str(value)
+    if len(value) > max_len:
+        return None
+    return value
+
+
+def normalize_journal_entry_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy with text fields coerced to strings for API validation/persist."""
+    out = dict(payload)
+    for key in JOURNAL_TEXT_FIELDS:
+        if key not in out:
+            continue
+        coerced = _coerce_journal_text(out.get(key))
+        if coerced is not None:
+            out[key] = coerced
+    return out
+
 
 def validate_journal_entry_payload(payload: Any, *, require_id: bool = True) -> ValidationResult:
     errors: list[str] = []
@@ -140,8 +180,10 @@ def validate_journal_entry_payload(payload: Any, *, require_id: bool = True) -> 
             errors.append("JournalEntry.managerId must match [A-Za-z0-9._-]{1,64} when provided.")
     if "date" in payload and payload["date"] is not None and not _is_iso_date(payload.get("date")):
         errors.append("JournalEntry.date must be ISO-8601 (YYYY-MM-DD).")
-    for key in ("trivsel", "faglig", "personlig", "udfordringer", "maal", "noter", "opfolgning", "obs"):
-        if key in payload and not _is_string(payload.get(key) or "", 16384):
+    for key in JOURNAL_TEXT_FIELDS:
+        if key not in payload:
+            continue
+        if _coerce_journal_text(payload.get(key)) is None:
             errors.append(f"JournalEntry.{key} must be a string ≤ 16384 chars.")
     files = payload.get("files", [])
     if not isinstance(files, list):
@@ -173,6 +215,22 @@ def validate_booking_payload(payload: Any) -> ValidationResult:
     agenda = payload.get("agenda", "")
     if agenda and not _is_string(agenda, 8192):
         errors.append("Booking.agenda must be a string ≤ 8192 chars.")
+    return ValidationResult(not errors, errors)
+
+
+def validate_calendar_share_payload(payload: Any) -> ValidationResult:
+    errors: list[str] = []
+    if not isinstance(payload, dict):
+        return ValidationResult(False, ["Body must be a JSON object."])
+    person_ids = payload.get("person_ids")
+    if not isinstance(person_ids, list) or not person_ids:
+        errors.append("person_ids must be a non-empty list of person legacy ids.")
+    else:
+        for idx, pid in enumerate(person_ids):
+            if not _is_id(pid):
+                errors.append(f"person_ids[{idx}] must be a valid person id.")
+    if "force" in payload and not isinstance(payload.get("force"), bool):
+        errors.append("force must be a boolean when provided.")
     return ValidationResult(not errors, errors)
 
 

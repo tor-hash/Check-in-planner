@@ -135,6 +135,7 @@ SOCIAL_AUTH_GOOGLE_OAUTH2_SCOPE = [
     "profile",
     "https://www.googleapis.com/auth/calendar.freebusy",
     "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/gmail.send",
 ]
 # access_type=offline + prompt=consent are required to receive a refresh_token
 # from Google. social-auth's load_extra_data step then persists it on
@@ -156,9 +157,30 @@ SOCIAL_AUTH_GOOGLE_OAUTH2_EXTRA_DATA = [
     ("refresh_token", "refresh_token"),
     ("expires_in", "expires"),
     ("token_type", "token_type"),
+    ("scope", "scope"),
 ]
 GOOGLE_CALENDAR_TIMEZONE = os.getenv("GOOGLE_CALENDAR_TIMEZONE", "Europe/Copenhagen")
 USE_GOOGLE_SHEET_JOURNAL = env_bool("USE_GOOGLE_SHEET_JOURNAL", False)
+
+# ---------------------------------------------------------------------------
+# Email (transactional — used for decline/no-slot notifications)
+# ---------------------------------------------------------------------------
+# In development the console backend is used so no SMTP server is needed.
+# In staging/production supply EMAIL_HOST, EMAIL_PORT, EMAIL_HOST_USER,
+# EMAIL_HOST_PASSWORD, and optionally EMAIL_USE_TLS / EMAIL_USE_SSL.
+# For services like SendGrid / Mailgun you typically only need HOST + USER +
+# PASSWORD (port 587, TLS enabled).
+EMAIL_BACKEND = os.getenv(
+    "EMAIL_BACKEND",
+    "django.core.mail.backends.console.EmailBackend" if DEBUG else "django.core.mail.backends.smtp.EmailBackend",
+)
+EMAIL_HOST     = os.getenv("EMAIL_HOST", "smtp.sendgrid.net")
+EMAIL_PORT     = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_USE_TLS  = env_bool("EMAIL_USE_TLS", True)
+EMAIL_USE_SSL  = env_bool("EMAIL_USE_SSL", False)
+EMAIL_HOST_USER     = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+DEFAULT_FROM_EMAIL  = os.getenv("DEFAULT_FROM_EMAIL", "noreply@blackcapitaltechnology.com")
 
 # Shared API key for the onboarding REST API. Leaving this blank disables
 # the API entirely (endpoints respond 503) which is the safe default for

@@ -308,18 +308,25 @@ def upsert_journal_entry(payload: dict[str, Any], user) -> JournalEntry:
     if manager_id:
         manager = ManagerProfile.objects.filter(legacy_id=manager_id).first()
 
+    def _text(value: Any) -> str:
+        if value is None or value is False:
+            return ""
+        if isinstance(value, bool):
+            return ""
+        return str(value)
+
     defaults = {
         "person": person,
         "manager": manager,
         "date": _to_date(payload.get("date")),
-        "trivsel": payload.get("trivsel") or "",
-        "faglig": payload.get("faglig") or "",
-        "personlig": payload.get("personlig") or "",
-        "udfordringer": payload.get("udfordringer") or "",
-        "maal": payload.get("maal") or "",
-        "noter": payload.get("noter") or "",
-        "opfolgning": payload.get("opfolgning") or "",
-        "obs": payload.get("obs") or "",
+        "trivsel": _text(payload.get("trivsel")),
+        "faglig": _text(payload.get("faglig")),
+        "personlig": _text(payload.get("personlig")),
+        "udfordringer": _text(payload.get("udfordringer")),
+        "maal": _text(payload.get("maal")),
+        "noter": _text(payload.get("noter")),
+        "opfolgning": _text(payload.get("opfolgning")),
+        "obs": _text(payload.get("obs")),
         "files": payload.get("files") or [],
         "deleted_at": _deleted_at(payload.get("deletedAt")),
         "updated_by": user,
