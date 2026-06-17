@@ -9,6 +9,7 @@
       {% if planner_user_is_manager %}
       <a href="{% url 'onboarding:flows-editor' %}"{% if nav_section == 'onboarding' %} class="active" aria-current="page"{% endif %}>Onboarding</a>
       <a href="{% url 'planner:manager-settings' %}"{% if nav_section == 'settings' %} class="active" aria-current="page"{% endif %}>Settings</a>
+      <a href="{% url 'planner:manager-bookings' %}"{% if nav_section == 'bookings' %} class="active" aria-current="page"{% endif %}>Bookings</a>
       {% endif %}
       <a href="{% url 'account-invitations' %}"{% if nav_section == 'invite' %} class="active" aria-current="page"{% endif %}>Invite</a>
     </nav>

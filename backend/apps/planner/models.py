@@ -401,3 +401,54 @@ class ManagerNotification(models.Model):
             "isRead": self.is_read,
             "createdAt": int(self.created_at.timestamp() * 1000),
         }
+
+
+class BookingRunLog(models.Model):
+    """Records each auto-booking cron run (or manual trigger).
+
+    Used to display run history on the /manager/bookings/ overview page.
+    """
+
+    TRIGGER_CRON = "cron"
+    TRIGGER_MANUAL = "manual"
+    TRIGGER_CHOICES = [
+        (TRIGGER_CRON, "Cron job"),
+        (TRIGGER_MANUAL, "Manual (Run Now)"),
+    ]
+
+    started_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    triggered_by = models.CharField(
+        max_length=16,
+        choices=TRIGGER_CHOICES,
+        default=TRIGGER_CRON,
+    )
+    meetings_created = models.PositiveIntegerField(default=0)
+    meetings_skipped = models.PositiveIntegerField(default=0)
+    errors_count = models.PositiveIntegerField(default=0)
+    error_detail = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-started_at"]
+
+    def __str__(self) -> str:
+        duration = ""
+        if self.finished_at:
+            secs = int((self.finished_at - self.started_at).total_seconds())
+            duration = f" ({secs}s)"
+        return (
+            f"BookingRunLog {self.started_at.strftime('%Y-%m-%d %H:%M')} "
+            f"[{self.triggered_by}] created={self.meetings_created}{duration}"
+        )
+
+    def serialize(self) -> dict:
+        return {
+            "id": self.pk,
+            "startedAt": int(self.started_at.timestamp() * 1000),
+            "finishedAt": int(self.finished_at.timestamp() * 1000) if self.finished_at else None,
+            "triggeredBy": self.triggered_by,
+            "meetingsCreated": self.meetings_created,
+            "meetingsSkipped": self.meetings_skipped,
+            "errorsCount": self.errors_count,
+            "errorDetail": self.error_detail,
+        }

@@ -11,6 +11,7 @@ urlpatterns = [
     path("home/", views.home_view, name="home"),
     path("app/", views.app_view, name="app"),
     path("manager/settings/", views.manager_settings_view, name="manager-settings"),
+    path("manager/bookings/", views.manager_bookings_view, name="manager-bookings"),
 
     # Aggregate state (legacy contract — read still preferred for boot)
     path("api/state", api.state_get, name="api-state-get"),
@@ -72,4 +73,8 @@ urlpatterns = [
 
     # Rotation / session windows
     path("api/rotation", api.rotation_endpoint, name="api-rotation"),
+
+    # Auto-booking run (manual trigger + log)
+    path("api/auto-booking/run", api.auto_booking_run, name="api-auto-booking-run"),
+    path("api/auto-booking/logs", api.booking_run_logs, name="api-auto-booking-logs"),
 ]

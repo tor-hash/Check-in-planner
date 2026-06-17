@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bookings overview · BCT Check-in Planner</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #171a21;
+      --border: #2a2f3d;
+      --text: #e7eaf0;
+      --muted: #9aa3b2;
+      --accent: #6ea8fe;
+      --danger: #f87171;
+      --success: #4ade80;
+      --warn: #fbbf24;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: Segoe UI, sans-serif; background: var(--bg); color: var(--text); margin: 0; }
+    .page { max-width: 860px; margin: 0 auto; padding: 2rem 1.5rem 5rem; }
+    h1 { font-size: 1.5rem; margin: 0 0 0.35rem; }
+    .subtitle { color: var(--muted); margin: 0 0 2rem; font-size: 0.9rem; }
+
+    .section-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+    .section-header h2 { font-size: 1rem; margin: 0; }
+
+    /* Run now button */
+    .btn-run {
+      background: var(--accent); color: #0c1320; border: none; border-radius: 8px;
+      padding: 9px 18px; font-weight: 600; font-size: 0.9rem; cursor: pointer;
+      transition: opacity 0.15s; display: flex; align-items: center; gap: 8px;
+    }
+    .btn-run:hover { opacity: 0.85; }
+    .btn-run:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-run .spinner {
+      width: 14px; height: 14px; border: 2px solid #0c1320;
+      border-top-color: transparent; border-radius: 50%;
+      animation: spin 0.7s linear infinite; display: none;
+    }
+    .btn-run.loading .spinner { display: block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .run-status {
+      font-size: 0.85rem; margin-top: 0.5rem; min-height: 1.2em;
+      display: flex; gap: 1.5rem; flex-wrap: wrap;
+    }
+    .run-status .ok  { color: var(--success); }
+    .run-status .err { color: var(--danger); }
+
+    /* Table */
+    .card {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; overflow: hidden; margin-bottom: 2rem;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    thead th {
+      text-align: left; padding: 12px 16px; font-size: 0.75rem;
+      text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
+      border-bottom: 1px solid var(--border);
+    }
+    tbody tr { border-bottom: 1px solid var(--border); transition: background 0.1s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: rgba(255,255,255,0.03); }
+    td { padding: 12px 16px; color: var(--text); vertical-align: top; }
+    td.muted { color: var(--muted); }
+
+    /* Badges */
+    .badge {
+      display: inline-block; border-radius: 5px; padding: 2px 8px;
+      font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .badge-cron    { background: rgba(110,168,254,.15); color: var(--accent); }
+    .badge-manual  { background: rgba(251,191,36,.15);  color: var(--warn); }
+    .badge-ok      { background: rgba(74,222,128,.15);  color: var(--success); }
+    .badge-errors  { background: rgba(248,113,113,.15); color: var(--danger); }
+    .badge-scheduled { background: rgba(110,168,254,.12); color: var(--accent); }
+    .badge-cancelled { background: rgba(248,113,113,.12); color: var(--danger); }
+    .badge-completed { background: rgba(74,222,128,.12);  color: var(--success); }
+    .badge-declined  { background: rgba(251,191,36,.12);  color: var(--warn); }
+
+    /* Skeleton */
+    .skeleton { background: var(--border); border-radius: 6px; height: 1em; animation: pulse 1.2s ease-in-out infinite; margin: 4px 0; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+    .empty-row td { color: var(--muted); font-style: italic; padding: 24px 16px; }
+
+    a.gcal-link { color: var(--accent); text-decoration: none; font-size: 0.78rem; }
+    a.gcal-link:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  {% include "includes/app_shell_nav.html" %}
+
+  <main class="page">
+    <h1>Bookings overview</h1>
+    <p class="subtitle">Recent auto-booking runs and the meetings they created.</p>
+
+    <!-- Run Now -->
+    <div class="section-header" style="margin-bottom:0.5rem">
+      <h2>Run auto-booking now</h2>
+      <button class="btn-run" id="run-btn" type="button">
+        <span class="spinner"></span>
+        Run now
+      </button>
+    </div>
+    <div class="run-status" id="run-status"></div>
+
+    <!-- Run history -->
+    <div class="section-header" style="margin-top:2.5rem">
+      <h2>Run history</h2>
+      <span id="runs-count" style="font-size:0.8rem;color:var(--muted)"></span>
+    </div>
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>Started</th>
+            <th>Trigger</th>
+            <th>Duration</th>
+            <th>Created</th>
+            <th>Skipped</th>
+            <th>Errors</th>
+          </tr>
+        </thead>
+        <tbody id="runs-body">
+          <tr><td colspan="6"><div class="skeleton" style="width:70%"></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Recent meetings -->
+    <div class="section-header">
+      <h2>Recent auto-created meetings</h2>
+      <span id="meetings-count" style="font-size:0.8rem;color:var(--muted)"></span>
+    </div>
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>Date &amp; time</th>
+            <th>Manager</th>
+            <th>Person</th>
+            <th>Status</th>
+            <th>Calendar</th>
+          </tr>
+        </thead>
+        <tbody id="meetings-body">
+          <tr><td colspan="5"><div class="skeleton" style="width:70%"></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <script>
+  (function () {
+    /* ---- helpers ---- */
+    function csrfToken() {
+      return document.cookie.split(';')
+        .map(c => c.trim())
+        .find(c => c.startsWith('csrftoken='))
+        ?.split('=')[1] ?? '';
+    }
+
+    function fmtDate(ms) {
+      if (!ms) return '—';
+      const d = new Date(ms);
+      return d.toLocaleString('da-DK', { dateStyle: 'short', timeStyle: 'short' });
+    }
+
+    function fmtDuration(startMs, endMs) {
+      if (!startMs || !endMs) return '—';
+      const secs = Math.round((endMs - startMs) / 1000);
+      if (secs < 60) return secs + 's';
+      return Math.round(secs / 60) + 'm ' + (secs % 60) + 's';
+    }
+
+    /* ---- run history ---- */
+    async function loadRuns() {
+      try {
+        const res = await fetch('/api/auto-booking/logs', { credentials: 'same-origin' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const { runs } = await res.json();
+
+        const tbody = document.getElementById('runs-body');
+        tbody.innerHTML = '';
+
+        if (!runs || runs.length === 0) {
+          tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No runs recorded yet.</td></tr>';
+          return;
+        }
+
+        document.getElementById('runs-count').textContent = runs.length + ' most recent';
+
+        runs.forEach(r => {
+          const tr = document.createElement('tr');
+          const hasErrors = r.errorsCount > 0;
+          tr.innerHTML = `
+            <td>${fmtDate(r.startedAt)}</td>
+            <td><span class="badge badge-${r.triggeredBy}">${r.triggeredBy}</span></td>
+            <td class="muted">${fmtDuration(r.startedAt, r.finishedAt)}</td>
+            <td>${r.meetingsCreated}</td>
+            <td class="muted">${r.meetingsSkipped}</td>
+            <td>${hasErrors
+              ? '<span class="badge badge-errors">' + r.errorsCount + ' error' + (r.errorsCount > 1 ? 's' : '') + '</span>'
+              : '<span class="badge badge-ok">✓</span>'
+            }</td>`;
+          tbody.appendChild(tr);
+        });
+      } catch (err) {
+        document.getElementById('runs-body').innerHTML =
+          '<tr class="empty-row"><td colspan="6">Failed to load run history.</td></tr>';
+        console.error(err);
+      }
+    }
+
+    /* ---- recent meetings ---- */
+    async function loadMeetings() {
+      try {
+        const res = await fetch('/api/bookings?limit=20', { credentials: 'same-origin' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const meetings = Array.isArray(data) ? data : (data.bookings ?? data.results ?? []);
+
+        const tbody = document.getElementById('meetings-body');
+        tbody.innerHTML = '';
+
+        if (!meetings || meetings.length === 0) {
+          tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No meetings found.</td></tr>';
+          return;
+        }
+
+        document.getElementById('meetings-count').textContent = meetings.length + ' most recent';
+
+        meetings.forEach(m => {
+          const tr = document.createElement('tr');
+          const startsAt = m.startsAt ?? m.starts_at;
+          const status = m.status ?? 'scheduled';
+          const gcalLink = m.googleHtmlLink ?? m.google_html_link ?? '';
+          const manager = m.managerId ?? m.manager_id ?? m.manager ?? '—';
+          const person = m.personId ?? m.person_id ?? m.person ?? '—';
+
+          tr.innerHTML = `
+            <td>${fmtDate(startsAt ? new Date(startsAt).getTime() : null)}</td>
+            <td class="muted">${manager}</td>
+            <td>${person}</td>
+            <td><span class="badge badge-${status}">${status}</span></td>
+            <td>${gcalLink
+              ? '<a class="gcal-link" href="' + gcalLink + '" target="_blank" rel="noopener">Open ↗</a>'
+              : '<span class="muted">—</span>'
+            }</td>`;
+          tbody.appendChild(tr);
+        });
+      } catch (err) {
+        document.getElementById('meetings-body').innerHTML =
+          '<tr class="empty-row"><td colspan="5">Failed to load meetings.</td></tr>';
+        console.error(err);
+      }
+    }
+
+    /* ---- run now ---- */
+    document.getElementById('run-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('run-btn');
+      const statusEl = document.getElementById('run-status');
+      btn.classList.add('loading');
+      btn.disabled = true;
+      statusEl.innerHTML = '<span class="muted">Running…</span>';
+
+      try {
+        const res = await fetch('/api/auto-booking/run', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'X-CSRFToken': csrfToken() },
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          statusEl.innerHTML = '<span class="err">Error: ' + (data.error ?? res.status) + '</span>';
+          return;
+        }
+        statusEl.innerHTML = `
+          <span class="ok">✓ Done</span>
+          <span>Created: <strong>${data.booked}</strong></span>
+          <span class="muted">Already exists: ${data.already_exists}</span>
+          <span class="muted">No slot: ${data.no_slot}</span>
+          ${data.error > 0 ? '<span class="err">Errors: ' + data.error + '</span>' : ''}`;
+
+        // Reload both tables to reflect new data
+        await Promise.all([loadRuns(), loadMeetings()]);
+      } catch (err) {
+        statusEl.innerHTML = '<span class="err">Network error — please try again.</span>';
+        console.error(err);
+      } finally {
+        btn.classList.remove('loading');
+        btn.disabled = false;
+      }
+    });
+
+    /* ---- boot ---- */
+    loadRuns();
+    loadMeetings();
+  })();
+  </script>
+</body>
+</html>

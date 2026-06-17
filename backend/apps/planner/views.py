@@ -56,6 +56,8 @@ def manager_settings_view(request):
         {
             "nav_section": "settings",
             "manager_id": manager.legacy_id,
+            "planner_user_is_manager": True,
+            "planner_user_email": request.user.email,
         },
     )
 
@@ -74,3 +76,19 @@ def healthz_view(request):
         db_ok = False
     status = 200 if db_ok else 503
     return JsonResponse({"status": "ok" if db_ok else "degraded", "database": "ok" if db_ok else "error"}, status=status)
+
+
+@login_required
+def manager_bookings_view(request):
+    """Booking overview: run history + recent meetings + 'Run now' button."""
+    if not is_manager_or_admin(request.user):
+        return redirect("planner:home")
+    return render(
+        request,
+        "planner/manager_bookings.html",
+        {
+            "nav_section": "bookings",
+            "planner_user_is_manager": True,
+            "planner_user_email": request.user.email,
+        },
+    )

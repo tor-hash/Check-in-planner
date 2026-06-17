@@ -9,7 +9,7 @@ from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.http import HttpRequest, HttpResponseBadRequest, JsonResponse
-from django.views.decorators.http import require_GET, require_http_methods
+from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from .models import (
     CheckInMeeting,
@@ -1182,3 +1182,50 @@ def rotation_endpoint(request: HttpRequest):
             }
         )
     return JsonResponse({"sessions": out})
+
+
+# ---------------------------------------------------------------------------
+# Auto-booking run endpoint
+# ---------------------------------------------------------------------------
+
+
+@require_POST
+@login_required
+def auto_booking_run(request):
+    """Trigger the auto-booking job on demand (manager/admin only).
+
+    Returns a JSON summary of the run.
+    """
+    from apps.planner.models import BookingRunLog
+    from apps.planner.services.auto_booking import run_auto_bookings
+
+    if not is_manager_or_admin(request.user):
+        return JsonResponse({"error": "Forbidden"}, status=403)
+
+    try:
+        summary = run_auto_bookings(triggered_by=BookingRunLog.TRIGGER_MANUAL)
+    except Exception as exc:
+        return JsonResponse({"error": str(exc)}, status=500)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "booked": summary.get("booked", 0),
+            "already_exists": summary.get("already_exists", 0),
+            "no_slot": summary.get("no_slot", 0),
+            "error": summary.get("error", 0),
+            "skipped_no_user": summary.get("skipped_no_user", 0),
+        }
+    )
+
+
+@login_required
+def booking_run_logs(request):
+    """Return the last 20 BookingRunLog entries as JSON."""
+    from apps.planner.models import BookingRunLog
+
+    if not is_manager_or_admin(request.user):
+        return JsonResponse({"error": "Forbidden"}, status=403)
+
+    logs = BookingRunLog.objects.all()[:20]
+    return JsonResponse({"runs": [r.serialize() for r in logs]})

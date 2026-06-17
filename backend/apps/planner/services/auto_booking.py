@@ -25,6 +25,7 @@ import logging
 from datetime import date
 
 from apps.planner.models import (
+    BookingRunLog,
     CheckInMeeting,
     ManagerNotification,
     ManagerProfile,
@@ -53,29 +54,54 @@ def run_auto_bookings(
     windows_ahead: int = 2,
     dry_run: bool = False,
     from_date: date | None = None,
+    triggered_by: str = BookingRunLog.TRIGGER_CRON,
 ) -> dict:
     """Book check-ins for all eligible manager/person/window combinations.
 
     Returns a summary dict with counts of booked / skipped / failed bookings.
     Pass ``dry_run=True`` to compute the plan without creating any rows.
     """
+    from django.utils import timezone
+
     summary = {"booked": 0, "already_exists": 0, "no_slot": 0, "error": 0, "skipped_no_user": 0}
 
-    windows = upcoming_session_windows(windows_ahead, from_date=from_date)
-    if not windows:
-        logger.warning("auto_booking: no upcoming session windows found")
-        return summary
+    # Create a run-log entry (skip for dry runs so they don't pollute history)
+    run_log = None
+    if not dry_run:
+        run_log = BookingRunLog.objects.create(triggered_by=triggered_by)
 
-    managers = ManagerProfile.objects.select_related("user", "person").filter(
-        auto_booking_enabled=True
-    )
-    if not managers.exists():
-        logger.info("auto_booking: no managers with auto_booking_enabled=True")
-        return summary
+    try:
+        windows = upcoming_session_windows(windows_ahead, from_date=from_date)
+        if not windows:
+            logger.warning("auto_booking: no upcoming session windows found")
+            return summary
 
-    for manager in managers:
-        for window in windows:
-            _process_manager_window(manager, window, summary, dry_run=dry_run)
+        managers = ManagerProfile.objects.select_related("user", "person").filter(
+            auto_booking_enabled=True
+        )
+        if not managers.exists():
+            logger.info("auto_booking: no managers with auto_booking_enabled=True")
+            return summary
+
+        for manager in managers:
+            for window in windows:
+                _process_manager_window(manager, window, summary, dry_run=dry_run)
+
+    except Exception as exc:
+        logger.exception("auto_booking: unexpected error during run")
+        if run_log is not None:
+            run_log.errors_count += 1
+            run_log.error_detail = str(exc)
+            run_log.finished_at = timezone.now()
+            run_log.save(update_fields=["errors_count", "error_detail", "finished_at"])
+        raise
+
+    if run_log is not None:
+        run_log.meetings_created = summary["booked"]
+        run_log.meetings_skipped = summary["already_exists"] + summary["no_slot"] + summary["skipped_no_user"]
+        run_log.errors_count = summary["error"]
+        run_log.finished_at = timezone.now()
+        run_log.save(update_fields=["meetings_created", "meetings_skipped", "errors_count", "finished_at"])
 
     logger.info("auto_booking: run complete — %s", summary)
     return summary
