@@ -45,6 +45,10 @@ def manager_settings_view(request):
         return redirect("planner:home")
     manager = getattr(request.user, "manager_profile", None)
     if manager is None:
+        # Superusers/admins without a linked ManagerProfile go to the admin
+        # so they can link their account to a manager.
+        if request.user.is_superuser or request.user.is_staff:
+            return redirect("/admin/planner/managerprofile/")
         return redirect("planner:home")
     return render(
         request,

@@ -69,4 +69,7 @@ urlpatterns = [
     path("api/notifications", api.notifications_collection, name="api-notifications-collection"),
     path("api/notifications/<int:notification_id>/read", api.notification_mark_read, name="api-notification-mark-read"),
     path("api/notifications/read-all", api.notifications_mark_all_read, name="api-notifications-read-all"),
+
+    # Rotation / session windows
+    path("api/rotation", api.rotation_endpoint, name="api-rotation"),
 ]
