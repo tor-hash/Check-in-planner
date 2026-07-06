@@ -4,8 +4,10 @@ Called every 4 hours by the ``sync_meeting_statuses`` management command.
 For each scheduled meeting that has a Google event ID:
   1. Fetch the event from the organizer's calendar.
   2. Inspect the attendee RSVP status.
-  3. If the person has declined, mark the meeting as ``declined`` in the DB
-     and create a ``ManagerNotification`` with a rebook link.
+  3. If the person has declined, mark the meeting as ``declined`` in the DB,
+     notify the manager (in-app + email), and immediately attempt to rebook
+     by running the auto-booking logic for that (manager, person, window)
+     triple.
 
 Google RSVP status values
 --------------------------
@@ -22,6 +24,9 @@ Idempotency
   already ``declined``, ``cancelled``, or ``completed`` we skip it.
 • We only send one notification email per decline (``email_sent`` flag on
   ``ManagerNotification``).
+• The rebook attempt calls ``_process_single`` which skips the triple if a
+  non-cancelled meeting already exists in the window, so it is safe to
+  trigger multiple times.
 """
 from __future__ import annotations
 
@@ -153,9 +158,12 @@ def _sync_one(meeting: CheckInMeeting, summary: dict, *, dry_run: bool) -> None:
     meeting.status = "declined"
     meeting.save(update_fields=["status", "updated_at"])
 
-    # Create an in-app notification with a rebook link.
+    # Notify the manager (in-app notification + email).
     _create_declined_notification(meeting)
     summary["declined"] += 1
+
+    # Automatically attempt to rebook in the same session window.
+    _attempt_rebook_after_decline(meeting)
 
 
 def _create_declined_notification(meeting: CheckInMeeting) -> None:
@@ -164,7 +172,8 @@ def _create_declined_notification(meeting: CheckInMeeting) -> None:
     message = (
         f"{person_name} has declined the check-in meeting scheduled for "
         f"{meeting.starts_at.strftime('%d %b %Y %H:%M')}. "
-        f"Please rebook using the link below."
+        f"A new slot is being searched automatically — you will be notified "
+        f"if no slot can be found."
     )
     notif = ManagerNotification.objects.create(
         manager=manager,
@@ -176,6 +185,86 @@ def _create_declined_notification(meeting: CheckInMeeting) -> None:
         "decline_sync: created ManagerNotification for meeting %s", meeting.pk
     )
     send_notification_email(notif)
+
+
+def _attempt_rebook_after_decline(meeting: CheckInMeeting) -> None:
+    """Try to book a replacement slot after a decline.
+
+    Looks up the session window that contains the original meeting's date,
+    then runs the same auto-booking logic for the (manager, person, window)
+    triple.  If a new slot is found it is booked automatically.  If no slot
+    is available the existing ``no_slot_found`` notification path fires and
+    the manager is alerted to book manually.
+
+    Failures are logged but never propagate — the decline has already been
+    recorded and the manager notified.
+    """
+    try:
+        from apps.planner.services.rotation import session_window_for
+        from apps.planner.services.auto_booking import _process_single
+
+        manager = meeting.manager
+        person = meeting.person
+
+        if manager is None or person is None:
+            logger.warning(
+                "decline_sync: rebook skipped for meeting %s — missing manager or person",
+                meeting.pk,
+            )
+            return
+
+        organizer = manager.user
+        if organizer is None:
+            logger.warning(
+                "decline_sync: rebook skipped for meeting %s — manager has no linked user",
+                meeting.pk,
+            )
+            return
+
+        window = session_window_for(meeting.starts_at.date())
+        if window is None:
+            logger.warning(
+                "decline_sync: rebook skipped for meeting %s — could not determine session window",
+                meeting.pk,
+            )
+            return
+
+        logger.info(
+            "decline_sync: attempting rebook for manager=%s person=%s window=%s "
+            "after decline of meeting %s",
+            manager.legacy_id,
+            getattr(person, "legacy_id", person.pk),
+            window.week_start,
+            meeting.pk,
+        )
+
+        summary: dict = {
+            "booked": 0,
+            "already_exists": 0,
+            "no_slot": 0,
+            "error": 0,
+            "skipped_no_user": 0,
+        }
+        _process_single(
+            manager,
+            person,
+            window,
+            organizer,
+            summary,
+            dry_run=False,
+            manager_run_bookings=None,  # standalone rebook — no run-level tracker
+        )
+        logger.info(
+            "decline_sync: rebook attempt result for meeting %s — %s",
+            meeting.pk,
+            summary,
+        )
+
+    except Exception:
+        logger.exception(
+            "decline_sync: unexpected error during rebook attempt for meeting %s",
+            meeting.pk,
+        )
 
 
 # ---------------------------------------------------------------------------

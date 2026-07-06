@@ -41,6 +41,22 @@ def is_manager_or_admin(user) -> bool:
     return user.groups.filter(name__in=["manager", "admin"]).exists()
 
 
+def is_super_admin(user) -> bool:
+    """Return True for the elevated "admin" tier that may manage settings on
+    behalf of *other* managers (as opposed to plain "manager" users, who may
+    only manage their own).
+
+    Membership of the ``admin`` group or Django's built-in ``is_superuser``
+    flag both qualify. Promote a user by adding them to the "admin" group in
+    Django admin (Users -> select user -> Groups).
+    """
+    if not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    return user.groups.filter(name="admin").exists()
+
+
 # ---------------------------------------------------------------------------
 # Coercion helpers
 # ---------------------------------------------------------------------------

@@ -73,6 +73,20 @@ class BookingServiceTests(TestCase):
         mock_create.assert_called_once()
 
     @patch("apps.planner.services.bookings.create_checkin_event")
+    def test_create_booking_persists_meet_link(self, mock_create):
+        mock_create.return_value = CreatedEvent(
+            google_event_id="evt-2",
+            html_link="https://calendar.google.com/x",
+            start=_aware(datetime(2026, 1, 12, 10, 0)),
+            end=_aware(datetime(2026, 1, 12, 10, 30)),
+            meet_link="https://meet.google.com/abc-defg-hij",
+        )
+        meeting = bookings.create_booking(self._request(), audit_user=self.user)
+        self.assertEqual(meeting.google_meet_link, "https://meet.google.com/abc-defg-hij")
+        serialized = bookings.serialize_booking(meeting)
+        self.assertEqual(serialized["googleMeetLink"], "https://meet.google.com/abc-defg-hij")
+
+    @patch("apps.planner.services.bookings.create_checkin_event")
     def test_rotation_violation_raises_before_google(self, mock_create):
         wrong_manager = next(
             m for m in (self.mgr_a, self.mgr_b, self.mgr_c) if m.id != self.owner.id

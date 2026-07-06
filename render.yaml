@@ -105,14 +105,16 @@ services:
       - key: DEFAULT_FROM_EMAIL
         value: noreply@blackcapitaltechnology.com
 
-  # ── Cron: auto-booking (1st of every month at 06:00 Copenhagen / 05:00 UTC) ──
+  # ── Cron: auto-booking (every Monday at 06:00 Copenhagen / 05:00 UTC) ────────
+  # Runs weekly. Double-bookings are safe: existing non-cancelled meetings for
+  # the same (manager, person, session window) are skipped automatically.
   - type: cron
     name: auto-booking-prod
     runtime: python
     plan: starter
     rootDir: .
     region: frankfurt
-    schedule: "0 5 1 * *"
+    schedule: "0 5 * * 1"
     buildCommand: pip install -r requirements.txt
     startCommand: python backend/manage.py run_auto_bookings
     envVars:

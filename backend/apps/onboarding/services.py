@@ -510,13 +510,33 @@ def serialize_assignment(assignment: OnboardingAssignment) -> dict[str, Any]:
         .select_related("step")
         .order_by("step__order")
     )
+
+    # Fall back to the linked planner Person when OnboardingProfile fields are
+    # empty (common for people added directly in the check-in planner rather
+    # than provisioned through the onboarding API).
+    person = getattr(profile, "planner_person", None)
+
+    def _first(*vals: str) -> str:
+        """Return the first non-empty string, or ''."""
+        for v in vals:
+            if v:
+                return v
+        return ""
+
+    if person and person.name:
+        parts = person.name.split(None, 1)  # split on first whitespace only
+        fallback_first = parts[0]
+        fallback_last = parts[1] if len(parts) > 1 else ""
+    else:
+        fallback_first = fallback_last = ""
+
     return {
         "erp_employee_id": profile.erp_employee_id,
         "email": profile.user.email,
-        "first_name": profile.first_name,
-        "last_name": profile.last_name,
-        "position": profile.position,
-        "department": profile.department,
+        "first_name": _first(profile.first_name, fallback_first),
+        "last_name": _first(profile.last_name, fallback_last),
+        "position": _first(profile.position, person.title if person else ""),
+        "department": _first(profile.department, person.function_name if person else ""),
         "start_date": profile.start_date.isoformat() if profile.start_date else None,
         "status": assignment.status,
         "assigned_at": assignment.assigned_at.isoformat(),

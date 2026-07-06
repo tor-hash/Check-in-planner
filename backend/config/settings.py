@@ -121,6 +121,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "planner:home"
 LOGOUT_REDIRECT_URL = "login"
+SOCIAL_AUTH_LOGIN_ERROR_URL = "/accounts/login/?auth_error=1"
 
 AUTHENTICATION_BACKENDS = (
     "social_core.backends.google.GoogleOAuth2",
@@ -146,7 +147,10 @@ SOCIAL_AUTH_GOOGLE_OAUTH2_AUTH_EXTRA_ARGUMENTS = {
     "access_type": "offline",
     "include_granted_scopes": "true",
 }
-SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS = [os.getenv("GOOGLE_WORKSPACE_DOMAIN", "blackcapitaltechnology.com")]
+SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS = [
+    "blackcapitaltechnology.com",
+    "blackcapitalventures.com",
+]
 # Per-email allowlist. When set, only these exact addresses can sign in;
 # when empty/unset, we fall back to the domain-only check above. Useful for
 # locking the app down to "just these 8 people" without giving every employee

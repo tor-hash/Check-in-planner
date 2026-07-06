@@ -1,7 +1,8 @@
 """Management command: auto-book check-in meetings for all eligible managers.
 
-Intended to be called by a monthly Render Cron Job.  Idempotent: existing
-non-cancelled bookings for the same (manager, person, window) are skipped.
+Intended to be called by a weekly Render Cron Job (every Monday 05:00 UTC).
+Idempotent: existing non-cancelled bookings for the same (manager, person,
+window) are skipped automatically.
 
 Usage
 -----
@@ -21,9 +22,9 @@ class Command(BaseCommand):
         parser.add_argument(
             "--windows",
             type=int,
-            default=2,
+            default=1,
             metavar="N",
-            help="Number of upcoming session windows to book for (default: 2).",
+            help="Number of upcoming session windows to book for (default: 1).",
         )
         parser.add_argument(
             "--dry-run",
@@ -56,6 +57,21 @@ class Command(BaseCommand):
                 f"already_exists={summary['already_exists']}  "
                 f"no_slot={summary['no_slot']}  "
                 f"error={summary['error']}  "
-                f"skipped_no_user={summary['skipped_no_user']}"
+                f"skipped_no_user={summary['skipped_no_user']}  "
+                f"skipped_no_team={summary['skipped_no_team']}"
             )
         )
+        if summary["skipped_no_user"] > 0:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"  ⚠  {summary['skipped_no_user']} manager window(s) skipped because the "
+                    f"manager has no linked Google account. Connect their account in Django admin."
+                )
+            )
+        if summary["skipped_no_team"] > 0:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"  ⚠  {summary['skipped_no_team']} manager window(s) skipped because no "
+                    f"eligible team members were found. Check rotation config and onboarding status."
+                )
+            )

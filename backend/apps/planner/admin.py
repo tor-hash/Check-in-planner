@@ -101,4 +101,4 @@ class CheckInMeetingAdmin(admin.ModelAdmin):
         "person__name",
         "google_event_id",
     )
-    readonly_fields = ("google_event_id", "google_html_link")
+    readonly_fields = ("google_event_id", "google_html_link", "google_meet_link")

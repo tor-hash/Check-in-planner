@@ -46,6 +46,21 @@ urlpatterns = [
         manage_api.employees_detail,
         name="manage-employees-detail",
     ),
+    path(
+        "api/onboarding/manage/employees/<str:erp_id>/assign-flow",
+        manage_api.assign_flow,
+        name="manage-assign-flow",
+    ),
+    path(
+        "api/onboarding/manage/employees/<str:erp_id>/book-calendar-meetings",
+        manage_api.book_calendar_meetings,
+        name="manage-book-calendar-meetings",
+    ),
+    path(
+        "api/onboarding/manage/people",
+        manage_api.people_list,
+        name="manage-people-list",
+    ),
     path("api/onboarding/provision", api.provision_employee, name="provision-employee"),
     path("api/onboarding/employees", api.employees_collection, name="employees-collection"),
     path(

@@ -45,9 +45,12 @@ def ensure_allowed_email(backend, details, response, *args, **kwargs):
 
     - Existing Django users are always allowed to re-authenticate (the gate
       only governs whether a *new* user row may be created).
+    - Users whose domain is explicitly listed in
+      ``SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS`` bypass the
+      invitation gate — the domain whitelist is sufficient authorisation.
     - If the static env allowlist is non-empty *or* any invitation exists,
-      gating is "on" for first-time sign-ins: the email must be
-      allowlisted or have an open invitation, otherwise we raise
+      gating is "on" for first-time sign-ins from other domains: the email
+      must be allowlisted or have an open invitation, otherwise we raise
       ``AuthForbidden``.
     - If both are empty, this step is a no-op — falls back to the domain
       check only (useful for dev / first-time bootstrap before any
@@ -59,13 +62,24 @@ def ensure_allowed_email(backend, details, response, *args, **kwargs):
 
     from .models import Invitation  # local import avoids AppRegistryNotReady
 
+    email = (details.get("email") or "").strip().lower()
+    domain = email.split("@")[-1] if "@" in email else ""
+
+    # Users from an explicitly whitelisted domain are trusted at the domain
+    # level — no individual invitation required.
+    allowed_domains = {
+        d.lower()
+        for d in getattr(settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS", [])
+        if d
+    }
+    if domain and domain in allowed_domains:
+        return
+
     allowed_emails = {
         addr.lower()
         for addr in getattr(settings, "GOOGLE_WORKSPACE_ALLOWED_EMAILS", [])
         if addr
     }
-
-    email = (details.get("email") or "").strip().lower()
 
     if email and get_user_model().objects.filter(email__iexact=email, is_active=True).exists():
         return  # already an active user, never re-gate on re-auth
@@ -102,11 +116,23 @@ def _bootstrap_manager_emails() -> set[str]:
 
 
 def _should_grant_manager_group(email: str) -> bool:
+    from django.conf import settings
+
     from .models import Invitation
 
     if email and email in _bootstrap_manager_emails():
         return True
     if email and Invitation.objects.filter(email__iexact=email, accepted_at__isnull=False).exists():
+        return True
+    # Users from a whitelisted domain are trusted — link their ManagerProfile
+    # automatically just like allowlisted emails.
+    domain = email.split("@")[-1] if "@" in email else ""
+    allowed_domains = {
+        d.lower()
+        for d in getattr(settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS", [])
+        if d
+    }
+    if domain and domain in allowed_domains:
         return True
     return False
 

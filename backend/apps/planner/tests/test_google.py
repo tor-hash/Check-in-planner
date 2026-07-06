@@ -25,8 +25,15 @@ class _FakeEventsResource:
         self._response = response
         self.calls = []
 
-    def insert(self, calendarId, body, sendUpdates):  # noqa: N803 (Google API casing)
-        self.calls.append({"calendarId": calendarId, "body": body, "sendUpdates": sendUpdates})
+    def insert(self, calendarId, body, sendUpdates, conferenceDataVersion=None):  # noqa: N803 (Google API casing)
+        self.calls.append(
+            {
+                "calendarId": calendarId,
+                "body": body,
+                "sendUpdates": sendUpdates,
+                "conferenceDataVersion": conferenceDataVersion,
+            }
+        )
         resource = MagicMock()
         resource.execute.return_value = self._response
         return resource
@@ -123,6 +130,51 @@ class CreateEventTests(TestCase):
         call = events_resource.calls[0]
         self.assertEqual(call["sendUpdates"], "all")
         self.assertEqual(call["body"]["attendees"], [{"email": "alice@example.com"}])
+
+    @patch("apps.planner.google.events._build_calendar_service")
+    def test_requests_google_meet_conference_data(self, mock_build):
+        """Every check-in event must request a Google Meet link."""
+        events_resource = _FakeEventsResource(
+            {
+                "id": "evt-1",
+                "htmlLink": "https://example.com",
+                "hangoutLink": "https://meet.google.com/abc-defg-hij",
+            }
+        )
+        service = MagicMock()
+        service.events.return_value = events_resource
+        mock_build.return_value = service
+
+        result = create_checkin_event(
+            organizer_user=MagicMock(),
+            attendee_email="alice@example.com",
+            starts_at=datetime(2026, 1, 12, 10, tzinfo=UTC),
+            duration_minutes=30,
+        )
+
+        self.assertEqual(result.meet_link, "https://meet.google.com/abc-defg-hij")
+
+        call = events_resource.calls[0]
+        self.assertEqual(call["conferenceDataVersion"], 1)
+        conf = call["body"]["conferenceData"]["createRequest"]
+        self.assertEqual(conf["conferenceSolutionKey"], {"type": "hangoutsMeet"})
+        self.assertTrue(conf["requestId"])
+
+    @patch("apps.planner.google.events._build_calendar_service")
+    def test_meet_link_defaults_to_empty_when_absent(self, mock_build):
+        """If Google doesn't resolve conferenceData, we degrade gracefully."""
+        events_resource = _FakeEventsResource({"id": "evt-1", "htmlLink": "https://example.com"})
+        service = MagicMock()
+        service.events.return_value = events_resource
+        mock_build.return_value = service
+
+        result = create_checkin_event(
+            organizer_user=MagicMock(),
+            attendee_email=None,
+            starts_at=datetime(2026, 1, 12, 10, tzinfo=UTC),
+            duration_minutes=30,
+        )
+        self.assertEqual(result.meet_link, "")
 
     @patch("apps.planner.google.events._build_calendar_service")
     def test_rejects_invalid_duration(self, _):

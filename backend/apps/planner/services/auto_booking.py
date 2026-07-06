@@ -1,8 +1,8 @@
 """Auto-booking service: book check-ins for all active managers.
 
-Called once per month (via the ``run_auto_bookings`` management command).
+Called once per week (via the ``run_auto_bookings`` management command).
 For each manager with ``auto_booking_enabled=True``:
-  • Find the next 2 upcoming session windows.
+  • Find the next upcoming session window (1 by default).
   • For each window, find team members who don't already have a scheduled
     check-in with this manager in that window.
   • For each such person, call the slot-finder to locate the first free slot,
@@ -13,7 +13,15 @@ For each manager with ``auto_booking_enabled=True``:
 Design decisions
 ----------------
 • We skip a (manager, person, window) triple if a non-cancelled meeting
-  already exists in that window to avoid double-booking.
+  already exists in that window to avoid double-booking.  This makes the job
+  idempotent — running it multiple times in a week is safe.
+• A per-manager ``already_booked`` list is threaded through the run so the
+  slot-finder can enforce, using that manager's own settings:
+    - ``ManagerProfile.booking_gap_minutes`` — buffer between back-to-back
+      check-ins (default 0)
+    - ``ManagerProfile.max_auto_bookings_per_day`` — max auto-booked
+      check-ins per manager per calendar day (default 2)
+  Both limits apply across windows within the same run.
 • Google credentials are taken from the manager's linked user account.
   Managers without a linked user, or without Google credentials, are skipped
   with a warning.
@@ -22,7 +30,7 @@ Design decisions
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, timedelta
 
 from apps.planner.models import (
     BookingRunLog,
@@ -51,7 +59,7 @@ logger = logging.getLogger(__name__)
 
 def run_auto_bookings(
     *,
-    windows_ahead: int = 2,
+    windows_ahead: int = 1,
     dry_run: bool = False,
     from_date: date | None = None,
     triggered_by: str = BookingRunLog.TRIGGER_CRON,
@@ -63,7 +71,14 @@ def run_auto_bookings(
     """
     from django.utils import timezone
 
-    summary = {"booked": 0, "already_exists": 0, "no_slot": 0, "error": 0, "skipped_no_user": 0}
+    summary = {
+        "booked": 0,
+        "already_exists": 0,
+        "no_slot": 0,
+        "error": 0,
+        "skipped_no_user": 0,
+        "skipped_no_team": 0,
+    }
 
     # Create a run-log entry (skip for dry runs so they don't pollute history)
     run_log = None
@@ -80,12 +95,30 @@ def run_auto_bookings(
             auto_booking_enabled=True
         )
         if not managers.exists():
-            logger.info("auto_booking: no managers with auto_booking_enabled=True")
+            logger.warning("auto_booking: no managers with auto_booking_enabled=True")
             return summary
+
+        logger.info(
+            "auto_booking: processing %d manager(s) with auto_booking_enabled: %s",
+            managers.count(),
+            [m.legacy_id for m in managers],
+        )
+
+        # Track (start_utc, end_utc) tuples for every meeting booked during
+        # this run, keyed by manager id.  Used by the slot-finder to enforce
+        # the 30-minute buffer and daily cap across successive bookings that
+        # are not yet visible in the free/busy snapshot.
+        manager_run_bookings: dict[int, list[tuple]] = {m.id: [] for m in managers}
 
         for manager in managers:
             for window in windows:
-                _process_manager_window(manager, window, summary, dry_run=dry_run)
+                _process_manager_window(
+                    manager,
+                    window,
+                    summary,
+                    dry_run=dry_run,
+                    manager_run_bookings=manager_run_bookings,
+                )
 
     except Exception as exc:
         logger.exception("auto_booking: unexpected error during run")
@@ -98,7 +131,12 @@ def run_auto_bookings(
 
     if run_log is not None:
         run_log.meetings_created = summary["booked"]
-        run_log.meetings_skipped = summary["already_exists"] + summary["no_slot"] + summary["skipped_no_user"]
+        run_log.meetings_skipped = (
+            summary["already_exists"]
+            + summary["no_slot"]
+            + summary["skipped_no_user"]
+            + summary["skipped_no_team"]
+        )
         run_log.errors_count = summary["error"]
         run_log.finished_at = timezone.now()
         run_log.save(update_fields=["meetings_created", "meetings_skipped", "errors_count", "finished_at"])
@@ -120,7 +158,15 @@ def _organizer_user(manager: ManagerProfile):
 def _people_for_manager_in_window(
     manager: ManagerProfile, window: SessionWindow
 ) -> list[Person]:
-    """People on the team assigned to this manager for this session window."""
+    """People on the team assigned to this manager for this session window.
+
+    Excludes:
+    - People without an email address (no calendar to check).
+    - People whose onboarding is still pending or in-progress (guard so that
+      new hires aren't auto-booked before their onboarding is complete).
+    """
+    from apps.planner.services.onboarding_status import onboarding_is_complete
+
     people: list[Person] = []
     for team in TEAM_KEYS:
         session = get_or_create_session(
@@ -129,10 +175,20 @@ def _people_for_manager_in_window(
             team=team,
         )
         if session and session.manager_id == manager.id:
-            memberships = TeamMembership.objects.select_related("person").filter(team=team)
+            memberships = TeamMembership.objects.select_related(
+                "person", "person__onboarding_profile"
+            ).filter(team=team)
             for m in memberships:
-                if m.person.email:  # only people with a calendar we can check
-                    people.append(m.person)
+                person = m.person
+                if not person.email:  # only people with a calendar we can check
+                    continue
+                if not onboarding_is_complete(person):
+                    logger.debug(
+                        "auto_booking: skipping %s — onboarding not complete",
+                        person.legacy_id,
+                    )
+                    continue
+                people.append(person)
     return people
 
 
@@ -191,6 +247,7 @@ def _process_manager_window(
     summary: dict,
     *,
     dry_run: bool,
+    manager_run_bookings: dict[int, list[tuple]],
 ) -> None:
     organizer = _organizer_user(manager)
     if organizer is None:
@@ -204,16 +261,26 @@ def _process_manager_window(
 
     people = _people_for_manager_in_window(manager, window)
     if not people:
-        logger.debug(
-            "auto_booking: manager %s has no team members in window %s",
+        logger.warning(
+            "auto_booking: manager %s has no eligible team members in window %s "
+            "— check rotation config and onboarding status",
             manager.legacy_id,
             window.week_start,
         )
+        summary["skipped_no_team"] += 1
         return
 
     for person in people:
         try:
-            _process_single(manager, person, window, organizer, summary, dry_run=dry_run)
+            _process_single(
+                manager,
+                person,
+                window,
+                organizer,
+                summary,
+                dry_run=dry_run,
+                manager_run_bookings=manager_run_bookings,
+            )
         except Exception:
             logger.exception(
                 "auto_booking: unexpected error for manager=%s person=%s window=%s",
@@ -232,6 +299,7 @@ def _process_single(
     summary: dict,
     *,
     dry_run: bool,
+    manager_run_bookings: dict[int, list[tuple]] | None = None,
 ) -> None:
     from django.conf import settings
     from apps.planner.services.bookings import (
@@ -240,6 +308,8 @@ def _process_single(
         GoogleBookingError,
         create_booking,
     )
+
+    already_booked = (manager_run_bookings or {}).get(manager.id, [])
 
     # Skip if already booked for this window.
     if _meeting_exists_in_window(manager, person, window):
@@ -252,12 +322,16 @@ def _process_single(
         summary["already_exists"] += 1
         return
 
-    # Find a free slot.
+    # Find a free slot, respecting this manager's own buffer and daily cap
+    # settings (configurable on their booking settings page).
     slot = find_available_slot(
         manager=manager,
         person=person,
         window=window,
         organizer_user=organizer_user,
+        buffer_minutes=manager.booking_gap_minutes,
+        max_per_day=manager.max_auto_bookings_per_day,
+        already_booked=already_booked,
     )
 
     if slot is None:
@@ -310,6 +384,13 @@ def _process_single(
             slot.starts_at.isoformat(),
         )
         summary["booked"] += 1
+
+        # Record this slot so subsequent bookings in the same run respect
+        # the 30-minute buffer and daily cap.
+        if manager_run_bookings is not None:
+            end_dt = slot.starts_at + timedelta(minutes=slot.duration_minutes)
+            manager_run_bookings[manager.id].append((slot.starts_at, end_dt))
+
     except BookingError as exc:
         logger.warning(
             "auto_booking: BookingError for manager=%s person=%s: %s",

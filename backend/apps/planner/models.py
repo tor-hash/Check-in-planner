@@ -72,6 +72,13 @@ class Person(AuditFieldsModel):
     linkedin = models.CharField(max_length=255, blank=True, default="")
     dessert = models.CharField(max_length=255, blank=True, default="")
     projects = models.ManyToManyField(Project, blank=True, related_name="people")
+    onboarding_profile = models.OneToOneField(
+        "onboarding.OnboardingProfile",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="planner_person",
+    )
 
     class Meta:
         ordering = ["name"]
@@ -107,7 +114,15 @@ class ManagerProfile(AuditFieldsModel):
     booking_blocked_windows = models.JSONField(default=list, blank=True)
 
     # Default meeting duration in minutes used when auto-booking.
-    preferred_meeting_duration_minutes = models.PositiveSmallIntegerField(default=30)
+    preferred_meeting_duration_minutes = models.PositiveSmallIntegerField(default=15)
+
+    # Maximum number of auto-booked check-ins the auto-booking job may create
+    # for this manager on any single calendar day.
+    max_auto_bookings_per_day = models.PositiveSmallIntegerField(default=2)
+
+    # Minimum gap (in minutes) the auto-booking job must leave between this
+    # manager's back-to-back check-ins. 0 disables the buffer.
+    booking_gap_minutes = models.PositiveSmallIntegerField(default=0)
 
     # Optional list of preferred weekday names (lowercase English), e.g.
     # ["tuesday", "thursday"].  When set the slot-finder tries these days first
@@ -292,6 +307,7 @@ class CheckInMeeting(AuditFieldsModel):
     agenda = models.TextField(blank=True, default="")
     google_event_id = models.CharField(max_length=128, blank=True, default="")
     google_html_link = models.URLField(blank=True, default="")
+    google_meet_link = models.URLField(blank=True, default="")
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default="scheduled")
     journal_entry = models.OneToOneField(
         "JournalEntry",

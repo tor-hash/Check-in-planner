@@ -1,6 +1,10 @@
+import json
+
 from django.contrib.auth.models import Group, User
 from django.test import Client, TestCase
 from django.urls import reverse
+
+from apps.planner.tests.factories import ManagerFactory, UserFactory
 
 
 class PlannerApiTests(TestCase):
@@ -56,3 +60,106 @@ class PlannerApiTests(TestCase):
         }
         response = self.client.put("/api/state/update", data=payload, content_type="application/json")
         self.assertEqual(response.status_code, 200)
+
+
+class ManagerSettingsApiTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.mgr_a = ManagerFactory(legacy_id="mgr-a")
+        self.mgr_b = ManagerFactory(legacy_id="mgr-b")
+        self.user_a = UserFactory(manager_role=True)
+        self.mgr_a.user = self.user_a
+        self.mgr_a.save(update_fields=["user"])
+        self.url_a = f"/api/managers/{self.mgr_a.legacy_id}/settings"
+        self.url_b = f"/api/managers/{self.mgr_b.legacy_id}/settings"
+
+    def test_get_requires_manager_or_admin(self):
+        plain_user = User.objects.create_user(username="plain", email="plain@blackcapitaltechnology.com")
+        self.client.force_login(plain_user)
+        response = self.client.get(self.url_a)
+        self.assertEqual(response.status_code, 403)
+
+    def test_defaults_match_new_settings(self):
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url_a)
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["preferredMeetingDurationMinutes"], 15)
+        self.assertEqual(body["maxAutoBookingsPerDay"], 2)
+        self.assertEqual(body["bookingGapMinutes"], 0)
+
+    def test_manager_can_update_own_limits(self):
+        self.client.force_login(self.user_a)
+        response = self.client.put(
+            self.url_a,
+            data=json.dumps({"maxAutoBookingsPerDay": 4, "bookingGapMinutes": 15}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.mgr_a.refresh_from_db()
+        self.assertEqual(self.mgr_a.max_auto_bookings_per_day, 4)
+        self.assertEqual(self.mgr_a.booking_gap_minutes, 15)
+
+    def test_manager_cannot_update_another_managers_settings(self):
+        self.client.force_login(self.user_a)
+        response = self.client.put(
+            self.url_b,
+            data=json.dumps({"maxAutoBookingsPerDay": 5}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_super_admin_can_update_another_managers_settings(self):
+        admin_group, _ = Group.objects.get_or_create(name="admin")
+        super_admin = UserFactory()
+        super_admin.groups.add(admin_group)
+        self.client.force_login(super_admin)
+        response = self.client.put(
+            self.url_b,
+            data=json.dumps({"maxAutoBookingsPerDay": 6, "bookingGapMinutes": 10}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.mgr_b.refresh_from_db()
+        self.assertEqual(self.mgr_b.max_auto_bookings_per_day, 6)
+        self.assertEqual(self.mgr_b.booking_gap_minutes, 10)
+
+    def test_max_bookings_per_day_out_of_range_rejected(self):
+        self.client.force_login(self.user_a)
+        response = self.client.put(
+            self.url_a,
+            data=json.dumps({"maxAutoBookingsPerDay": 0}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        response = self.client.put(
+            self.url_a,
+            data=json.dumps({"maxAutoBookingsPerDay": 11}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_booking_gap_minutes_out_of_range_rejected(self):
+        self.client.force_login(self.user_a)
+        response = self.client.put(
+            self.url_a,
+            data=json.dumps({"bookingGapMinutes": -5}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        response = self.client.put(
+            self.url_a,
+            data=json.dumps({"bookingGapMinutes": 121}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_managers_directory_includes_names(self):
+        self.client.force_login(self.user_a)
+        response = self.client.get("/api/managers")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertIn("managers", body)
+        ids = {m["id"] for m in body["managers"]}
+        self.assertIn(self.mgr_a.legacy_id, ids)
+        self.assertIn(self.mgr_b.legacy_id, ids)

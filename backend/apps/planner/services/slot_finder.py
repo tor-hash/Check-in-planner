@@ -6,7 +6,10 @@ Given a session window (week_start … week_end), a manager, and a person, it:
      every working day in the window.
   3. Respects the manager's ``booking_blocked_windows`` and
      ``booking_preferred_days`` preferences.
-  4. Returns the first mutually free slot, or ``None`` if none exists.
+  4. Enforces a minimum buffer between meetings (default 30 min) and a
+     maximum number of auto-booked check-ins per manager per calendar day
+     (default 3).
+  5. Returns the first mutually free slot, or ``None`` if none exists.
 
 Strategy
 --------
@@ -18,6 +21,9 @@ Strategy
 • Work-hours come from ``PlannerConfig.work_hours``
   (``{"start": "HH:MM", "end": "HH:MM", "excludeLunch": bool, "weekdaysOnly": bool}``).
 • Lunch exclusion: 12:00–13:00.
+• ``already_booked`` is a list of ``(start_utc, end_utc)`` tuples representing
+  meetings booked earlier in the same auto-booking run that are not yet
+  reflected in the free/busy snapshot (which is queried once per call).
 """
 from __future__ import annotations
 
@@ -49,6 +55,18 @@ _WEEKDAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "satur
 class SlotResult:
     starts_at: datetime  # tz-aware (UTC)
     duration_minutes: int
+
+
+# ---------------------------------------------------------------------------
+# Internal interval helper (for already_booked entries)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _SimpleInterval:
+    """Minimal interval object compatible with _overlaps_busy."""
+    start: datetime
+    end: datetime
 
 
 # ---------------------------------------------------------------------------
@@ -164,13 +182,56 @@ def _slots_for_day(
 
 
 def _overlaps_busy(
-    slot_start: datetime, slot_end: datetime, busy: list  # list[BusyInterval]
+    slot_start: datetime,
+    slot_end: datetime,
+    busy: list,  # list of objects with .start and .end (datetime, UTC)
+    buffer_minutes: int = 0,
 ) -> bool:
-    """Return True if [slot_start, slot_end) overlaps any busy interval."""
+    """Return True if [slot_start, slot_end) is too close to any busy interval.
+
+    With ``buffer_minutes > 0`` a slot is rejected if there is less than
+    ``buffer_minutes`` of free time between it and any existing event.  This
+    ensures meetings are never back-to-back without a breathing gap.
+    """
+    buf = timedelta(minutes=buffer_minutes)
     for interval in busy:
-        if slot_start < interval.end and slot_end > interval.start:
+        # The slot is blocked if it starts before the interval ends (+ buffer)
+        # AND it ends after the interval starts (- buffer).
+        if slot_start < interval.end + buf and slot_end > interval.start - buf:
             return True
     return False
+
+
+def _count_checkins_for_manager_on_day(
+    manager: "ManagerProfile",
+    d: date,
+    tz_name: str,
+) -> int:
+    """Count existing non-cancelled/declined check-in meetings for *manager* on day *d*.
+
+    Used to enforce the per-manager daily meeting cap.
+    """
+    import zoneinfo
+    from apps.planner.models import CheckInMeeting
+
+    tz = zoneinfo.ZoneInfo(tz_name)
+    day_start = datetime(d.year, d.month, d.day, 0, 0, tzinfo=tz)
+    day_end = datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=tz)
+
+    return (
+        CheckInMeeting.objects
+        .filter(manager=manager, starts_at__gte=day_start, starts_at__lte=day_end)
+        .exclude(status__in=["cancelled", "declined"])
+        .count()
+    )
+
+
+def _is_on_day(dt_utc: datetime, d: date, tz_name: str) -> bool:
+    """Return True if *dt_utc* falls on calendar day *d* in the local timezone."""
+    import zoneinfo
+
+    tz = zoneinfo.ZoneInfo(tz_name)
+    return dt_utc.astimezone(tz).date() == d
 
 
 # ---------------------------------------------------------------------------
@@ -186,16 +247,33 @@ def find_available_slot(
     organizer_user,
     duration_minutes: int | None = None,
     tz_name: str | None = None,
+    buffer_minutes: int = 30,
+    max_per_day: int = 3,
+    already_booked: list[tuple[datetime, datetime]] | None = None,
 ) -> SlotResult | None:
     """Return the first mutually free slot in ``window``, or ``None``.
 
-    ``organizer_user`` is the Django ``User`` whose Google credentials are used
-    to call the free/busy API.
+    Parameters
+    ----------
+    organizer_user:
+        The Django ``User`` whose Google credentials are used to call the
+        free/busy API.
+    buffer_minutes:
+        Minimum gap (in minutes) required between any two meetings for this
+        manager.  Defaults to 30.  Pass 0 to disable.
+    max_per_day:
+        Maximum number of auto-booked check-in meetings a manager may have on
+        any single calendar day.  Defaults to 3.  Pass 0 to disable.
+    already_booked:
+        List of ``(start_utc, end_utc)`` tuples for meetings booked earlier in
+        the same auto-booking run.  These are not yet visible in the free/busy
+        snapshot (which is queried once per call) and must be checked manually.
     """
     from apps.planner.google.freebusy import query_freebusy
 
     tz_name = tz_name or getattr(settings, "GOOGLE_CALENDAR_TIMEZONE", "Europe/Copenhagen")
     duration_minutes = duration_minutes or manager.preferred_meeting_duration_minutes or 30
+    already_booked = already_booked or []
 
     work_start, work_end = _work_hours()
     exclude_lunch = _exclude_lunch()
@@ -262,6 +340,8 @@ def find_available_slot(
     emails = list(dict.fromkeys(e for e in emails if e))
 
     busy_by_email: dict = {}
+    manager_email = manager.person.email if manager.person else None
+
     if emails:
         try:
             busy_by_email, errors_by_email = query_freebusy(
@@ -284,8 +364,41 @@ def find_available_slot(
     for email in emails:
         all_busy.extend(busy_by_email.get(email, []))
 
+    # Convert already_booked tuples to interval objects so _overlaps_busy can
+    # treat them the same as Google free/busy intervals.
+    extra_busy = [_SimpleInterval(start=s, end=e) for s, e in already_booked]
+
+    # Combined busy list: Google free/busy + meetings booked this run.
+    combined_busy = all_busy + extra_busy
+
     # Walk candidate slots in chronological order.
     for candidate_date in ordered_dates:
+        # ── Daily cap check ──────────────────────────────────────────────────
+        # db_count  = meetings already committed to the DB (includes this run's
+        #             bookings, which are committed immediately by create_booking).
+        # run_count = meetings booked so far THIS run (from already_booked).
+        #             This overlaps with db_count for same-run bookings, so we
+        #             MUST NOT add them together — that double-counts.  Instead
+        #             we check each source independently: if either says we've
+        #             hit the cap, skip this day.
+        if max_per_day > 0:
+            db_count = _count_checkins_for_manager_on_day(manager, candidate_date, tz_name)
+            run_count = sum(
+                1 for (s, _e) in already_booked
+                if _is_on_day(s, candidate_date, tz_name)
+            )
+            if db_count >= max_per_day or run_count >= max_per_day:
+                logger.info(
+                    "slot_finder: daily cap (%d) reached for manager=%s on %s "
+                    "(db=%d, run=%d) — skipping day",
+                    max_per_day,
+                    manager.legacy_id,
+                    candidate_date,
+                    db_count,
+                    run_count,
+                )
+                continue
+
         slots = _slots_for_day(
             candidate_date,
             duration_minutes,
@@ -302,7 +415,7 @@ def find_available_slot(
             if slot_start < dj_tz.now():
                 continue
 
-            if not _overlaps_busy(slot_start, slot_end, all_busy):
+            if not _overlaps_busy(slot_start, slot_end, combined_busy, buffer_minutes):
                 logger.info(
                     "slot_finder: found slot %s (+%d min) for manager=%s person=%s",
                     slot_start.isoformat(),

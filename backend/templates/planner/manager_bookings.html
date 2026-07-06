@@ -146,10 +146,11 @@
             <th>Person</th>
             <th>Status</th>
             <th>Calendar</th>
+            <th>Meet</th>
           </tr>
         </thead>
         <tbody id="meetings-body">
-          <tr><td colspan="5"><div class="skeleton" style="width:70%"></div></td></tr>
+          <tr><td colspan="6"><div class="skeleton" style="width:70%"></div></td></tr>
         </tbody>
       </table>
     </div>
@@ -229,7 +230,7 @@
         tbody.innerHTML = '';
 
         if (!meetings || meetings.length === 0) {
-          tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No meetings found.</td></tr>';
+          tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No meetings found.</td></tr>';
           return;
         }
 
@@ -240,6 +241,7 @@
           const startsAt = m.startsAt ?? m.starts_at;
           const status = m.status ?? 'scheduled';
           const gcalLink = m.googleHtmlLink ?? m.google_html_link ?? '';
+          const meetLink = m.googleMeetLink ?? m.google_meet_link ?? '';
           const manager = m.managerId ?? m.manager_id ?? m.manager ?? '—';
           const person = m.personId ?? m.person_id ?? m.person ?? '—';
 
@@ -251,12 +253,16 @@
             <td>${gcalLink
               ? '<a class="gcal-link" href="' + gcalLink + '" target="_blank" rel="noopener">Open ↗</a>'
               : '<span class="muted">—</span>'
+            }</td>
+            <td>${meetLink
+              ? '<a class="gcal-link" href="' + meetLink + '" target="_blank" rel="noopener">Join ↗</a>'
+              : '<span class="muted">—</span>'
             }</td>`;
           tbody.appendChild(tr);
         });
       } catch (err) {
         document.getElementById('meetings-body').innerHTML =
-          '<tr class="empty-row"><td colspan="5">Failed to load meetings.</td></tr>';
+          '<tr class="empty-row"><td colspan="6">Failed to load meetings.</td></tr>';
         console.error(err);
       }
     }

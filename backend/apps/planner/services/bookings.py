@@ -62,6 +62,7 @@ def serialize_booking(meeting: CheckInMeeting) -> dict[str, Any]:
         "agenda": meeting.agenda,
         "googleEventId": meeting.google_event_id,
         "googleHtmlLink": meeting.google_html_link,
+        "googleMeetLink": meeting.google_meet_link,
         "status": meeting.status,
         "sessionId": meeting.session_id,
         "journalEntryId": meeting.journal_entry.entry_id if meeting.journal_entry_id else None,
@@ -124,7 +125,10 @@ def create_booking(req: BookingRequest, *, audit_user=None) -> CheckInMeeting:
 
             meeting.google_event_id = created.google_event_id
             meeting.google_html_link = created.html_link
-            meeting.save(update_fields=["google_event_id", "google_html_link", "updated_at"])
+            meeting.google_meet_link = created.meet_link
+            meeting.save(
+                update_fields=["google_event_id", "google_html_link", "google_meet_link", "updated_at"]
+            )
     finally:
         latency_ms = int((time.monotonic() - started) * 1000)
         logger.info(

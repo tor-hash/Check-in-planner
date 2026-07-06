@@ -114,5 +114,26 @@
     deleteEmployee(erpId) {
       return request("/employees/" + encodeURIComponent(erpId), { method: "DELETE" });
     },
+
+    // ── People (all Person records with team + onboarding status) ──────────
+    listPeople() {
+      return request("/people");
+    },
+    assignFlow(erpId, flowSlug) {
+      return request("/employees/" + encodeURIComponent(erpId) + "/assign-flow", {
+        method: "POST",
+        body: { flow_slug: flowSlug },
+      });
+    },
+    removeFlow(erpId) {
+      return request("/employees/" + encodeURIComponent(erpId) + "/assign-flow", {
+        method: "DELETE",
+      });
+    },
+    bookCalendarMeetings(erpId) {
+      return request("/employees/" + encodeURIComponent(erpId) + "/book-calendar-meetings", {
+        method: "POST",
+      });
+    },
   };
 })();

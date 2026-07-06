@@ -31,4 +31,4 @@ RUN DJANGO_ENVIRONMENT=production \
     DATABASE_URL=sqlite:///db.sqlite3 \
     python backend/manage.py collectstatic --noinput
 
-CMD ["sh", "-c", "gunicorn config.wsgi:application --chdir backend --bind 0.0.0.0:${PORT:-8080} --workers 2 --threads 4 --timeout 120"]
+CMD ["sh", "-c", "gunicorn config.wsgi:application --chdir backend --bind 0.0.0.0:${PORT:-8080} --workers 2 --threads 4 --timeout 120 --access-logfile - --error-logfile -"]

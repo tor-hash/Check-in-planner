@@ -1,0 +1,42 @@
+steps:
+  # Build the image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '--no-cache', '-t', 'gcr.io/$PROJECT_ID/checkin-planner', '.']
+
+  # Push the image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/checkin-planner']
+
+  # Deploy to Cloud Run (keeps existing env vars / Cloud SQL config)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - checkin-planner
+      - --image=gcr.io/$PROJECT_ID/checkin-planner
+      - --region=europe-north1
+
+  # Keep migrate-job image in sync with the app image, then run it
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - update
+      - migrate-job
+      - --image=gcr.io/$PROJECT_ID/checkin-planner
+      - --region=europe-north1
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - execute
+      - migrate-job
+      - --region=europe-north1
+      - --wait
+
+images:
+  - 'gcr.io/$PROJECT_ID/checkin-planner'

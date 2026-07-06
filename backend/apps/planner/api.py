@@ -38,6 +38,7 @@ from .services.state import (
     _bump_state_version,
     build_state_payload,
     is_manager_or_admin,
+    is_super_admin,
     persist_state,
     replace_custom_dates,
     replace_function_tags,
@@ -337,8 +338,13 @@ def teams_membership_put(request: HttpRequest, team: str):
 @require_http_methods(["GET", "POST"])
 def managers_collection(request: HttpRequest):
     if request.method == "GET":
-        managers = list(ManagerProfile.objects.order_by("id").values_list("legacy_id", flat=True))
-        return JsonResponse({"mgrs": managers})
+        qs = ManagerProfile.objects.select_related("person").order_by("id")
+        managers = [m.legacy_id for m in qs]
+        directory = [
+            {"id": m.legacy_id, "name": m.person.name if m.person else m.legacy_id}
+            for m in qs
+        ]
+        return JsonResponse({"mgrs": managers, "managers": directory})
 
     if not is_manager_or_admin(request.user):
         return JsonResponse({"detail": "Only manager/admin users can create managers."}, status=403)
@@ -398,9 +404,12 @@ def _validate_blocked_windows(windows: object) -> str | None:
 def _serialize_manager_settings(manager: "ManagerProfile") -> dict:
     return {
         "managerId": manager.legacy_id,
+        "managerName": manager.person.name if manager.person else manager.legacy_id,
         "autoBookingEnabled": manager.auto_booking_enabled,
         "bookingBlockedWindows": manager.booking_blocked_windows,
         "preferredMeetingDurationMinutes": manager.preferred_meeting_duration_minutes,
+        "maxAutoBookingsPerDay": manager.max_auto_bookings_per_day,
+        "bookingGapMinutes": manager.booking_gap_minutes,
         "bookingPreferredDays": manager.booking_preferred_days,
         "notificationEmail": manager.notification_email,
     }
@@ -411,22 +420,31 @@ def _serialize_manager_settings(manager: "ManagerProfile") -> dict:
 def manager_settings(request: HttpRequest, manager_id: str):
     """GET/PUT the booking preferences for a single manager.
 
-    GET is open to any authenticated user (manager IDs are not secret).
-    PUT requires the user to be the manager themselves, or an admin/superuser.
+    GET is open to any authenticated manager/admin user (manager IDs are not
+    secret within the app). PUT requires the user to be the manager
+    themselves, or a super-admin (see ``services.state.is_super_admin``) —
+    being a plain "manager" is no longer sufficient to edit someone else's
+    settings.
     """
-    manager = ManagerProfile.objects.filter(legacy_id=manager_id).first()
+    manager = ManagerProfile.objects.select_related("person").filter(legacy_id=manager_id).first()
     if not manager:
         return JsonResponse({"detail": "Manager not found."}, status=404)
 
     if request.method == "GET":
+        if not is_manager_or_admin(request.user):
+            return JsonResponse(
+                {"detail": "Only manager/admin users can view booking settings."}, status=403
+            )
         return JsonResponse(_serialize_manager_settings(manager))
 
     # --- PUT ---
-    # Only the manager themselves or an admin may change these settings.
+    # Only the manager themselves or a super-admin may change these settings.
     own_manager = getattr(request.user, "manager_profile", None)
     is_own = own_manager is not None and own_manager.pk == manager.pk
-    if not is_own and not is_manager_or_admin(request.user):
-        return JsonResponse({"detail": "You may only update your own settings."}, status=403)
+    if not is_own and not is_super_admin(request.user):
+        return JsonResponse(
+            {"detail": "Only a super-admin may update another manager's settings."}, status=403
+        )
 
     payload, err = _parse_json(request)
     if err:
@@ -453,6 +471,24 @@ def manager_settings(request: HttpRequest, manager_id: str):
                 status=400,
             )
         manager.preferred_meeting_duration_minutes = dur
+
+    if "maxAutoBookingsPerDay" in payload:
+        cap = payload["maxAutoBookingsPerDay"]
+        if not isinstance(cap, int) or isinstance(cap, bool) or cap < 1 or cap > 10:
+            return JsonResponse(
+                {"detail": "maxAutoBookingsPerDay must be an integer between 1 and 10."},
+                status=400,
+            )
+        manager.max_auto_bookings_per_day = cap
+
+    if "bookingGapMinutes" in payload:
+        gap = payload["bookingGapMinutes"]
+        if not isinstance(gap, int) or isinstance(gap, bool) or gap < 0 or gap > 120:
+            return JsonResponse(
+                {"detail": "bookingGapMinutes must be an integer between 0 and 120."},
+                status=400,
+            )
+        manager.booking_gap_minutes = gap
 
     if "bookingPreferredDays" in payload:
         days = payload["bookingPreferredDays"]

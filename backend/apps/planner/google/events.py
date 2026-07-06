@@ -2,11 +2,13 @@
 
 Creates a check-in event on the manager's primary calendar with the developer
 as an invited attendee. Sends the calendar invitation email via
-``sendUpdates=all``.
+``sendUpdates=all``. Every event also requests a Google Meet video link
+(``conferenceData``) so check-ins are always joinable remotely.
 """
 from __future__ import annotations
 
 import logging
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -21,6 +23,7 @@ class CreatedEvent:
     html_link: str
     start: datetime
     end: datetime
+    meet_link: str = ""
 
 
 def _build_calendar_service(user):
@@ -57,6 +60,14 @@ def create_checkin_event(
         "description": agenda or "",
         "start": {"dateTime": starts_at.isoformat(), "timeZone": timezone},
         "end": {"dateTime": ends_at.isoformat(), "timeZone": timezone},
+        # Request a Google Meet link for every check-in. requestId must be
+        # unique per request -- Google dedupes conference creation on it.
+        "conferenceData": {
+            "createRequest": {
+                "requestId": uuid.uuid4().hex,
+                "conferenceSolutionKey": {"type": "hangoutsMeet"},
+            }
+        },
     }
     if attendee_email:
         body["attendees"] = [{"email": attendee_email}]
@@ -65,7 +76,12 @@ def create_checkin_event(
     try:
         created = (
             service.events()
-            .insert(calendarId="primary", body=body, sendUpdates="all")
+            .insert(
+                calendarId="primary",
+                body=body,
+                sendUpdates="all",
+                conferenceDataVersion=1,
+            )
             .execute()
         )
     except Exception:
@@ -82,6 +98,11 @@ def create_checkin_event(
         html_link=created.get("htmlLink") or "",
         start=starts_at,
         end=ends_at,
+        # hangoutLink is Google's convenience top-level field mirroring the
+        # resolved conferenceData entry point -- present once the Meet room
+        # is provisioned. Falls back to "" if conference creation was, for
+        # any reason, not honoured by the API.
+        meet_link=created.get("hangoutLink") or "",
     )
 
 
