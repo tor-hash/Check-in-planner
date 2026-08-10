@@ -22,6 +22,7 @@ from .models import (
     OnboardingFlow,
     OnboardingProfile,
     StepProgress,
+    WelcomeEmailTemplate,
 )
 
 # ---------------------------------------------------------------------------
@@ -176,6 +177,13 @@ def reorder_steps(flow: OnboardingFlow, ordered_step_ids: list[int]) -> Onboardi
 # ---------------------------------------------------------------------------
 # Employee creation
 # ---------------------------------------------------------------------------
+#
+# Creating an employee/profile is deliberately decoupled from attaching an
+# onboarding flow. Attaching a flow (``attach_flow`` below) is the one
+# action that should trigger the flow-attach automation (welcome email,
+# calendar booking, Slack invite) — it always requires an identified acting
+# user (``assigned_by``), which a bare employee-creation call doesn't have.
+# See ``manage_api.assign_flow`` for the only place that automation runs.
 
 
 def _ensure_user(*, email: str, erp_id: str, first_name: str, last_name: str):
@@ -207,32 +215,43 @@ def _ensure_user(*, email: str, erp_id: str, first_name: str, last_name: str):
     return user
 
 
-@transaction.atomic
-def create_employee_with_flow(*, data: dict[str, Any]) -> tuple[OnboardingAssignment, bool]:
-    """Create or upsert an employee and assign them a flow.
+def _link_person_if_unlinked(profile: OnboardingProfile) -> None:
+    """Link an existing planner ``Person`` to this profile, if one matches.
 
-    Returns ``(assignment, created)`` where ``created`` is True only when
-    a brand-new profile was created (so the caller can return 201 vs 200).
+    Employees are often added to the check-in planner (``Person``) before
+    they're ever provisioned into onboarding. When that happens, the
+    ``erp_employee_id`` used to provision them is, by convention, the
+    person's ``legacy_id`` (see ``manage_api.assign_flow`` and the
+    "+ Ny medarbejder" flow in ``employees-editor.js``, which pre-fills and
+    locks the ERP id from ``person.legacy_id``). If such a ``Person`` exists
+    and isn't already linked to a different profile, link it here so the
+    Employees tab picks it up immediately instead of showing an orphaned
+    profile forever.
+
+    No-op (and never raises) when there's no matching ``Person``, the match
+    is already linked, or the planner app isn't installed.
     """
-    slug = data.get("flow_slug")
-    if slug:
-        try:
-            flow = get_flow_by_slug(slug)
-        except OnboardingFlow.DoesNotExist as exc:
-            raise ValidationError(f"Unknown flow_slug '{slug}'.") from exc
-    else:
-        try:
-            flow = get_default_flow()
-        except OnboardingFlow.DoesNotExist as exc:
-            raise ValidationError(str(exc)) from exc
+    try:
+        from apps.planner.models import Person
+    except Exception:  # pragma: no cover - planner app always installed in practice
+        return
+    Person.objects.filter(
+        legacy_id=profile.erp_employee_id, onboarding_profile__isnull=True
+    ).update(onboarding_profile=profile)
 
+
+@transaction.atomic
+def create_employee(*, data: dict[str, Any]) -> tuple[OnboardingProfile, bool]:
+    """Create or upsert an employee's ``OnboardingProfile``. No flow attached.
+
+    Returns ``(profile, created)`` where ``created`` is True only when a
+    brand-new profile was created (so the caller can return 201 vs 200).
+    Idempotent on ``erp_employee_id`` — a replay returns the existing
+    profile untouched.
+    """
     profile = OnboardingProfile.objects.filter(erp_employee_id=data["erp_employee_id"]).first()
     if profile is not None:
-        # Idempotent replay: reuse existing assignment for the same flow.
-        assignment = OnboardingAssignment.objects.filter(profile=profile, flow=flow).first()
-        if assignment is None:
-            assignment = _create_assignment_with_progress(profile=profile, flow=flow)
-        return assignment, False
+        return profile, False
 
     user = _ensure_user(
         email=data["email"],
@@ -249,22 +268,67 @@ def create_employee_with_flow(*, data: dict[str, Any]) -> tuple[OnboardingAssign
         department=data.get("department") or "",
         start_date=data.get("start_date"),
     )
-    assignment = _create_assignment_with_progress(profile=profile, flow=flow)
-    return assignment, True
+    _link_person_if_unlinked(profile)
+    return profile, True
 
 
 @transaction.atomic
 def provision_employee_with_default_flow(
     *, data: dict[str, Any]
-) -> tuple[OnboardingAssignment, bool, bool]:
-    """Ensure default flow exists, then create/upsert employee on that flow.
+) -> tuple[OnboardingProfile, bool, bool]:
+    """Ensure the default flow *template* exists, then create/upsert the employee.
 
-    Returns ``(assignment, employee_created, default_flow_created)``.
+    Does **not** attach the default flow to the employee — attaching is a
+    separate, deliberate action (see ``attach_flow``). This only guarantees
+    there's at least one flow template available for a manager to pick from
+    afterwards. Returns ``(profile, employee_created, default_flow_created)``.
     """
     flow, flow_created = ensure_default_flow()
-    payload = {**data, "flow_slug": flow.slug}
-    assignment, employee_created = create_employee_with_flow(data=payload)
-    return assignment, employee_created, flow_created
+    profile, employee_created = create_employee(data=data)
+    return profile, employee_created, flow_created
+
+
+@transaction.atomic
+def attach_flow(
+    *,
+    profile: OnboardingProfile,
+    flow: OnboardingFlow,
+    requested_by,
+    buddy_name: str = "",
+    buddy_email: str = "",
+) -> tuple[OnboardingAssignment, bool]:
+    """Attach ``flow`` to ``profile`` — the one deliberate "attach" action.
+
+    Idempotent on ``(profile, flow)``: replaying returns the existing
+    assignment unchanged. ``requested_by`` is recorded as ``assigned_by``
+    the first time (backfilled on replay if it was never set, e.g. the
+    assignment originated some other way) since it drives the welcome-email
+    sender and "assigning_manager" meeting organizer resolution. ``buddy_name``
+    / ``buddy_email`` are likewise only set the first time — they're locked
+    in alongside the welcome email, which only ever sends once.
+
+    This function only creates the assignment + step-progress rows. It does
+    **not** run the attach automation (welcome email / calendar booking /
+    Slack invite) or the pre-flight checks that can block an attach — those
+    live in ``manage_api.assign_flow``, which is the only caller. Keeping
+    them there (rather than here) keeps this function usable from tests and
+    any future caller without dragging in Google/Slack side effects.
+
+    Returns ``(assignment, is_new)``.
+    """
+    assignment = OnboardingAssignment.objects.filter(profile=profile, flow=flow).first()
+    is_new = assignment is None
+    if is_new:
+        assignment = _create_assignment_with_progress(profile=profile, flow=flow)
+        assignment.buddy_name = buddy_name
+        assignment.buddy_email = buddy_email
+        assignment.save(update_fields=["buddy_name", "buddy_email", "updated_at"])
+
+    if assignment.assigned_by_id is None:
+        assignment.assigned_by = requested_by
+        assignment.save(update_fields=["assigned_by", "updated_at"])
+
+    return assignment, is_new
 
 
 def get_profile_by_erp_id(erp_id: str) -> OnboardingProfile:
@@ -280,21 +344,27 @@ def get_latest_assignment(profile: OnboardingProfile) -> OnboardingAssignment | 
     )
 
 
-def list_assignments_by_email(*, email: str) -> list[OnboardingAssignment]:
-    """Return the latest onboarding assignment per profile matching ``email``."""
-    profiles = OnboardingProfile.objects.select_related("user").filter(
-        user__email__iexact=email
+def list_profiles_by_email(*, email: str) -> list[OnboardingProfile]:
+    """Return every onboarding profile whose Django user has ``email``.
+
+    Matches by login email, not the (sometimes empty/stale) planner
+    ``Person.email`` — same as before. Includes profiles with no flow
+    attached yet; use ``serialize_employee_state`` to render each.
+    """
+    return list(
+        OnboardingProfile.objects.select_related("user").filter(user__email__iexact=email)
     )
-    out: list[OnboardingAssignment] = []
-    for profile in profiles:
-        assignment = get_latest_assignment(profile)
-        if assignment is not None:
-            out.append(assignment)
-    return out
 
 
 @transaction.atomic
-def update_employee(*, erp_id: str, data: dict[str, Any]) -> OnboardingAssignment:
+def update_employee(*, erp_id: str, data: dict[str, Any]) -> OnboardingProfile:
+    """Update employee identity fields. Does not touch flow attachment.
+
+    Changing or attaching a flow goes exclusively through ``attach_flow`` /
+    the assign-flow and remove-flow endpoints now — see the module docstring
+    above. ``data`` must not contain ``flow_slug``; callers validate that
+    before reaching here (see ``schemas.validate_update_employee``).
+    """
     profile = get_profile_by_erp_id(erp_id)
     user = profile.user
 
@@ -316,22 +386,7 @@ def update_employee(*, erp_id: str, data: dict[str, Any]) -> OnboardingAssignmen
 
     profile.save()
     user.save()
-
-    assignment = None
-    if "flow_slug" in data:
-        try:
-            flow = get_flow_by_slug(data["flow_slug"])
-        except OnboardingFlow.DoesNotExist as exc:
-            raise ValidationError(f"Unknown flow_slug '{data['flow_slug']}'.") from exc
-        assignment = OnboardingAssignment.objects.filter(profile=profile, flow=flow).first()
-        if assignment is None:
-            assignment = _create_assignment_with_progress(profile=profile, flow=flow)
-    else:
-        assignment = get_latest_assignment(profile)
-
-    if assignment is None:
-        raise ValidationError("Employee has no onboarding flow assignment.")
-    return assignment
+    return profile
 
 
 @transaction.atomic
@@ -346,14 +401,9 @@ def delete_employee(*, erp_id: str) -> None:
     user.delete()
 
 
-def list_employee_assignments() -> list[OnboardingAssignment]:
-    profiles = OnboardingProfile.objects.select_related("user").order_by("-created_at")
-    out: list[OnboardingAssignment] = []
-    for profile in profiles:
-        assignment = get_latest_assignment(profile)
-        if assignment is not None:
-            out.append(assignment)
-    return out
+def list_employee_profiles() -> list[OnboardingProfile]:
+    """All onboarding profiles, newest first — with or without a flow attached."""
+    return list(OnboardingProfile.objects.select_related("user").order_by("-created_at"))
 
 
 def _create_assignment_with_progress(
@@ -466,58 +516,16 @@ def serialize_step_progress(progress: StepProgress) -> dict[str, Any]:
     }
 
 
-def serialize_employee_summary(assignment: OnboardingAssignment) -> dict[str, Any]:
-    profile = assignment.profile
-    return {
-        "erp_employee_id": profile.erp_employee_id,
-        "email": profile.user.email,
-        "first_name": profile.first_name,
-        "last_name": profile.last_name,
-        "position": profile.position,
-        "department": profile.department,
-        "start_date": profile.start_date.isoformat() if profile.start_date else None,
-    }
+def serialize_employee_summary(profile: OnboardingProfile) -> dict[str, Any]:
+    """Employee identity fields, with planner-``Person`` fallbacks.
 
-
-def serialize_provision_response(
-    *,
-    assignment: OnboardingAssignment,
-    employee_created: bool,
-    default_flow_created: bool,
-) -> dict[str, Any]:
-    """Structured payload for integrators provisioning a new hire."""
-    assignment_body = serialize_assignment(assignment)
-    return {
-        "created": employee_created,
-        "default_flow_created": default_flow_created,
-        "default_flow_slug": DEFAULT_FLOW_SLUG,
-        "employee": serialize_employee_summary(assignment),
-        "assignment": {
-            "status": assignment_body["status"],
-            "assigned_at": assignment_body["assigned_at"],
-            "started_at": assignment_body["started_at"],
-            "completed_at": assignment_body["completed_at"],
-        },
-        "flow": serialize_flow(assignment.flow),
-        "steps": assignment_body["steps"],
-    }
-
-
-def serialize_assignment(assignment: OnboardingAssignment) -> dict[str, Any]:
-    profile = assignment.profile
-    progresses = (
-        StepProgress.objects.filter(assignment=assignment)
-        .select_related("step")
-        .order_by("step__order")
-    )
-
-    # Fall back to the linked planner Person when OnboardingProfile fields are
-    # empty (common for people added directly in the check-in planner rather
-    # than provisioned through the onboarding API).
+    Falls back to the linked planner ``Person`` when ``OnboardingProfile``
+    fields are empty (common for people added directly in the check-in
+    planner and only later provisioned into onboarding).
+    """
     person = getattr(profile, "planner_person", None)
 
     def _first(*vals: str) -> str:
-        """Return the first non-empty string, or ''."""
         for v in vals:
             if v:
                 return v
@@ -538,6 +546,63 @@ def serialize_assignment(assignment: OnboardingAssignment) -> dict[str, Any]:
         "position": _first(profile.position, person.title if person else ""),
         "department": _first(profile.department, person.function_name if person else ""),
         "start_date": profile.start_date.isoformat() if profile.start_date else None,
+    }
+
+
+def serialize_provision_response(
+    *,
+    profile: OnboardingProfile,
+    employee_created: bool,
+    default_flow_created: bool,
+) -> dict[str, Any]:
+    """Structured payload for integrators provisioning a new hire.
+
+    No flow/assignment/steps in this response — provisioning only creates
+    the employee record now. A manager attaches a flow afterwards via the
+    UI ("Tildel flow"), which is also what triggers the welcome email,
+    calendar booking, and Slack invite.
+    """
+    return {
+        "created": employee_created,
+        "default_flow_created": default_flow_created,
+        "default_flow_slug": DEFAULT_FLOW_SLUG,
+        "employee": serialize_employee_summary(profile),
+    }
+
+
+def serialize_employee_state(profile: OnboardingProfile) -> dict[str, Any]:
+    """Serialise a profile's current onboarding state, flow attached or not.
+
+    Delegates to ``serialize_assignment`` when there's a latest assignment;
+    otherwise returns the same shape with ``flow: None`` / ``status:
+    "no_flow"`` / empty ``steps``. Callers (both the manage and service API)
+    use this instead of assuming an assignment always exists — it doesn't,
+    now that employee creation no longer auto-attaches a flow.
+    """
+    assignment = get_latest_assignment(profile)
+    if assignment is not None:
+        return serialize_assignment(assignment)
+    return {
+        **serialize_employee_summary(profile),
+        "status": "no_flow",
+        "assigned_at": None,
+        "started_at": None,
+        "completed_at": None,
+        "flow": None,
+        "steps": [],
+        "buddy_name": None,
+        "buddy_email": None,
+    }
+
+
+def serialize_assignment(assignment: OnboardingAssignment) -> dict[str, Any]:
+    progresses = (
+        StepProgress.objects.filter(assignment=assignment)
+        .select_related("step")
+        .order_by("step__order")
+    )
+    return {
+        **serialize_employee_summary(assignment.profile),
         "status": assignment.status,
         "assigned_at": assignment.assigned_at.isoformat(),
         "started_at": assignment.started_at.isoformat() if assignment.started_at else None,
@@ -548,6 +613,8 @@ def serialize_assignment(assignment: OnboardingAssignment) -> dict[str, Any]:
             "description": assignment.flow.description,
         },
         "steps": [serialize_step_progress(p) for p in progresses],
+        "buddy_name": assignment.buddy_name or None,
+        "buddy_email": assignment.buddy_email or None,
     }
 
 
@@ -571,3 +638,53 @@ def serialize_flow(flow: OnboardingFlow) -> dict[str, Any]:
             for step in flow.steps.all().order_by("order")
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Welcome email templates ("Velkomstmail" tab) — CRUD on WelcomeEmailTemplate
+# itself. Rendering/merge-tags/resolution-order lives in welcome_email.py;
+# import it lazily below to avoid a module-level circular import (that
+# module doesn't need anything from here, but keeping the import local
+# mirrors how manage_api.py already lazily imports sibling modules).
+# ---------------------------------------------------------------------------
+
+
+def serialize_welcome_email_template_for_flow(flow: OnboardingFlow) -> dict[str, Any]:
+    from .welcome_email import resolve_welcome_email_template
+
+    template, source, fallback_flow_slug = resolve_welcome_email_template(flow)
+    is_own = source == "own"
+    return {
+        "flow_slug": flow.slug,
+        "source": source,
+        "has_own_template": is_own,
+        "is_default_fallback": bool(template.is_default_fallback) if is_own else False,
+        "fallback_flow_slug": fallback_flow_slug,
+        "subject": template.subject,
+        "html_body": template.html_body,
+        "updated_at": template.updated_at.isoformat() if is_own else None,
+        "updated_by": getattr(template.updated_by, "email", None) if is_own and template.updated_by_id else None,
+    }
+
+
+@transaction.atomic
+def save_welcome_email_template(
+    flow: OnboardingFlow, *, data: dict[str, Any], updated_by
+) -> WelcomeEmailTemplate:
+    template, _created = WelcomeEmailTemplate.objects.update_or_create(
+        flow=flow,
+        defaults={
+            "subject": data["subject"],
+            "html_body": data["html_body"],
+            "is_default_fallback": data.get("is_default_fallback", False),
+            "updated_by": updated_by,
+        },
+    )
+    return template
+
+
+@transaction.atomic
+def delete_welcome_email_template(flow: OnboardingFlow) -> bool:
+    """Delete this flow's own template, if any. Returns whether one existed."""
+    deleted, _ = WelcomeEmailTemplate.objects.filter(flow=flow).delete()
+    return deleted > 0

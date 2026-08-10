@@ -25,7 +25,7 @@ class CreateEmployeeTests(TestCase):
             **extra,
         )
 
-    def test_creates_user_profile_assignment_and_progress(self):
+    def test_creates_user_and_profile_with_no_flow_attached(self):
         response = self._post(
             {
                 "erp_employee_id": "E1234",
@@ -41,8 +41,10 @@ class CreateEmployeeTests(TestCase):
         body = response.json()
         self.assertEqual(body["erp_employee_id"], "E1234")
         self.assertEqual(body["email"], "jane@blackcapitaltechnology.com")
-        self.assertEqual(body["status"], "pending")
-        self.assertEqual(len(body["steps"]), self.flow.steps.count())
+        # Creation never attaches a flow — see services.py module docstring.
+        self.assertEqual(body["status"], "no_flow")
+        self.assertIsNone(body["flow"])
+        self.assertEqual(body["steps"], [])
 
         User = get_user_model()
         user = User.objects.get(email="jane@blackcapitaltechnology.com")
@@ -51,8 +53,8 @@ class CreateEmployeeTests(TestCase):
 
         profile = OnboardingProfile.objects.get(erp_employee_id="E1234")
         self.assertEqual(profile.position, "Backend dev")
-        self.assertEqual(StepProgress.objects.filter(assignment__profile=profile).count(),
-                         self.flow.steps.count())
+        self.assertEqual(OnboardingAssignment.objects.filter(profile=profile).count(), 0)
+        self.assertEqual(StepProgress.objects.filter(assignment__profile=profile).count(), 0)
 
     def test_idempotent_replay_returns_200(self):
         payload = {
@@ -63,16 +65,12 @@ class CreateEmployeeTests(TestCase):
         response = self._post(payload)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(OnboardingProfile.objects.filter(erp_employee_id="E1234").count(), 1)
-        self.assertEqual(
-            OnboardingAssignment.objects.filter(profile__erp_employee_id="E1234").count(),
-            1,
-        )
 
     def test_rejects_bad_email(self):
         response = self._post({"erp_employee_id": "E1", "email": "not-an-email"})
         self.assertEqual(response.status_code, 400)
 
-    def test_rejects_unknown_flow_slug(self):
+    def test_rejects_flow_slug(self):
         response = self._post(
             {
                 "erp_employee_id": "E1",
@@ -81,19 +79,7 @@ class CreateEmployeeTests(TestCase):
             }
         )
         self.assertEqual(response.status_code, 400)
-        self.assertIn("Unknown flow_slug", response.json()["detail"])
-
-    def test_no_default_flow_returns_400(self):
-        # Delete the default flow and try to create without slug.
-        self.flow.is_default = False
-        self.flow.is_active = False
-        self.flow.save()
-        response = self._post(
-            {"erp_employee_id": "E1", "email": "x@blackcapitaltechnology.com"}
-        )
-        # No active flows -> services raises DoesNotExist -> 500.
-        # We want a 4xx so let's at least confirm it's a known failure.
-        self.assertIn(response.status_code, (400, 500))
+        self.assertIn("flow_slug", response.json()["detail"])
 
 
 @override_settings(ONBOARDING_API_TOKEN="secret")
@@ -110,15 +96,15 @@ class GetEmployeeTests(TestCase):
             HTTP_X_API_KEY="secret",
         )
 
-    def test_get_returns_full_payload(self):
+    def test_get_returns_employee_with_no_flow_attached(self):
         response = self.client.get(
             "/api/onboarding/employees/E1", HTTP_X_API_KEY="secret"
         )
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(body["erp_employee_id"], "E1")
-        self.assertEqual(body["flow"]["slug"], "default")
-        self.assertTrue(all(s["status"] == "pending" for s in body["steps"]))
+        self.assertIsNone(body["flow"])
+        self.assertEqual(body["status"], "no_flow")
 
     def test_get_missing_returns_404(self):
         response = self.client.get(
@@ -155,7 +141,7 @@ class EmployeesByEmailTests(TestCase):
             HTTP_X_API_KEY="secret",
         )
 
-    def test_get_by_email_query_returns_assignment(self):
+    def test_get_by_email_query_returns_employee_state(self):
         response = self.client.get(
             "/api/onboarding/employees/by-email",
             {"email": "lookup@blackcapitaltechnology.com"},
@@ -165,8 +151,7 @@ class EmployeesByEmailTests(TestCase):
         body = response.json()
         self.assertEqual(body["erp_employee_id"], "E1")
         self.assertEqual(body["email"], "lookup@blackcapitaltechnology.com")
-        self.assertEqual(body["flow"]["slug"], "default")
-        self.assertGreaterEqual(len(body["steps"]), 1)
+        self.assertIsNone(body["flow"])
 
     def test_get_by_email_is_case_insensitive(self):
         response = self.client.get(

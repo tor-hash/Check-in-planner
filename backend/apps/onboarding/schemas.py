@@ -35,8 +35,21 @@ def _opt_str(value: Any, name: str, *, max_length: int) -> tuple[str, JsonRespon
 
 
 def validate_create_employee(payload: Any) -> tuple[dict[str, Any] | None, JsonResponse | None]:
+    """Validate an employee-creation payload.
+
+    ``flow_slug`` is intentionally not accepted here — creating an employee
+    never attaches a flow. Attaching one is a separate, deliberate action
+    (the manage API's assign-flow endpoint) and is the only place the
+    welcome email / calendar booking / Slack invite automation runs.
+    """
     if not isinstance(payload, dict):
         return None, _err("Body must be a JSON object.")
+
+    if "flow_slug" in payload:
+        return None, _err(
+            "flow_slug is not accepted when creating an employee. Create the "
+            "employee first, then attach a flow via the assign-flow action."
+        )
 
     erp_id = payload.get("erp_employee_id")
     if not isinstance(erp_id, str) or not _ERP_ID_RE.match(erp_id.strip()):
@@ -71,12 +84,6 @@ def validate_create_employee(payload: Any) -> tuple[dict[str, Any] | None, JsonR
         except ValueError:
             return None, _err("start_date must be an ISO date string (YYYY-MM-DD).")
 
-    flow_slug = payload.get("flow_slug")
-    if flow_slug is not None:
-        if not isinstance(flow_slug, str) or not flow_slug.strip():
-            return None, _err("flow_slug must be a non-empty string when provided.")
-        flow_slug = flow_slug.strip()
-
     return (
         {
             "erp_employee_id": erp_id,
@@ -86,7 +93,6 @@ def validate_create_employee(payload: Any) -> tuple[dict[str, Any] | None, JsonR
             "position": position,
             "department": department,
             "start_date": start_date,
-            "flow_slug": flow_slug,
         },
         None,
     )
@@ -95,16 +101,12 @@ def validate_create_employee(payload: Any) -> tuple[dict[str, Any] | None, JsonR
 def validate_provision_employee(
     payload: Any,
 ) -> tuple[dict[str, Any] | None, JsonResponse | None]:
-    """Like ``validate_create_employee`` but always uses the default flow."""
-    cleaned, err = validate_create_employee(payload)
-    if err is not None:
-        return None, err
-    if cleaned.get("flow_slug"):
-        return None, _err(
-            "flow_slug is not accepted on provision; the default flow is assigned automatically."
-        )
-    cleaned.pop("flow_slug", None)
-    return cleaned, None
+    """Alias of ``validate_create_employee`` (kept for call-site clarity).
+
+    ``/provision`` ensures the default flow *template* exists but — like
+    plain employee creation — no longer attaches it automatically.
+    """
+    return validate_create_employee(payload)
 
 
 def validate_email_lookup(value: Any) -> tuple[str | None, JsonResponse | None]:
@@ -117,8 +119,21 @@ def validate_email_lookup(value: Any) -> tuple[str | None, JsonResponse | None]:
 
 
 def validate_update_employee(payload: Any) -> tuple[dict[str, Any] | None, JsonResponse | None]:
+    """Validate an employee-update (PATCH) payload.
+
+    ``flow_slug`` is not accepted — changing an employee's flow goes
+    through the assign-flow / remove-flow endpoints, never a plain field
+    update, so that attaching a (new) flow always runs through the same
+    deliberate-action path (pre-flight checks + automation).
+    """
     if not isinstance(payload, dict):
         return None, _err("Body must be a JSON object.")
+
+    if "flow_slug" in payload:
+        return None, _err(
+            "flow_slug cannot be changed via PATCH. Use the assign-flow "
+            "endpoint to attach a different flow."
+        )
 
     cleaned: dict[str, Any] = {}
 
@@ -147,26 +162,9 @@ def validate_update_employee(payload: Any) -> tuple[dict[str, Any] | None, JsonR
             except ValueError:
                 return None, _err("start_date must be an ISO date string (YYYY-MM-DD).")
 
-    if "flow_slug" in payload:
-        slug = payload.get("flow_slug")
-        if not isinstance(slug, str) or not slug.strip():
-            return None, _err("flow_slug must be a non-empty string when provided.")
-        cleaned["flow_slug"] = slug.strip()
-
     if not cleaned:
         return None, _err("No fields to update.")
 
-    return cleaned, None
-
-
-def validate_create_employee_manage(
-    payload: Any, *, require_flow: bool = True
-) -> tuple[dict[str, Any] | None, JsonResponse | None]:
-    cleaned, err = validate_create_employee(payload)
-    if err is not None:
-        return None, err
-    if require_flow and not cleaned.get("flow_slug"):
-        return None, _err("flow_slug is required.")
     return cleaned, None
 
 
@@ -323,3 +321,120 @@ def validate_step_progress_patch(payload: Any) -> tuple[dict[str, Any] | None, J
         },
         None,
     )
+
+
+_SUBJECT_MAX = 255
+_HTML_BODY_MAX = 100_000
+
+
+def validate_welcome_email_template(payload: Any) -> tuple[dict[str, Any] | None, JsonResponse | None]:
+    """Validate a welcome-email-template save payload (PUT .../welcome-email).
+
+    Template *syntax* (bad ``{% %}``/``{{ }}``) is not checked here — that
+    requires actually rendering it, which the view does separately via
+    ``welcome_email.validate_template_syntax`` so both failure modes end up
+    as the same 400 shape.
+    """
+    if not isinstance(payload, dict):
+        return None, _err("Body must be a JSON object.")
+
+    subject = payload.get("subject")
+    if not isinstance(subject, str) or not subject.strip():
+        return None, _err("subject is required.")
+    subject = subject.strip()
+    if len(subject) > _SUBJECT_MAX:
+        return None, _err(f"subject must be at most {_SUBJECT_MAX} chars.")
+
+    html_body = payload.get("html_body")
+    if not isinstance(html_body, str) or not html_body.strip():
+        return None, _err("html_body is required.")
+    if len(html_body) > _HTML_BODY_MAX:
+        return None, _err(f"html_body must be at most {_HTML_BODY_MAX} chars.")
+
+    is_default_fallback = payload.get("is_default_fallback", False)
+    is_default_fallback_bool, err = _require_bool(is_default_fallback, "is_default_fallback")
+    if err is not None:
+        return None, err
+
+    return (
+        {
+            "subject": subject,
+            "html_body": html_body,
+            "is_default_fallback": is_default_fallback_bool,
+        },
+        None,
+    )
+
+
+def validate_welcome_email_preview(payload: Any) -> tuple[dict[str, Any] | None, JsonResponse | None]:
+    """Validate a preview-render request.
+
+    Every field is optional: an empty body previews the flow's currently
+    *saved* effective template with placeholder sample data. ``subject``/
+    ``html_body`` (both required together) preview unsaved draft content
+    instead — used by the "Velkomstmail" editor so the preview reflects
+    what's in the textarea, not what's on disk. ``erp_id`` renders with a
+    real employee's data instead of the placeholder sample.
+    """
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict):
+        return None, _err("Body must be a JSON object.")
+
+    has_subject = "subject" in payload and payload.get("subject") not in (None, "")
+    has_html = "html_body" in payload and payload.get("html_body") not in (None, "")
+    if has_subject != has_html:
+        return None, _err("subject and html_body must be provided together, or not at all.")
+
+    cleaned: dict[str, Any] = {}
+    if has_subject:
+        subject, err = _opt_str(payload.get("subject"), "subject", max_length=_SUBJECT_MAX)
+        if err is not None:
+            return None, err
+        html_body = payload.get("html_body")
+        if not isinstance(html_body, str):
+            return None, _err("html_body must be a string.")
+        if len(html_body) > _HTML_BODY_MAX:
+            return None, _err(f"html_body must be at most {_HTML_BODY_MAX} chars.")
+        cleaned["subject"] = subject
+        cleaned["html_body"] = html_body
+
+    erp_id, err = _opt_str(payload.get("erp_id"), "erp_id", max_length=64)
+    if err is not None:
+        return None, err
+    cleaned["erp_id"] = erp_id
+
+    buddy_name, err = _opt_str(payload.get("buddy_name"), "buddy_name", max_length=_NAME_MAX)
+    if err is not None:
+        return None, err
+    cleaned["buddy_name"] = buddy_name
+
+    buddy_email_raw = payload.get("buddy_email")
+    if buddy_email_raw:
+        if not isinstance(buddy_email_raw, str) or not _EMAIL_RE.match(buddy_email_raw.strip().lower()):
+            return None, _err("buddy_email must be a valid email address.")
+        cleaned["buddy_email"] = buddy_email_raw.strip()
+    else:
+        cleaned["buddy_email"] = ""
+
+    return cleaned, None
+
+
+def validate_buddy_fields(payload: Any) -> tuple[dict[str, Any] | None, JsonResponse | None]:
+    """Validate the optional buddy_name/buddy_email on an assign-flow payload."""
+    if not isinstance(payload, dict):
+        return None, _err("Body must be a JSON object.")
+
+    buddy_name, err = _opt_str(payload.get("buddy_name"), "buddy_name", max_length=_NAME_MAX)
+    if err is not None:
+        return None, err
+
+    buddy_email_raw = payload.get("buddy_email")
+    if buddy_email_raw:
+        if not isinstance(buddy_email_raw, str) or not _EMAIL_RE.match(buddy_email_raw.strip().lower()):
+            return None, _err("buddy_email must be a valid email address.")
+        buddy_email = buddy_email_raw.strip()
+    else:
+        buddy_email = ""
+
+    return {"buddy_name": buddy_name, "buddy_email": buddy_email}, None

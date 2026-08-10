@@ -176,10 +176,17 @@ class CalendarMeetingComponent(_Component):
     type_id = "calendar_meeting"
     label = "Calendar meeting"
 
+    # Sentinel for config.with_email meaning "whoever attached this flow to
+    # the employee" (OnboardingAssignment.assigned_by), resolved at booking
+    # time rather than baked into the flow template as a literal address.
+    # Lets a single "1:1 with your manager" step work for any employee
+    # regardless of who their manager actually is.
+    ASSIGNING_MANAGER_SENTINEL = "assigning_manager"
+
     @classmethod
     def default_config(cls) -> dict[str, Any]:
         return {
-            "with_email": "manager@blackcapitaltechnology.com",
+            "with_email": cls.ASSIGNING_MANAGER_SENTINEL,
             "duration_minutes": 30,
             "suggested_window": "first week",
         }
@@ -188,8 +195,11 @@ class CalendarMeetingComponent(_Component):
     def validate_config(cls, config: Any) -> None:
         cfg = _require_dict(config, "config")
         with_email = _require_str(cfg.get("with_email"), "config.with_email")
-        if "@" not in with_email:
-            raise ValidationError("config.with_email must be an email address.")
+        if with_email != cls.ASSIGNING_MANAGER_SENTINEL and "@" not in with_email:
+            raise ValidationError(
+                "config.with_email must be an email address or "
+                f"'{cls.ASSIGNING_MANAGER_SENTINEL}'."
+            )
         duration = cfg.get("duration_minutes", 30)
         if not isinstance(duration, int) or duration < _DURATION_MIN or duration > _DURATION_MAX:
             raise ValidationError(

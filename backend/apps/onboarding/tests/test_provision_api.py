@@ -23,7 +23,7 @@ class ProvisionApiTests(TestCase):
             HTTP_X_API_KEY="secret",
         )
 
-    def test_provision_seeds_default_flow_and_creates_employee(self):
+    def test_provision_seeds_default_flow_template_and_creates_employee(self):
         response = self._post(
             {
                 "erp_employee_id": "E5001",
@@ -39,14 +39,19 @@ class ProvisionApiTests(TestCase):
         self.assertEqual(body["default_flow_slug"], "default")
         self.assertEqual(body["employee"]["erp_employee_id"], "E5001")
         self.assertEqual(body["employee"]["email"], "hire@blackcapitaltechnology.com")
-        self.assertEqual(body["flow"]["slug"], "default")
-        self.assertEqual(len(body["flow"]["steps"]), 4)
-        self.assertEqual(len(body["steps"]), 4)
-        self.assertEqual(body["assignment"]["status"], "pending")
+        # No flow/assignment/steps here — provisioning only creates the
+        # employee record. A manager attaches a flow separately (UI).
+        self.assertNotIn("flow", body)
+        self.assertNotIn("assignment", body)
+        self.assertNotIn("steps", body)
 
         flow = OnboardingFlow.objects.get(slug="default")
         self.assertTrue(flow.is_default)
         self.assertEqual(FlowStep.objects.filter(flow=flow).count(), 4)
+        self.assertEqual(
+            OnboardingProfile.objects.filter(erp_employee_id="E5001").first().assignments.count(),
+            0,
+        )
 
         User = get_user_model()
         user = User.objects.get(email="hire@blackcapitaltechnology.com")

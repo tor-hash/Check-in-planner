@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 from django.test import TestCase
 
 from apps.planner.google import freebusy as fb_module
-from apps.planner.google.events import create_checkin_event
+from apps.planner.google.events import add_meet_link_to_event, create_checkin_event
 
 
 class _FakeFreeBusyResource:
@@ -28,7 +28,23 @@ class _FakeEventsResource:
     def insert(self, calendarId, body, sendUpdates, conferenceDataVersion=None):  # noqa: N803 (Google API casing)
         self.calls.append(
             {
+                "op": "insert",
                 "calendarId": calendarId,
+                "body": body,
+                "sendUpdates": sendUpdates,
+                "conferenceDataVersion": conferenceDataVersion,
+            }
+        )
+        resource = MagicMock()
+        resource.execute.return_value = self._response
+        return resource
+
+    def patch(self, calendarId, eventId, body, sendUpdates, conferenceDataVersion=None):  # noqa: N803
+        self.calls.append(
+            {
+                "op": "patch",
+                "calendarId": calendarId,
+                "eventId": eventId,
                 "body": body,
                 "sendUpdates": sendUpdates,
                 "conferenceDataVersion": conferenceDataVersion,
@@ -185,3 +201,48 @@ class CreateEventTests(TestCase):
                 starts_at=datetime(2026, 1, 12, 10, tzinfo=UTC),
                 duration_minutes=999,
             )
+
+
+
+class AddMeetLinkToEventTests(TestCase):
+    @patch("apps.planner.google.events._build_calendar_service")
+    def test_patches_conference_data_without_notifying_by_default(self, mock_build):
+        events_resource = _FakeEventsResource(
+            {"id": "evt-1", "hangoutLink": "https://meet.google.com/xyz-abcd-efg"}
+        )
+        service = MagicMock()
+        service.events.return_value = events_resource
+        mock_build.return_value = service
+
+        link = add_meet_link_to_event(organizer_user=MagicMock(), google_event_id="evt-1")
+
+        self.assertEqual(link, "https://meet.google.com/xyz-abcd-efg")
+        call = events_resource.calls[0]
+        self.assertEqual(call["op"], "patch")
+        self.assertEqual(call["eventId"], "evt-1")
+        self.assertEqual(call["sendUpdates"], "none")
+        self.assertEqual(call["conferenceDataVersion"], 1)
+        conf = call["body"]["conferenceData"]["createRequest"]
+        self.assertEqual(conf["conferenceSolutionKey"], {"type": "hangoutsMeet"})
+
+    @patch("apps.planner.google.events._build_calendar_service")
+    def test_can_request_attendee_notification(self, mock_build):
+        events_resource = _FakeEventsResource({"id": "evt-1", "hangoutLink": "https://meet.google.com/x"})
+        service = MagicMock()
+        service.events.return_value = events_resource
+        mock_build.return_value = service
+
+        add_meet_link_to_event(
+            organizer_user=MagicMock(), google_event_id="evt-1", send_updates="all"
+        )
+        self.assertEqual(events_resource.calls[0]["sendUpdates"], "all")
+
+    @patch("apps.planner.google.events._build_calendar_service")
+    def test_returns_empty_string_when_not_resolved(self, mock_build):
+        events_resource = _FakeEventsResource({"id": "evt-1"})
+        service = MagicMock()
+        service.events.return_value = events_resource
+        mock_build.return_value = service
+
+        link = add_meet_link_to_event(organizer_user=MagicMock(), google_event_id="evt-1")
+        self.assertEqual(link, "")

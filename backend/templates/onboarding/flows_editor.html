@@ -20,6 +20,7 @@
     <div class="view-tabs-inner">
       <button type="button" class="tab active" id="tab-flows" data-view="flows">Flows</button>
       <button type="button" class="tab" id="tab-employees" data-view="employees">Medarbejdere</button>
+      <button type="button" class="tab" id="tab-welcome-email" data-view="welcome-email">Velkomstmail</button>
     </div>
   </nav>
 
@@ -134,16 +135,66 @@
             <label for="emp-start-date">Startdato</label>
             <input type="date" id="emp-start-date">
           </div>
-          <div class="field">
-            <label for="emp-flow-slug">Onboarding-flow</label>
-            <select id="emp-flow-slug" required></select>
-          </div>
           <p id="emp-meta" class="hint hidden"></p>
         </form>
       </section>
 
       <section class="panel empty-state" id="emp-empty-state">
         <p>Vælg en medarbejder i listen, eller opret en ny.</p>
+      </section>
+    </main>
+  </div>
+
+  <div id="welcome-email-view" class="hidden">
+    <main class="layout">
+      <aside class="panel list-panel" id="we-flow-picker-panel">
+        <div class="panel-head">
+          <h2>Vælg flow</h2>
+        </div>
+        <select id="we-flow-select" class="we-flow-select"></select>
+        <p class="hint" id="we-source-hint"></p>
+        <p class="hint">
+          Ét flow kan markeres som standard-skabelon og bruges automatisk af
+          alle flows, der ikke har deres egen velkomstmail.
+        </p>
+      </aside>
+
+      <section class="panel editor-panel" id="we-editor-panel">
+        <div class="panel-head">
+          <h2>Rediger velkomstmail</h2>
+          <div class="panel-head-actions">
+            <button type="button" class="btn danger ghost" id="btn-we-reset">Nulstil til standard</button>
+            <button type="button" class="btn" id="btn-we-save">Gem</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="we-subject">Emnelinje</label>
+          <input type="text" id="we-subject" maxlength="255">
+        </div>
+        <label class="check">
+          <input type="checkbox" id="we-is-default">
+          Brug som standard-skabelon for flows uden egen velkomstmail
+        </label>
+
+        <div class="we-split">
+          <div class="we-html-col">
+            <div class="field">
+              <label for="we-html">HTML-indhold</label>
+              <textarea id="we-html" class="mono" rows="26" spellcheck="false"></textarea>
+            </div>
+            <details class="advanced-json" open>
+              <summary>Merge-tags</summary>
+              <div id="we-merge-tags" class="merge-tags"></div>
+            </details>
+          </div>
+          <div class="we-preview-col">
+            <div class="field">
+              <label>Forhåndsvisning <span class="hint" id="we-preview-status"></span></label>
+              <iframe id="we-preview-frame" class="preview-frame preview-frame-lg" sandbox=""></iframe>
+            </div>
+          </div>
+        </div>
       </section>
     </main>
   </div>
@@ -184,11 +235,48 @@
     </form>
   </dialog>
 
+  <dialog id="assign-flow-dialog" class="step-dialog assign-flow-dialog">
+    <form id="assign-flow-form">
+      <h3>Tildel onboarding-flow</h3>
+      <div class="field">
+        <label for="assign-flow-select">Flow</label>
+        <select id="assign-flow-select" required></select>
+      </div>
+      <div class="field-row">
+        <div class="field" style="flex:1;margin:0">
+          <label for="assign-flow-buddy-name">Buddy (navn)</label>
+          <input type="text" id="assign-flow-buddy-name" maxlength="128" placeholder="fx Rasmus">
+        </div>
+        <div class="field" style="flex:1;margin:0">
+          <label for="assign-flow-buddy-email">Buddy (e-mail)</label>
+          <input type="email" id="assign-flow-buddy-email" maxlength="254">
+        </div>
+      </div>
+      <p class="hint">
+        Valgfrit. Bruges i velkomstmailen som
+        {% templatetag openvariable %} buddy_name {% templatetag closevariable %}.
+      </p>
+
+      <p id="assign-flow-summary" class="hint"></p>
+
+      <div class="we-preview-block">
+        <div class="hint" id="assign-flow-preview-subject"></div>
+        <iframe id="assign-flow-preview-frame" class="preview-frame" sandbox=""></iframe>
+      </div>
+
+      <div class="dialog-actions">
+        <button type="button" class="btn ghost" id="btn-assign-flow-cancel">Annuller</button>
+        <button type="submit" class="btn" id="btn-assign-flow-confirm">Tildel og send</button>
+      </div>
+    </form>
+  </dialog>
+
   <script>
     window.ONBOARDING_API_BASE = "{{ onboarding_api_base|escapejs }}";
   </script>
   <script src="{% static 'onboarding/onboarding-api.js' %}"></script>
   <script src="{% static 'onboarding/flows-editor.js' %}"></script>
+  <script src="{% static 'onboarding/welcome-email-editor.js' %}"></script>
   <script src="{% static 'onboarding/employees-editor.js' %}"></script>
 </body>
 </html>

@@ -119,10 +119,10 @@
     listPeople() {
       return request("/people");
     },
-    assignFlow(erpId, flowSlug) {
+    assignFlow(erpId, flowSlug, extra) {
       return request("/employees/" + encodeURIComponent(erpId) + "/assign-flow", {
         method: "POST",
-        body: { flow_slug: flowSlug },
+        body: { flow_slug: flowSlug, ...(extra || {}) },
       });
     },
     removeFlow(erpId) {
@@ -133,6 +133,28 @@
     bookCalendarMeetings(erpId) {
       return request("/employees/" + encodeURIComponent(erpId) + "/book-calendar-meetings", {
         method: "POST",
+      });
+    },
+
+    // ── Welcome email template ("Velkomstmail" tab) ─────────────────────────
+    getWelcomeEmailTemplate(flowSlug) {
+      return request("/flows/" + encodeURIComponent(flowSlug) + "/welcome-email");
+    },
+    saveWelcomeEmailTemplate(flowSlug, payload) {
+      return request("/flows/" + encodeURIComponent(flowSlug) + "/welcome-email", {
+        method: "PUT",
+        body: payload,
+      });
+    },
+    resetWelcomeEmailTemplate(flowSlug) {
+      return request("/flows/" + encodeURIComponent(flowSlug) + "/welcome-email", {
+        method: "DELETE",
+      });
+    },
+    previewWelcomeEmail(flowSlug, payload) {
+      return request("/flows/" + encodeURIComponent(flowSlug) + "/welcome-email/preview", {
+        method: "POST",
+        body: payload || {},
       });
     },
   };

@@ -14,7 +14,7 @@ from apps.onboarding.models import (
     OnboardingProfile,
     StepProgress,
 )
-from apps.onboarding.services import create_employee_with_flow
+from apps.onboarding.services import attach_flow, create_employee
 from apps.onboarding.tests.factories import make_default_flow
 
 User = get_user_model()
@@ -121,13 +121,10 @@ class ManageFlowsApiTests(TestCase):
 
     def test_delete_step_in_use_409(self):
         flow = make_default_flow("in-use")
-        assignment, _ = create_employee_with_flow(
-            data={
-                "erp_employee_id": "E99",
-                "email": "onboard@blackcapitaltechnology.com",
-                "flow_slug": "in-use",
-            }
+        profile, _ = create_employee(
+            data={"erp_employee_id": "E99", "email": "onboard@blackcapitaltechnology.com"}
         )
+        assignment, _ = attach_flow(profile=profile, flow=flow, requested_by=self.manager)
         step = assignment.flow.steps.first()
         self.assertTrue(StepProgress.objects.filter(step=step).exists())
 
@@ -139,13 +136,10 @@ class ManageFlowsApiTests(TestCase):
 
     def test_delete_flow_with_assignment_soft_deactivates(self):
         flow = make_default_flow("assigned")
-        create_employee_with_flow(
-            data={
-                "erp_employee_id": "E88",
-                "email": "a2@blackcapitaltechnology.com",
-                "flow_slug": "assigned",
-            }
+        profile, _ = create_employee(
+            data={"erp_employee_id": "E88", "email": "a2@blackcapitaltechnology.com"}
         )
+        attach_flow(profile=profile, flow=flow, requested_by=self.manager)
         self.assertTrue(OnboardingAssignment.objects.filter(flow__slug="assigned").exists())
 
         self.client.force_login(self.manager)

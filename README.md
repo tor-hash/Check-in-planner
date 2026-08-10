@@ -68,16 +68,45 @@ Onboarding kører i samme Django-app som planneren:
 - **Managers:** `/onboarding/flows/` — flow-trin og medarbejdere (CRUD). Top-nav
   på `/home/`, `/app/` og invites linker mellem værktøjerne.
 - **ERP / HR (headless):** REST under `/api/onboarding/` med API key —
-  `POST /provision` opretter medarbejder + default flow i ét kald; hent
-  status via `erp_employee_id` eller **email** (`GET|POST /employees/by-email`);
-  opdater step-progress med PATCH.
+  `POST /provision` opretter medarbejderen og sikrer at default-flowet findes
+  som skabelon; `POST /employees` opretter medarbejderen alene. **Ingen af
+  dem tildeler et flow** — hent status via `erp_employee_id` eller **email**
+  (`GET|POST /employees/by-email`); opdater step-progress med PATCH.
+- **Flow-tildeling er altid en bevidst handling** taget af en manager i
+  browser-UI'en (knappen "Tildel flow" på en medarbejder uden flow) — det
+  sker aldrig som en sideeffekt af at oprette medarbejderen. Service-API'et
+  har ikke et tilsvarende endpoint. Når en manager tildeler et flow, sker
+  automatisk og i samme kald: (1) velkomstmail + kalenderdelings-anmodning,
+  (2) booking af alle `calendar_meeting`-trin via Google Calendar, og (3) en
+  Slack-invitation af medarbejderen (se nedenfor). To hårde spærringer
+  blokerer tildelingen på forhånd (400, intet oprettes): medarbejderen skal
+  have en e-mail, og manageren skal have forbundet sin Google-konto.
+- **Velkomstmailen er redigerbar** fra en tredje fane, "Velkomstmail", på
+  `/onboarding/flows/`: vælg et flow, rediger emnelinje og HTML (rigtig
+  kildekode-editor, ikke WYSIWYG) med live preview i realtid. Ét flow kan
+  markeres som standard-skabelon for flows uden deres egen. Er intet
+  konfigureret nogen steder endnu, bruges en indbygget start-skabelon (den
+  rigtige velkomstmail BCT sender i dag) — systemet virker altså uden at
+  nogen har rørt denne fane. Indholdet bruger merge-tags som
+  `{{ employee_first_name }}` og `{{ buddy_name }}` (fuld liste i
+  docs/onboarding-api.md) — renderes via Djangos egen template-motor, så
+  `{% if %}`/`{% for %}` også virker, og indtastet tekst escapes
+  automatisk. "Tildel flow"-dialogen har nu felter til buddy
+  (navn/e-mail, valgfrit) og viser en live-forhåndsvisning af den faktiske
+  mail, før man bekræfter.
 - Onboardees logger aldrig ind (`is_active=False` Django-brugere).
 
 Se [docs/onboarding-api.md](docs/onboarding-api.md) for alle endpoints (service
-API + manage API).
+API + manage API), inkl. det fulde automation-flow for flow-tildeling og
+velkomstmail-editoren.
 
 - `ONBOARDING_API_TOKEN` — shared secret for service API (`X-API-Key`). Tom =
   service endpoints svarer 503.
+- `SLACK_BOT_TOKEN` / `SLACK_ONBOARDING_CHANNEL_IDS` — valgfri Slack-invitation
+  ved flow-tildeling. Tom `SLACK_BOT_TOKEN` = trinnet no-op'er med
+  `"reason": "not_configured"` i stedet for at fejle. Fuld opsætningsguide
+  (app, bot-scopes, hvor man finder et kanal-ID) står i modul-docstringen i
+  `backend/apps/onboarding/slack_invite.py`.
 - Seed default flow: `python backend/manage.py seed_onboarding`.
 - Alternativ: Django admin `/admin/onboarding/`.
 

@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import json
 
+from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
 
-from apps.onboarding.models import OnboardingAssignment
+from apps.onboarding.models import OnboardingAssignment, OnboardingProfile
+from apps.onboarding.services import attach_flow
 from apps.onboarding.tests.factories import make_default_flow
 
 
@@ -14,7 +16,7 @@ class StepProgressTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.flow = make_default_flow()
-        response = self.client.post(
+        self.client.post(
             "/api/onboarding/employees",
             data=json.dumps(
                 {"erp_employee_id": "E1", "email": "x@blackcapitaltechnology.com"}
@@ -22,8 +24,18 @@ class StepProgressTests(TestCase):
             content_type="application/json",
             HTTP_X_API_KEY="secret",
         )
+        # The service API only creates the employee now — attaching a flow is
+        # a deliberate manager action (see apps.onboarding.services module
+        # docstring). Simulate that here at the service layer directly,
+        # since this test exercises step-progress PATCH, not the attach
+        # action itself (covered by test_assign_flow_automation.py).
+        manager = get_user_model().objects.create_user(
+            username="mgr", email="mgr@blackcapitaltechnology.com"
+        )
+        profile = OnboardingProfile.objects.get(erp_employee_id="E1")
+        assignment, _ = attach_flow(profile=profile, flow=self.flow, requested_by=manager)
         self.steps_by_order = {
-            step["order"]: step for step in response.json()["steps"]
+            sp.step.order: {"id": sp.step.id} for sp in assignment.step_progress.select_related("step")
         }
 
     def _patch(self, step_id: int, body: dict):

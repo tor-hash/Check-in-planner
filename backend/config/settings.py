@@ -190,6 +190,19 @@ DEFAULT_FROM_EMAIL  = os.getenv("DEFAULT_FROM_EMAIL", "noreply@blackcapitaltechn
 # the API entirely (endpoints respond 503) which is the safe default for
 # dev and CI: no surprise exposure on a fresh deploy.
 ONBOARDING_API_TOKEN = os.getenv("ONBOARDING_API_TOKEN", "")
+
+# ---------------------------------------------------------------------------
+# Slack (onboarding invite — see apps/onboarding/slack_invite.py for the
+# full setup guide: app creation, required bot scopes, where to find a
+# channel id). Leaving SLACK_BOT_TOKEN blank disables the Slack-invite step
+# of the flow-attach automation — it's reported as "not configured" in the
+# response rather than erroring, same spirit as ONBOARDING_API_TOKEN above.
+# ---------------------------------------------------------------------------
+SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
+# Channel IDs (not names — see the setup guide), comma-separated, that new
+# hires get invited to once they have a Slack account. Empty = invite step
+# still runs (and can still send the welcome DM) but joins no channels.
+SLACK_ONBOARDING_CHANNEL_IDS = env_list("SLACK_ONBOARDING_CHANNEL_IDS", "")
 SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.social_details",
     "social_core.pipeline.social_auth.social_uid",

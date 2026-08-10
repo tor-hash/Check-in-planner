@@ -106,6 +106,58 @@ def create_checkin_event(
     )
 
 
+def add_meet_link_to_event(
+    *,
+    organizer_user,
+    google_event_id: str,
+    send_updates: str = "none",
+) -> str:
+    """Patch an *existing* event to add a Google Meet link, for backfilling
+    meetings that were booked before conference data was requested at
+    creation time.
+
+    Uses ``events.patch`` (not ``update``) so only ``conferenceData`` is
+    touched -- every other field on the event (time, attendees, description)
+    is left exactly as-is. ``send_updates="none"`` by default so attendees
+    don't get a confusing "this event changed" notification for what is
+    purely a backend improvement; pass ``"all"`` if you do want them
+    notified.
+
+    Returns the resolved Meet link, or "" if Google didn't resolve one.
+    """
+    body = {
+        "conferenceData": {
+            "createRequest": {
+                "requestId": uuid.uuid4().hex,
+                "conferenceSolutionKey": {"type": "hangoutsMeet"},
+            }
+        },
+    }
+
+    service = _build_calendar_service(organizer_user)
+    try:
+        updated = (
+            service.events()
+            .patch(
+                calendarId="primary",
+                eventId=google_event_id,
+                body=body,
+                conferenceDataVersion=1,
+                sendUpdates=send_updates,
+            )
+            .execute()
+        )
+    except Exception:
+        logger.exception(
+            "Calendar events.patch (add Meet link) failed for organizer=%s event_id=%s",
+            getattr(organizer_user, "email", "?"),
+            google_event_id,
+        )
+        raise
+
+    return updated.get("hangoutLink") or ""
+
+
 def cancel_checkin_event(*, organizer_user, google_event_id: str) -> None:
     """Best-effort: delete the event from the organizer's calendar."""
     if not google_event_id:

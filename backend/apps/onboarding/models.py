@@ -1,6 +1,6 @@
 """Database models for the onboarding app.
 
-Five tables:
+Six tables:
 
 * ``OnboardingProfile`` — extra info for an employee. 1:1 with Django User
   (we reuse ``auth.User`` so existing infra applies; the user is created
@@ -10,6 +10,8 @@ Five tables:
   config JSON validated by ``components.py``.
 * ``OnboardingAssignment`` — one row per (employee, flow) pair.
 * ``StepProgress`` — per-step state for a given assignment.
+* ``WelcomeEmailTemplate`` — the editable welcome-email content for a flow
+  (subject + HTML body with merge tags). See ``welcome_email.py``.
 
 When an assignment is created we snapshot one ``StepProgress`` row per
 ``FlowStep`` so the template can later be edited without retro-affecting
@@ -116,6 +118,32 @@ class OnboardingAssignment(TimestampedModel):
     assigned_at = models.DateTimeField(default=timezone.now)
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+    assigned_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="onboarding_assignments_made",
+        help_text="Manager/user who attached this flow. Used as the welcome "
+        "email sender and to resolve 'assigning_manager' meeting organizers.",
+    )
+    welcome_email_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Set once the combined welcome/calendar-share email has "
+        "been sent for this assignment. Re-attaching does not resend it.",
+    )
+    buddy_name = models.CharField(
+        max_length=128,
+        blank=True,
+        help_text="Optional — entered by the manager when attaching the flow. "
+        "Available in the welcome email as the {{ buddy_name }} merge tag.",
+    )
+    buddy_email = models.EmailField(
+        blank=True,
+        help_text="Optional — entered by the manager when attaching the flow. "
+        "Available in the welcome email as the {{ buddy_email }} merge tag.",
+    )
 
     class Meta:
         ordering = ["-assigned_at"]
@@ -158,3 +186,48 @@ class StepProgress(TimestampedModel):
     def clean(self) -> None:
         if self.status == self.STATUS_COMPLETED:
             get_component(self.step.component_type).validate_completion(self.completion_data)
+
+
+class WelcomeEmailTemplate(TimestampedModel):
+    """Editable welcome-email content for one onboarding flow.
+
+    Rendered with Django's own template engine (safe by default — no
+    arbitrary code execution, autoescapes plain-text merge values) against
+    the context built in ``welcome_email.build_merge_context``. See that
+    module for the full list of merge tags and the resolution order used
+    when a flow has no template of its own (``resolve_welcome_email_template``).
+
+    At most one row across the whole table may have ``is_default_fallback``
+    set — enforced the same way ``OnboardingFlow.is_default`` is (see
+    ``save()`` below): saving a new default unsets any previous one.
+    """
+
+    flow = models.OneToOneField(
+        OnboardingFlow, related_name="welcome_email_template", on_delete=models.CASCADE
+    )
+    subject = models.CharField(max_length=255)
+    html_body = models.TextField()
+    is_default_fallback = models.BooleanField(
+        default=False,
+        help_text="Used for any flow that doesn't have its own welcome email "
+        "template yet. Only one template in the system can be the fallback.",
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+
+    def __str__(self) -> str:
+        return f"Welcome email for {self.flow.slug}" + (" (default)" if self.is_default_fallback else "")
+
+    def save(self, *args, **kwargs):
+        if self.is_default_fallback:
+            (
+                WelcomeEmailTemplate.objects.exclude(pk=self.pk)
+                .filter(is_default_fallback=True)
+                .update(is_default_fallback=False)
+            )
+        super().save(*args, **kwargs)

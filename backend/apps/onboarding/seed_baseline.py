@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from django.db import transaction
 
+from .components import CalendarMeetingComponent
 from .models import FlowStep, OnboardingFlow
 
 DEFAULT_FLOW_SLUG = "default"
@@ -55,7 +56,9 @@ DEFAULT_STEPS = [
         "description": "30-minute kickoff with your direct manager.",
         "is_required": True,
         "config": {
-            "with_email": "hr@blackcapitaltechnology.com",
+            # Resolved per-employee to whoever attaches the flow, rather
+            # than a fixed address — see CalendarMeetingComponent.
+            "with_email": CalendarMeetingComponent.ASSIGNING_MANAGER_SENTINEL,
             "duration_minutes": 30,
             "suggested_window": "first week",
         },

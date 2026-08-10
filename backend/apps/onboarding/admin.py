@@ -11,6 +11,7 @@ from .models import (
     OnboardingFlow,
     OnboardingProfile,
     StepProgress,
+    WelcomeEmailTemplate,
 )
 
 
@@ -74,11 +75,27 @@ class OnboardingProfileAdmin(admin.ModelAdmin):
 
 @admin.register(OnboardingAssignment)
 class OnboardingAssignmentAdmin(admin.ModelAdmin):
-    list_display = ("profile", "flow", "status", "assigned_at", "completed_at")
+    list_display = (
+        "profile", "flow", "status", "assigned_at", "completed_at", "buddy_name",
+    )
     list_filter = ("status", "flow")
-    search_fields = ("profile__erp_employee_id", "profile__user__email")
+    search_fields = ("profile__erp_employee_id", "profile__user__email", "buddy_name")
     readonly_fields = ("assigned_at", "started_at", "completed_at", "created_at", "updated_at")
     autocomplete_fields = ("profile", "flow")
+
+
+@admin.register(WelcomeEmailTemplate)
+class WelcomeEmailTemplateAdmin(admin.ModelAdmin):
+    """Prefer the "Velkomstmail" tab at /onboarding/flows/ — it validates
+    template syntax and shows a live preview. This is here mainly so a
+    superuser can see/fix things without going through the browser UI.
+    """
+
+    list_display = ("flow", "subject", "is_default_fallback", "updated_at", "updated_by")
+    list_filter = ("is_default_fallback",)
+    search_fields = ("flow__slug", "subject")
+    readonly_fields = ("created_at", "updated_at")
+    autocomplete_fields = ("flow",)
 
 
 @admin.register(StepProgress)

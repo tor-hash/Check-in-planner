@@ -38,6 +38,21 @@ def _social_auth_for_user(user) -> object | None:
     return UserSocialAuth.objects.filter(user=user, provider="google-oauth2").first()
 
 
+def has_google_credentials(user) -> bool:
+    """Cheap boolean check: does ``user`` have a usable Google refresh token?
+
+    Same underlying check as ``credentials_for_user`` (social-auth row +
+    refresh_token present) but never raises and never builds a
+    ``Credentials`` object — for pre-flight validation where the caller
+    wants to block with a clear message *before* attempting any Google
+    call, e.g. ``manage_api.assign_flow``.
+    """
+    social = _social_auth_for_user(user)
+    if not social:
+        return False
+    return bool((social.extra_data or {}).get("refresh_token"))
+
+
 def credentials_for_user(user):
     """Return ``google.oauth2.credentials.Credentials`` for ``user``.
 

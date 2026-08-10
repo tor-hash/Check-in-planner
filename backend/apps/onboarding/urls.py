@@ -37,6 +37,16 @@ urlpatterns = [
         name="manage-steps-detail",
     ),
     path(
+        "api/onboarding/manage/flows/<slug:slug>/welcome-email",
+        manage_api.flow_welcome_email,
+        name="manage-flow-welcome-email",
+    ),
+    path(
+        "api/onboarding/manage/flows/<slug:slug>/welcome-email/preview",
+        manage_api.flow_welcome_email_preview,
+        name="manage-flow-welcome-email-preview",
+    ),
+    path(
         "api/onboarding/manage/employees",
         manage_api.employees_collection,
         name="manage-employees-collection",

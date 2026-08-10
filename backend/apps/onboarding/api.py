@@ -29,10 +29,10 @@ from .schemas import (
     validate_step_progress_patch,
 )
 from .services import (
-    create_employee_with_flow,
-    list_assignments_by_email,
+    create_employee,
+    list_profiles_by_email,
     provision_employee_with_default_flow,
-    serialize_assignment,
+    serialize_employee_state,
     serialize_flow,
     serialize_provision_response,
     set_step_progress,
@@ -60,7 +60,13 @@ def _validation_error(exc: ValidationError) -> JsonResponse:
 @require_api_key
 @require_http_methods(["POST"])
 def provision_employee(request: HttpRequest):
-    """Create a new hire on the default flow (seeds the flow template if missing)."""
+    """Create a new hire (seeds the default flow *template* if missing).
+
+    Does not attach any flow to the new hire — see the ``services.py``
+    module docstring. A manager attaches one afterwards via the UI, which
+    is also what sends the welcome email / books meetings / invites them
+    to Slack.
+    """
     payload, err = _parse_json(request)
     if err is not None:
         return err
@@ -68,14 +74,14 @@ def provision_employee(request: HttpRequest):
     if err is not None:
         return err
     try:
-        assignment, employee_created, flow_created = provision_employee_with_default_flow(
+        profile, employee_created, flow_created = provision_employee_with_default_flow(
             data=cleaned
         )
     except ValidationError as exc:
         return _validation_error(exc)
     return JsonResponse(
         serialize_provision_response(
-            assignment=assignment,
+            profile=profile,
             employee_created=employee_created,
             default_flow_created=flow_created,
         ),
@@ -94,19 +100,16 @@ def employees_collection(request: HttpRequest):
         if err is not None:
             return err
         try:
-            assignment, created = create_employee_with_flow(data=cleaned)
+            profile, created = create_employee(data=cleaned)
         except ValidationError as exc:
             return _validation_error(exc)
         return JsonResponse(
-            serialize_assignment(assignment), status=201 if created else 200
+            serialize_employee_state(profile), status=201 if created else 200
         )
 
     page_number = max(1, int(request.GET.get("page", 1) or 1))
     page_size = min(100, max(1, int(request.GET.get("page_size", 25) or 25)))
-    qs = (
-        OnboardingAssignment.objects.select_related("profile__user", "flow")
-        .order_by("-assigned_at")
-    )
+    qs = OnboardingProfile.objects.select_related("user").order_by("-created_at")
     paginator = Paginator(qs, page_size)
     try:
         page = paginator.page(page_number)
@@ -118,7 +121,7 @@ def employees_collection(request: HttpRequest):
             "page": page.number,
             "page_size": page_size,
             "num_pages": paginator.num_pages,
-            "results": [serialize_assignment(a) for a in page.object_list],
+            "results": [serialize_employee_state(p) for p in page.object_list],
         }
     )
 
@@ -139,21 +142,21 @@ def employees_by_email(request: HttpRequest):
     if err is not None:
         return err
 
-    assignments = list_assignments_by_email(email=email)
-    if not assignments:
+    profiles = list_profiles_by_email(email=email)
+    if not profiles:
         return JsonResponse(
             {"detail": "No onboarding employee found for this email."},
             status=404,
         )
 
-    if len(assignments) == 1:
-        return JsonResponse(serialize_assignment(assignments[0]))
+    if len(profiles) == 1:
+        return JsonResponse(serialize_employee_state(profiles[0]))
 
     return JsonResponse(
         {
             "email": email,
-            "count": len(assignments),
-            "results": [serialize_assignment(a) for a in assignments],
+            "count": len(profiles),
+            "results": [serialize_employee_state(p) for p in profiles],
         }
     )
 
@@ -168,16 +171,7 @@ def employees_detail(request: HttpRequest, erp_id: str):
     )
     if profile is None:
         return JsonResponse({"detail": "Employee not found."}, status=404)
-
-    assignment = (
-        OnboardingAssignment.objects.select_related("flow")
-        .filter(profile=profile)
-        .order_by("-assigned_at")
-        .first()
-    )
-    if assignment is None:
-        return JsonResponse({"detail": "Employee has no flow assignment."}, status=404)
-    return JsonResponse(serialize_assignment(assignment))
+    return JsonResponse(serialize_employee_state(profile))
 
 
 @require_api_key

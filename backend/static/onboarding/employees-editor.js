@@ -96,21 +96,11 @@
     });
   }
 
-  // ── Flow select ─────────────────────────────────────────────────────────
-
-  function fillFlowSelect(selectedSlug) {
-    const sel = $("emp-flow-slug");
-    sel.innerHTML = "";
-    const active = flows.filter((f) => f.is_active);
-    const list = active.length ? active : flows;
-    list.forEach((f) => {
-      const opt = document.createElement("option");
-      opt.value = f.slug;
-      opt.textContent = f.name + (f.is_default ? " (standard)" : "");
-      if (f.slug === selectedSlug) opt.selected = true;
-      sel.appendChild(opt);
-    });
-  }
+  // Note: employees are never created with a flow attached (creation and
+  // flow-attachment are deliberately decoupled — see services.py). The
+  // "+ Ny medarbejder" form below has no flow picker; attaching a flow is
+  // done afterwards via the "Tildel flow" action button, which fills
+  // #assign-flow-select directly in assignFlowAction() further down.
 
   // ── Dynamic action buttons ───────────────────────────────────────────────
   // Injected into .panel-head-actions; cleaned up when opening another person.
@@ -220,7 +210,6 @@
     $("emp-position").value = emp.position || "";
     $("emp-department").value = emp.department || "";
     $("emp-start-date").value = emp.start_date || "";
-    fillFlowSelect(emp.flow ? emp.flow.slug : "");
     const meta = $("emp-meta");
     if (!isNewEmployee && emp.assigned_at) {
       meta.textContent =
@@ -250,9 +239,6 @@
   async function loadFlowsForSelect() {
     const data = await api.listFlows();
     flows = data.results || [];
-    fillFlowSelect(
-      currentEmployee && currentEmployee.flow ? currentEmployee.flow.slug : ""
-    );
   }
 
   // ── Open a person ────────────────────────────────────────────────────────
@@ -285,7 +271,6 @@
           position: person.title || "",
           department: "",
           start_date: "",
-          flow: flows.find((f) => f.is_default) || flows[0],
         });
         // ERP ID is already known from the Person record — show it but lock it.
         $("field-emp-erp").style.display = "";
@@ -323,7 +308,6 @@
       position: "",
       department: "",
       start_date: "",
-      flow: flows.find((f) => f.is_default) || flows[0],
     });
     showEmpPanel("editor");
     renderEmployeeList();
@@ -340,7 +324,6 @@
       last_name: $("emp-last-name").value.trim(),
       position: $("emp-position").value.trim(),
       department: $("emp-department").value.trim(),
-      flow_slug: $("emp-flow-slug").value,
     };
     const start = $("emp-start-date").value;
     payload.start_date = start || null;
@@ -358,10 +341,6 @@
     }
     if (!payload.email) {
       setEmpBanner("E-mail er påkrævet.", "error");
-      return;
-    }
-    if (!payload.flow_slug) {
-      setEmpBanner("Vælg en onboarding-flow.", "error");
       return;
     }
     try {
@@ -414,30 +393,162 @@
   }
 
   // ── Assign flow ──────────────────────────────────────────────────────────
+  // Attaching a flow triggers, all at once: a welcome email (with the
+  // onboarding steps) + calendar-share request to the employee, and an
+  // attempt to book every calendar_meeting step. The dialog below shows a
+  // plain-language summary of that before the manager confirms.
 
-  async function assignFlowAction(person) {
+  let _pendingAssignPerson = null;
+
+  function _meetingOrganizerLabel(step) {
+    const email = (step.config && step.config.with_email) || "";
+    if (email === "assigning_manager") return "dig selv (den der tildeler flowet)";
+    return email || "ukendt organisator";
+  }
+
+  function describeFlowAssignment(flow, person) {
+    const steps = flow.steps || [];
+    const meetingSteps = steps.filter((s) => s.component_type === "calendar_meeting");
+    const organizers = Array.from(new Set(meetingSteps.map(_meetingOrganizerLabel)));
+    const name = person.name || person.legacy_id;
+
+    let msg =
+      "Når du tildeler dette flow til " + name + ", sker følgende med det samme:\n" +
+      "- " + name + " får en velkomstmail med onboarding-trinnene og en anmodning om at dele sin kalender.\n";
+
+    if (meetingSteps.length > 0) {
+      msg +=
+        "- Vi forsøger at booke " + meetingSteps.length +
+        (meetingSteps.length === 1 ? " møde" : " møder") +
+        (organizers.length ? " med " + organizers.join(", ") : "") + ".";
+    } else {
+      msg += "- Dette flow har ingen møder at booke.";
+    }
+    return msg;
+  }
+
+  function updateAssignFlowSummary() {
+    const sel = $("assign-flow-select");
+    const flow = flows.find((f) => f.slug === sel.value);
+    $("assign-flow-summary").textContent =
+      flow && _pendingAssignPerson ? describeFlowAssignment(flow, _pendingAssignPerson) : "";
+  }
+
+  // Live preview of the actual welcome email that will be sent — renders
+  // the flow's resolved template (own / inherited default / starter, see
+  // welcome_email.py) against this person's real data + whatever buddy
+  // fields are currently typed in. Debounced so typing doesn't spam the
+  // server; this is the "preview-before-send" step — no separate button,
+  // it just stays live while the dialog is open.
+  let _assignPreviewTimer = null;
+
+  function scheduleAssignFlowPreview() {
+    clearTimeout(_assignPreviewTimer);
+    _assignPreviewTimer = setTimeout(runAssignFlowPreview, 350);
+  }
+
+  async function runAssignFlowPreview() {
+    const person = _pendingAssignPerson;
+    const flowSlug = $("assign-flow-select").value;
+    const subjectEl = $("assign-flow-preview-subject");
+    const frame = $("assign-flow-preview-frame");
+    if (!person || !flowSlug) {
+      subjectEl.textContent = "";
+      frame.srcdoc = "";
+      return;
+    }
+    subjectEl.textContent = "Indlæser forhåndsvisning …";
+    try {
+      const result = await api.previewWelcomeEmail(flowSlug, {
+        erp_id: person.legacy_id,
+        buddy_name: $("assign-flow-buddy-name").value.trim(),
+        buddy_email: $("assign-flow-buddy-email").value.trim(),
+      });
+      subjectEl.textContent = "Emne: " + result.subject;
+      frame.srcdoc = result.html;
+    } catch (err) {
+      subjectEl.textContent = "Kunne ikke indlæse forhåndsvisning: " + (err.message || "ukendt fejl");
+      frame.srcdoc = "";
+    }
+  }
+
+  function assignFlowAction(person) {
     const active = flows.filter((f) => f.is_active);
     const list = active.length ? active : flows;
     if (!list.length) {
       setEmpBanner("Ingen aktive flows tilgængelige.", "error");
       return;
     }
-    const opts = list.map((f) => "  " + f.slug + "  —  " + f.name).join("\n");
-    const slug = window.prompt(
-      "Indtast slug for det flow du vil tildele:\n\n" + opts
-    );
-    if (!slug) return;
 
-    const flow = list.find((f) => f.slug === slug.trim());
-    if (!flow) {
-      setEmpBanner("Flow '" + escapeHtml(slug.trim()) + "' ikke fundet.", "error");
+    _pendingAssignPerson = person;
+    const sel = $("assign-flow-select");
+    sel.innerHTML = "";
+    list.forEach((f) => {
+      const opt = document.createElement("option");
+      opt.value = f.slug;
+      opt.textContent = f.name + (f.is_default ? " (standard)" : "");
+      sel.appendChild(opt);
+    });
+    $("assign-flow-buddy-name").value = "";
+    $("assign-flow-buddy-email").value = "";
+    updateAssignFlowSummary();
+    runAssignFlowPreview();
+    $("assign-flow-dialog").showModal();
+  }
+
+  function renderAutomationResult(name, automation) {
+    if (!automation) {
+      setEmpBanner("Flow tildelt for " + name + ".", "ok");
       return;
     }
+    const lines = [];
+    let hasError = false;
+
+    if (automation.welcomeEmail) {
+      lines.push(
+        automation.welcomeEmail.sent
+          ? "Velkomstmail sendt."
+          : "Velkomstmail fejlede: " + (automation.welcomeEmail.error || "ukendt fejl")
+      );
+      if (!automation.welcomeEmail.sent) hasError = true;
+    }
+
+    if (automation.meetings) {
+      const m = automation.meetings;
+      const nBooked = m.booked ? m.booked.length : 0;
+      const nFailed = m.failed ? m.failed.length : 0;
+      if (m.error) {
+        lines.push("Møde-booking: " + m.error);
+        hasError = true;
+      } else if (nBooked === 0 && nFailed === 0) {
+        lines.push("Ingen møder at booke.");
+      } else {
+        lines.push(nBooked + " møde(r) booket" + (nFailed ? ", " + nFailed + " fejlede" : "") + ".");
+        if (nFailed) {
+          hasError = true;
+          m.failed.forEach((f) => {
+            lines.push("  - " + f.stepTitle + ": " + (f.error || "ukendt fejl"));
+          });
+        }
+      }
+    }
+
+    setEmpBanner(name + ":\n" + lines.join("\n"), hasError ? "error" : "ok");
+  }
+
+  async function confirmAssignFlow() {
+    const person = _pendingAssignPerson;
+    const flow = flows.find((f) => f.slug === $("assign-flow-select").value);
+    if (!person || !flow) return;
 
     try {
-      await api.assignFlow(person.legacy_id, flow.slug);
-      setEmpBanner("Flow tildelt. Kalender-delings-email er sendt.", "ok");
+      const result = await api.assignFlow(person.legacy_id, flow.slug, {
+        buddy_name: $("assign-flow-buddy-name").value.trim(),
+        buddy_email: $("assign-flow-buddy-email").value.trim(),
+      });
+      $("assign-flow-dialog").close();
       await loadPeople();
+      renderAutomationResult(person.name || person.legacy_id, result.automation);
       // Re-open with updated status
       const updated = people.find((p) => p.legacy_id === person.legacy_id);
       if (updated) await openEmployee(updated.legacy_id);
@@ -445,6 +556,21 @@
       setEmpBanner(err.message || "Kunne ikke tildele flow.", "error");
     }
   }
+
+  $("assign-flow-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    confirmAssignFlow();
+  });
+  $("assign-flow-select").addEventListener("change", () => {
+    updateAssignFlowSummary();
+    runAssignFlowPreview();
+  });
+  $("assign-flow-buddy-name").addEventListener("input", scheduleAssignFlowPreview);
+  $("assign-flow-buddy-email").addEventListener("input", scheduleAssignFlowPreview);
+  $("btn-assign-flow-cancel").addEventListener("click", () => {
+    $("assign-flow-dialog").close();
+    _pendingAssignPerson = null;
+  });
 
   // ── Remove flow ──────────────────────────────────────────────────────────
 
@@ -481,20 +607,7 @@
       return;
     try {
       const result = await api.bookCalendarMeetings(person.legacy_id);
-      const nBooked = result.booked ? result.booked.length : 0;
-      const nFailed = result.failed ? result.failed.length : 0;
-      if (nBooked === 0 && nFailed === 0) {
-        setEmpBanner("Ingen afventende kalender-trin fundet.", "ok");
-      } else if (nFailed === 0) {
-        setEmpBanner(nBooked + " møde(r) booket.", "ok");
-      } else {
-        const firstError =
-          result.failed[0] && result.failed[0].error ? " — " + result.failed[0].error : "";
-        setEmpBanner(
-          nBooked + " booket, " + nFailed + " fejlede" + firstError + ".",
-          nBooked > 0 ? "ok" : "error"
-        );
-      }
+      renderAutomationResult(person.name || person.legacy_id, { meetings: result });
       await loadPeople();
     } catch (err) {
       setEmpBanner(err.message || "Booking fejlede.", "error");
@@ -516,25 +629,47 @@
   }
 
   // ── View switching ───────────────────────────────────────────────────────
+  // Three views share this switcher: "flows" (flows-editor.js),
+  // "employees" (this file), "welcome-email" (welcome-email-editor.js).
+  // Each non-flows view lazy-loads itself the first time it's shown via
+  // ensureEmployeesReady() / window.OnboardingWelcomeEmailEditor.ensureReady().
 
   function switchView(view) {
-    const isFlows = view === "flows";
-    $("flows-view").classList.toggle("hidden", !isFlows);
-    $("employees-view").classList.toggle("hidden", isFlows);
-    $("tab-flows").classList.toggle("active", isFlows);
-    $("tab-employees").classList.toggle("active", !isFlows);
-    if (!isFlows) {
+    $("flows-view").classList.toggle("hidden", view !== "flows");
+    $("employees-view").classList.toggle("hidden", view !== "employees");
+    $("welcome-email-view").classList.toggle("hidden", view !== "welcome-email");
+    $("tab-flows").classList.toggle("active", view === "flows");
+    $("tab-employees").classList.toggle("active", view === "employees");
+    $("tab-welcome-email").classList.toggle("active", view === "welcome-email");
+    if (view === "employees") {
       ensureEmployeesReady();
+    } else if (view === "welcome-email" && window.OnboardingWelcomeEmailEditor) {
+      window.OnboardingWelcomeEmailEditor.ensureReady();
     }
   }
 
   // ── Event listeners ──────────────────────────────────────────────────────
 
+  function canLeaveCurrentTab() {
+    if (empDirty && !confirm("Ugemedte ændringer — skift fane?")) return false;
+    if (window.OnboardingWelcomeEmailEditor && window.OnboardingWelcomeEmailEditor.isDirty()) {
+      return confirm("Ugemedte ændringer til velkomstmailen — skift fane?");
+    }
+    return true;
+  }
+
   $("tab-flows").addEventListener("click", () => {
-    if (empDirty && !confirm("Ugemedte ændringer — skift fane?")) return;
+    if (!canLeaveCurrentTab()) return;
     switchView("flows");
   });
-  $("tab-employees").addEventListener("click", () => switchView("employees"));
+  $("tab-employees").addEventListener("click", () => {
+    if (!canLeaveCurrentTab()) return;
+    switchView("employees");
+  });
+  $("tab-welcome-email").addEventListener("click", () => {
+    if (!canLeaveCurrentTab()) return;
+    switchView("welcome-email");
+  });
 
   $("btn-new-employee").addEventListener("click", startNewEmployee);
 
@@ -560,7 +695,6 @@
     "emp-position",
     "emp-department",
     "emp-start-date",
-    "emp-flow-slug",
   ].forEach((id) => {
     const el = $(id);
     if (el) {
