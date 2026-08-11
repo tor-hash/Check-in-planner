@@ -38,5 +38,19 @@ steps:
       - --region=europe-north1
       - --wait
 
+  # Keep auto-booking-job's image in sync with the app image on every
+  # deploy. Deliberately no "execute" step here — Cloud Scheduler
+  # (auto-booking-job, weekly Mon 06:00 Europe/Copenhagen) owns triggering
+  # this one, so we only need the image kept current, not run on deploy.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - update
+      - auto-booking-job
+      - --image=gcr.io/$PROJECT_ID/checkin-planner
+      - --region=europe-north1
+
 images:
   - 'gcr.io/$PROJECT_ID/checkin-planner'
