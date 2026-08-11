@@ -12,7 +12,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
-from apps.planner.models import RotationSession
+from apps.planner.google.events import CreatedEvent
+from apps.planner.models import CheckInMeeting, RotationSession
 from apps.planner.services import auto_booking, rotation
 from apps.planner.services.slot_finder import SlotResult
 from apps.planner.tests.factories import (
@@ -88,3 +89,34 @@ class AutoBookingLimitsTests(TestCase):
         _, kwargs = mock_find_slot.call_args
         self.assertEqual(kwargs["buffer_minutes"], 0)
         self.assertEqual(kwargs["max_per_day"], 2)
+
+    @patch("apps.planner.services.bookings.create_checkin_event")
+    @patch("apps.planner.services.auto_booking.find_available_slot")
+    def test_running_twice_does_not_double_book(self, mock_find_slot, mock_create_event):
+        """Regression test for the idempotency claim in this module's
+        docstring ("running it multiple times in a week is safe"). Unlike
+        the tests above, this one does NOT mock create_booking -- it lets
+        the real DB path run (only the Google Calendar call is mocked) so a
+        real duplicate would actually have to be prevented, not just
+        assumed. A manual "Run now" the same week as the scheduled run is
+        exactly this scenario."""
+        mock_find_slot.return_value = SlotResult(
+            starts_at=datetime(2026, 1, 12, 10, 0, tzinfo=UTC), duration_minutes=15
+        )
+        mock_create_event.return_value = CreatedEvent(
+            google_event_id="evt-1",
+            html_link="https://calendar.google.com/x",
+            start=datetime(2026, 1, 12, 10, 0, tzinfo=UTC),
+            end=datetime(2026, 1, 12, 10, 15, tzinfo=UTC),
+        )
+
+        first = auto_booking.run_auto_bookings(windows_ahead=1, from_date=date(2026, 1, 5))
+        second = auto_booking.run_auto_bookings(windows_ahead=1, from_date=date(2026, 1, 5))
+
+        self.assertEqual(first["booked"], 1)
+        self.assertEqual(second["booked"], 0)
+        self.assertEqual(second["already_exists"], 1)
+        self.assertEqual(CheckInMeeting.objects.count(), 1)
+        # The second run's own already-booked check short-circuits before
+        # ever asking the slot-finder for a slot again.
+        mock_find_slot.assert_called_once()

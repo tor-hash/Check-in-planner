@@ -324,6 +324,32 @@ class CheckInMeeting(AuditFieldsModel):
             models.Index(fields=["person", "starts_at"]),
             models.Index(fields=["status"]),
         ]
+        constraints = [
+            # Backstop for auto_booking._meeting_exists_in_window(), which
+            # already checks "does a non-cancelled meeting exist for this
+            # manager/person/session before booking" — but that's a
+            # check-then-act check at the application level, not something
+            # the database itself enforces. If two runs of run_auto_bookings
+            # ever overlapped (e.g. a manual "Run now" landing at the same
+            # moment as the scheduled weekly trigger), both could pass that
+            # check before either had committed, and the same person could
+            # get double-booked. This constraint makes a true duplicate
+            # impossible at the DB level instead of relying purely on the
+            # application-level check.
+            #
+            # Scoped to `session` (not just manager+person) because that's
+            # exactly the unit auto-booking treats as "once per window" —
+            # and it only applies to non-cancelled rows, so re-booking after
+            # a cancellation is unaffected. Pool bookings (session=None)
+            # aren't covered — NULL != NULL in a unique constraint — which
+            # is correct, since pool members aren't on a rotation window to
+            # begin with.
+            models.UniqueConstraint(
+                fields=["manager", "person", "session"],
+                condition=~models.Q(status="cancelled"),
+                name="uniq_active_checkin_per_manager_person_session",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.manager_id} x {self.person_id} @ {self.starts_at.isoformat()}"

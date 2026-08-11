@@ -10,6 +10,7 @@ import json
 from datetime import UTC, date, datetime
 from unittest.mock import patch
 
+from django.db import IntegrityError
 from django.test import Client, TestCase
 
 from apps.planner.google.events import CreatedEvent
@@ -102,6 +103,70 @@ class BookingServiceTests(TestCase):
         with self.assertRaises(bookings.GoogleBookingError):
             bookings.create_booking(self._request())
         self.assertEqual(CheckInMeeting.objects.count(), 0)
+
+    @patch("apps.planner.services.bookings.create_checkin_event")
+    def test_duplicate_active_booking_for_same_session_rejected_by_db(self, mock_create):
+        """Belt-and-suspenders check for the DB constraint added alongside
+        auto_booking._meeting_exists_in_window(). That function already
+        checks "does a non-cancelled meeting exist for this
+        manager/person/session?" before booking, but that's a check-then-act
+        pattern at the application level -- it can't protect against two
+        overlapping runs (e.g. a manual "Run now" landing at the same moment
+        as the scheduled weekly trigger) both passing the check before
+        either commits. This test bypasses that pre-check entirely by
+        calling create_booking twice directly, to prove the database itself
+        refuses a second active row for the same manager/person/session
+        regardless of what called it or why the pre-check was skipped."""
+        mock_create.return_value = CreatedEvent(
+            google_event_id="evt-1",
+            html_link="https://calendar.google.com/x",
+            start=_aware(datetime(2026, 1, 12, 10, 0)),
+            end=_aware(datetime(2026, 1, 12, 10, 30)),
+        )
+        bookings.create_booking(self._request(), audit_user=self.user)
+        self.assertEqual(CheckInMeeting.objects.count(), 1)
+
+        mock_create.return_value = CreatedEvent(
+            google_event_id="evt-2",
+            html_link="https://calendar.google.com/y",
+            start=_aware(datetime(2026, 1, 13, 10, 0)),
+            end=_aware(datetime(2026, 1, 13, 10, 30)),
+        )
+        with self.assertRaises(IntegrityError):
+            bookings.create_booking(
+                self._request(starts_at=_aware(datetime(2026, 1, 13, 10, 0))),
+                audit_user=self.user,
+            )
+        # The rejected duplicate never committed -- still exactly one row.
+        self.assertEqual(CheckInMeeting.objects.count(), 1)
+
+    @patch("apps.planner.services.bookings.create_checkin_event")
+    def test_cancelled_booking_does_not_block_rebooking_same_session(self, mock_create):
+        """The constraint only covers non-cancelled rows, so cancelling and
+        re-booking within the same session window must still work."""
+        mock_create.return_value = CreatedEvent(
+            google_event_id="evt-1",
+            html_link="https://calendar.google.com/x",
+            start=_aware(datetime(2026, 1, 12, 10, 0)),
+            end=_aware(datetime(2026, 1, 12, 10, 30)),
+        )
+        first = bookings.create_booking(self._request(), audit_user=self.user)
+        bookings.cancel_booking(first, organizer_user=self.user, audit_user=self.user)
+
+        mock_create.return_value = CreatedEvent(
+            google_event_id="evt-2",
+            html_link="https://calendar.google.com/y",
+            start=_aware(datetime(2026, 1, 13, 10, 0)),
+            end=_aware(datetime(2026, 1, 13, 10, 30)),
+        )
+        second = bookings.create_booking(
+            self._request(starts_at=_aware(datetime(2026, 1, 13, 10, 0))),
+            audit_user=self.user,
+        )
+        self.assertEqual(second.status, "scheduled")
+        self.assertEqual(
+            CheckInMeeting.objects.exclude(status="cancelled").count(), 1
+        )
 
 
 class BookingApiTests(TestCase):

@@ -52,5 +52,19 @@ steps:
       - --image=gcr.io/$PROJECT_ID/checkin-planner
       - --region=europe-north1
 
+  # Keep decline-sync-job's image in sync with the app image on every
+  # deploy. Same reasoning as auto-booking-job: Cloud Scheduler
+  # (decline-sync-job, every 4 hours) owns triggering it, so we only
+  # keep the image current here rather than executing it on deploy.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - update
+      - decline-sync-job
+      - --image=gcr.io/$PROJECT_ID/checkin-planner
+      - --region=europe-north1
+
 images:
   - 'gcr.io/$PROJECT_ID/checkin-planner'
