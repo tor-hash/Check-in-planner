@@ -25,6 +25,26 @@
       .replace(/"/g, "&quot;");
   }
 
+  // Populates a <select> with every known Person (excluding `excludeId` — a
+  // person can't be their own leder/buddy), preselecting `currentValue` if
+  // it still points at a valid (non-excluded) person. Shared by the
+  // employee-form leder/buddy selects and the "Tildel flow" dialog's.
+  function populateRoleSelect(selectId, currentValue, excludeId, placeholder) {
+    const sel = $(selectId);
+    if (!sel) return;
+    const others = people.filter((p) => p.legacy_id !== excludeId);
+    const hasCurrent = !!currentValue && others.some((p) => p.legacy_id === currentValue);
+    sel.innerHTML = ['<option value="">' + escapeHtml(placeholder || "— Ingen —") + "</option>"]
+      .concat(
+        others.map(
+          (p) =>
+            '<option value="' + escapeHtml(p.legacy_id) + '">' + escapeHtml(p.name || p.legacy_id) + "</option>"
+        )
+      )
+      .join("");
+    sel.value = hasCurrent ? currentValue : "";
+  }
+
   function setEmpBanner(msg, type) {
     const el = $("banner");
     if (!msg) {
@@ -210,6 +230,7 @@
     $("emp-position").value = emp.position || "";
     $("emp-department").value = emp.department || "";
     $("emp-start-date").value = emp.start_date || "";
+    $("emp-country").value = emp.country || "DK";
     const meta = $("emp-meta");
     if (!isNewEmployee && emp.assigned_at) {
       meta.textContent =
@@ -233,6 +254,9 @@
   async function loadPeople() {
     const data = await api.listPeople();
     people = data.results || [];
+    if (currentPerson) {
+      currentPerson = people.find((p) => p.legacy_id === currentPerson.legacy_id) || currentPerson;
+    }
     renderEmployeeList();
   }
 
@@ -271,18 +295,24 @@
           position: person.title || "",
           department: "",
           start_date: "",
+          country: person.country || "DK",
         });
         // ERP ID is already known from the Person record — show it but lock it.
         $("field-emp-erp").style.display = "";
         $("emp-erp-id").readOnly = true;
+        populateRoleSelect("emp-leder", person.leder_id, person.legacy_id, "— Ingen —");
+        populateRoleSelect("emp-buddy", person.buddy_id, person.legacy_id, "— Ingen —");
         showEmpPanel("editor");
       } else {
         // Has OnboardingProfile → full editor + action buttons
         currentEmployee = await api.getEmployee(erpId);
         fillEmployeeForm(currentEmployee);
+        populateRoleSelect("emp-leder", person.leder_id, person.legacy_id, "— Ingen —");
+        populateRoleSelect("emp-buddy", person.buddy_id, person.legacy_id, "— Ingen —");
         injectActionButtons(person);
         showEmpPanel("editor");
       }
+      loadDocuments(isNewEmployee ? null : erpId);
 
       renderEmployeeList();
       setEmpDirty(false);
@@ -297,6 +327,7 @@
   function startNewEmployee() {
     if (empDirty && !confirm("Ugemedte ændringer — forlad editor?")) return;
     isNewEmployee = true;
+    $("emp-documents").classList.add("hidden");
     currentEmployee = null;
     currentPerson = null;
     clearActionButtons();
@@ -309,6 +340,8 @@
       department: "",
       start_date: "",
     });
+    populateRoleSelect("emp-leder", null, null, "— Ingen —");
+    populateRoleSelect("emp-buddy", null, null, "— Ingen —");
     showEmpPanel("editor");
     renderEmployeeList();
     setEmpDirty(true);
@@ -327,6 +360,7 @@
     };
     const start = $("emp-start-date").value;
     payload.start_date = start || null;
+    payload.country = $("emp-country").value || "DK";
     if (isNewEmployee) {
       payload.erp_employee_id = $("emp-erp-id").value.trim();
     }
@@ -357,10 +391,21 @@
         saved = await api.updateEmployee(currentEmployee.erp_employee_id, patch);
         currentEmployee = saved;
       }
+      // Leder/buddy live on the planner Person record, not the OnboardingProfile
+      // — persisted separately via the roles endpoint (see planner.models.Person).
+      let roleWarning = "";
+      try {
+        await api.updatePersonRoles(saved.erp_employee_id, {
+          leder_id: $("emp-leder").value || null,
+          buddy_id: $("emp-buddy").value || null,
+        });
+      } catch (err) {
+        roleWarning = " Leder/buddy kunne dog ikke opdateres: " + (err.message || "ukendt fejl");
+      }
       fillEmployeeForm(saved);
       await loadPeople();
       setEmpDirty(false);
-      setEmpBanner("Gemt.", "ok");
+      setEmpBanner("Gemt." + roleWarning, roleWarning ? "error" : "ok");
     } catch (err) {
       setEmpBanner(err.message || "Kunne ikke gemme.", "error");
     }
@@ -400,20 +445,31 @@
 
   let _pendingAssignPerson = null;
 
-  function _meetingOrganizerLabel(step) {
-    const email = (step.config && step.config.with_email) || "";
-    if (email === "assigning_manager") return "dig selv (den der tildeler flowet)";
-    return email || "ukendt organisator";
+  function _participantLabel(token) {
+    if (token === "assigning_manager") return "dig selv (den der tildeler flowet)";
+    if (token === "leder" || token === "") return "medarbejderens leder";
+    if (token === "buddy") return "medarbejderens buddy";
+    return token; // literal email address configured on the step
+  }
+
+  // Everyone a meeting step is with. Older steps store a single with_email.
+  function _meetingParticipantLabels(step) {
+    const cfg = step.config || {};
+    const tokens =
+      Array.isArray(cfg.participants) && cfg.participants.length
+        ? cfg.participants
+        : [cfg.with_email || "leder"];
+    return tokens.map(_participantLabel);
   }
 
   function describeFlowAssignment(flow, person) {
     const steps = flow.steps || [];
     const meetingSteps = steps.filter((s) => s.component_type === "calendar_meeting");
-    const organizers = Array.from(new Set(meetingSteps.map(_meetingOrganizerLabel)));
+    const organizers = Array.from(new Set(meetingSteps.flatMap(_meetingParticipantLabels)));
     const name = person.name || person.legacy_id;
 
     let msg =
-      "Når du tildeler dette flow til " + name + ", sker følgende med det samme:\n" +
+      "Når du tildeler dette flow til " + name + ", sker følgende — med det samme (Send nu) eller om morgenen på startdatoen (Send på startdatoen):\n" +
       "- " + name + " får en velkomstmail med onboarding-trinnene og en anmodning om at dele sin kalender.\n";
 
     if (meetingSteps.length > 0) {
@@ -434,8 +490,48 @@
       flow && _pendingAssignPerson ? describeFlowAssignment(flow, _pendingAssignPerson) : "";
   }
 
+  // Welcome-email templates for the "Velkomstmail" select, loaded each time
+  // the dialog opens (they're edited on another tab).
+  let _welcomeTemplates = [];
+  const _LANG_FOR_COUNTRY = { DK: "da", NO: "no" };
+
+  function fillWelcomeEmailSelect() {
+    const sel = $("assign-flow-welcome-email");
+    const lang = _LANG_FOR_COUNTRY[$("assign-flow-country").value] || "da";
+    const options = _welcomeTemplates.filter((t) => t.language === lang);
+    sel.innerHTML = "";
+    if (!options.length) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent =
+        lang === "no"
+          ? "Ingen norsk velkomstmail — den danske start-skabelon sendes"
+          : "Indbygget start-skabelon";
+      sel.appendChild(opt);
+      return;
+    }
+    options.forEach((t) => {
+      const opt = document.createElement("option");
+      opt.value = String(t.id);
+      opt.textContent = t.name + (t.is_default ? " (standard)" : "");
+      sel.appendChild(opt);
+    });
+    const def = options.find((t) => t.is_default) || options[0];
+    sel.value = String(def.id);
+  }
+
+  async function loadWelcomeTemplates() {
+    try {
+      const data = await api.listWelcomeEmails();
+      _welcomeTemplates = data.results || [];
+    } catch (err) {
+      _welcomeTemplates = [];
+    }
+    fillWelcomeEmailSelect();
+  }
+
   // Live preview of the actual welcome email that will be sent — renders
-  // the flow's resolved template (own / inherited default / starter, see
+  // the chosen template (or the language default / starter, see
   // welcome_email.py) against this person's real data + whatever buddy
   // fields are currently typed in. Debounced so typing doesn't spam the
   // server; this is the "preview-before-send" step — no separate button,
@@ -458,11 +554,21 @@
       return;
     }
     subjectEl.textContent = "Indlæser forhåndsvisning …";
+    const lederId = $("assign-flow-leder").value;
+    const buddyId = $("assign-flow-buddy").value;
+    const leder = people.find((p) => p.legacy_id === lederId);
+    const buddy = people.find((p) => p.legacy_id === buddyId);
+    const templateId = $("assign-flow-welcome-email").value;
     try {
-      const result = await api.previewWelcomeEmail(flowSlug, {
+      const result = await api.previewWelcomeEmail({
+        flow_slug: flowSlug,
+        template_id: templateId ? parseInt(templateId, 10) : null,
+        country: $("assign-flow-country").value,
         erp_id: person.legacy_id,
-        buddy_name: $("assign-flow-buddy-name").value.trim(),
-        buddy_email: $("assign-flow-buddy-email").value.trim(),
+        leder_name: leder ? leder.name || "" : "",
+        leder_email: leder ? leder.email || "" : "",
+        buddy_name: buddy ? buddy.name || "" : "",
+        buddy_email: buddy ? buddy.email || "" : "",
       });
       subjectEl.textContent = "Emne: " + result.subject;
       frame.srcdoc = result.html;
@@ -472,7 +578,10 @@
     }
   }
 
-  function assignFlowAction(person) {
+  function assignFlowAction(staleperson) {
+    // The button keeps the person object from when it was rendered; use the
+    // freshest copy so edits saved since (start date, country, …) show up.
+    const person = people.find((p) => p.legacy_id === staleperson.legacy_id) || staleperson;
     const active = flows.filter((f) => f.is_active);
     const list = active.length ? active : flows;
     if (!list.length) {
@@ -489,16 +598,37 @@
       opt.textContent = f.name + (f.is_default ? " (standard)" : "");
       sel.appendChild(opt);
     });
-    $("assign-flow-buddy-name").value = "";
-    $("assign-flow-buddy-email").value = "";
+    populateRoleSelect("assign-flow-leder", person.leder_id, person.legacy_id, "— Vælg leder —");
+    populateRoleSelect("assign-flow-buddy", person.buddy_id, person.legacy_id, "— Vælg buddy —");
+    // The employee's own start date — the anchor for every meeting. Empty
+    // when they don't have one yet; it's required to assign.
+    $("assign-flow-start-date").value = person.start_date || "";
+    updateRunModeButtons();
+    $("assign-flow-country").value = person.country || "DK";
+    _welcomeTemplates = [];
+    fillWelcomeEmailSelect();
     updateAssignFlowSummary();
-    runAssignFlowPreview();
     $("assign-flow-dialog").showModal();
+    loadWelcomeTemplates().then(runAssignFlowPreview);
   }
+
+  const _SLACK_REASON_LABEL = {
+    not_configured: "Slack er ikke konfigureret på serveren (mangler SLACK_BOT_TOKEN).",
+    no_slack_account: "Ingen Slack-konto fundet med denne e-mail.",
+    error: "ukendt fejl",
+  };
 
   function renderAutomationResult(name, automation) {
     if (!automation) {
       setEmpBanner("Flow tildelt for " + name + ".", "ok");
+      return;
+    }
+    if (automation.deferredUntil) {
+      setEmpBanner(
+        name + ": Flow planlagt til " + (window.BCTDate ? window.BCTDate.format(automation.deferredUntil) : automation.deferredUntil) +
+          ". Velkomstmail, Slack-invitation og mødebooking køres automatisk den dag.",
+        "ok"
+      );
       return;
     }
     const lines = [];
@@ -511,6 +641,21 @@
           : "Velkomstmail fejlede: " + (automation.welcomeEmail.error || "ukendt fejl")
       );
       if (!automation.welcomeEmail.sent) hasError = true;
+    }
+
+    if (automation.slackInvite) {
+      const s = automation.slackInvite;
+      if (s.sent) {
+        lines.push("Slack-invitation sendt.");
+      } else if (s.reason === "not_configured") {
+        lines.push("Slack-invitation sprunget over: " + _SLACK_REASON_LABEL.not_configured);
+      } else {
+        lines.push(
+          "Slack-invitation fejlede: " +
+            (s.error || _SLACK_REASON_LABEL[s.reason] || s.reason || "ukendt fejl")
+        );
+        hasError = true;
+      }
     }
 
     if (automation.meetings) {
@@ -536,22 +681,58 @@
     setEmpBanner(name + ":\n" + lines.join("\n"), hasError ? "error" : "ok");
   }
 
-  async function confirmAssignFlow() {
+  function _todayIso() {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  }
+
+  // "Send på startdatoen" only makes sense for a start date in the future.
+  function updateRunModeButtons() {
+    const start = $("assign-flow-start-date").value;
+    const btn = $("btn-assign-flow-on-start");
+    const future = !!start && start > _todayIso();
+    btn.disabled = !future;
+    btn.title = future ? "" : "Vælg en startdato i fremtiden for at sende på startdatoen.";
+  }
+
+  async function confirmAssignFlow(runMode) {
     const person = _pendingAssignPerson;
     const flow = flows.find((f) => f.slug === $("assign-flow-select").value);
     if (!person || !flow) return;
 
+    const lederId = $("assign-flow-leder").value;
+    const buddyId = $("assign-flow-buddy").value;
+    if (!lederId || !buddyId) {
+      setEmpBanner("Leder og buddy er begge påkrævet for at tildele et flow.", "error");
+      return;
+    }
+    const startDate = $("assign-flow-start-date").value;
+    if (!startDate) {
+      setEmpBanner("Startdato er påkrævet for at tildele et flow.", "error");
+      return;
+    }
+
     try {
       const result = await api.assignFlow(person.legacy_id, flow.slug, {
-        buddy_name: $("assign-flow-buddy-name").value.trim(),
-        buddy_email: $("assign-flow-buddy-email").value.trim(),
+        leder_id: lederId,
+        buddy_id: buddyId,
+        start_date: startDate,
+        run_mode: runMode,
+        country: $("assign-flow-country").value,
+        welcome_email_template_id: $("assign-flow-welcome-email").value
+          ? parseInt($("assign-flow-welcome-email").value, 10)
+          : null,
       });
       $("assign-flow-dialog").close();
       await loadPeople();
-      renderAutomationResult(person.name || person.legacy_id, result.automation);
-      // Re-open with updated status
+      // Re-open with updated status FIRST — openEmployee() unconditionally
+      // clears the banner on success (setEmpBanner(null)), so rendering the
+      // automation result before it would just get wiped out a moment later
+      // (this is why the banner used to flash and vanish immediately).
       const updated = people.find((p) => p.legacy_id === person.legacy_id);
       if (updated) await openEmployee(updated.legacy_id);
+      renderAutomationResult(person.name || person.legacy_id, result.automation);
     } catch (err) {
       setEmpBanner(err.message || "Kunne ikke tildele flow.", "error");
     }
@@ -559,14 +740,26 @@
 
   $("assign-flow-form").addEventListener("submit", (e) => {
     e.preventDefault();
-    confirmAssignFlow();
+    confirmAssignFlow("now");
   });
+  $("btn-assign-flow-on-start").addEventListener("click", () => {
+    const form = $("assign-flow-form");
+    if (!form.reportValidity()) return;
+    confirmAssignFlow("on_start_date");
+  });
+  $("assign-flow-start-date").addEventListener("input", updateRunModeButtons);
+  $("assign-flow-start-date").addEventListener("change", updateRunModeButtons);
   $("assign-flow-select").addEventListener("change", () => {
     updateAssignFlowSummary();
     runAssignFlowPreview();
   });
-  $("assign-flow-buddy-name").addEventListener("input", scheduleAssignFlowPreview);
-  $("assign-flow-buddy-email").addEventListener("input", scheduleAssignFlowPreview);
+  $("assign-flow-country").addEventListener("change", () => {
+    fillWelcomeEmailSelect();
+    scheduleAssignFlowPreview();
+  });
+  $("assign-flow-welcome-email").addEventListener("change", scheduleAssignFlowPreview);
+  $("assign-flow-leder").addEventListener("change", scheduleAssignFlowPreview);
+  $("assign-flow-buddy").addEventListener("change", scheduleAssignFlowPreview);
   $("btn-assign-flow-cancel").addEventListener("click", () => {
     $("assign-flow-dialog").close();
     _pendingAssignPerson = null;
@@ -585,10 +778,12 @@
       return;
     try {
       await api.removeFlow(person.legacy_id);
-      setEmpBanner("Flow-tildeling fjernet.", "ok");
       await loadPeople();
+      // Same ordering fix as confirmAssignFlow: openEmployee() clears the
+      // banner on success, so set it AFTER re-opening, not before.
       const updated = people.find((p) => p.legacy_id === person.legacy_id);
       if (updated) await openEmployee(updated.legacy_id);
+      setEmpBanner("Flow-tildeling fjernet.", "ok");
     } catch (err) {
       setEmpBanner(err.message || "Kunne ikke fjerne flow.", "error");
     }
@@ -638,6 +833,8 @@
     $("flows-view").classList.toggle("hidden", view !== "flows");
     $("employees-view").classList.toggle("hidden", view !== "employees");
     $("welcome-email-view").classList.toggle("hidden", view !== "welcome-email");
+    $("settings-view").classList.toggle("hidden", view !== "settings");
+    $("tab-settings").classList.toggle("active", view === "settings");
     $("tab-flows").classList.toggle("active", view === "flows");
     $("tab-employees").classList.toggle("active", view === "employees");
     $("tab-welcome-email").classList.toggle("active", view === "welcome-email");
@@ -645,6 +842,8 @@
       ensureEmployeesReady();
     } else if (view === "welcome-email" && window.OnboardingWelcomeEmailEditor) {
       window.OnboardingWelcomeEmailEditor.ensureReady();
+    } else if (view === "settings" && window.OnboardingSettingsEditor) {
+      window.OnboardingSettingsEditor.ensureReady();
     }
   }
 
@@ -669,6 +868,94 @@
   $("tab-welcome-email").addEventListener("click", () => {
     if (!canLeaveCurrentTab()) return;
     switchView("welcome-email");
+  });
+  $("tab-settings").addEventListener("click", () => {
+    if (!canLeaveCurrentTab()) return;
+    switchView("settings");
+  });
+  // Coming back from "Giv Drive-adgang" lands on #indstillinger.
+  if (window.location.hash === "#indstillinger") switchView("settings");
+
+  // ── Documents (Google Drive) ─────────────────────────────────────────────
+
+  function formatSize(bytes) {
+    if (bytes == null) return "";
+    if (bytes < 1024 * 1024) return Math.max(1, Math.round(bytes / 1024)) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  function renderDocuments(data) {
+    const list = $("emp-documents-list");
+    list.innerHTML = "";
+    const folder = $("emp-documents-folder");
+    if (data && data.folder_url) {
+      folder.href = data.folder_url;
+      folder.classList.remove("hidden");
+    } else {
+      folder.classList.add("hidden");
+    }
+    const docs = (data && data.results) || [];
+    if (!docs.length) {
+      const p = document.createElement("p");
+      p.className = "hint";
+      p.textContent = "Ingen dokumenter uploadet endnu.";
+      list.appendChild(p);
+      return;
+    }
+    docs.forEach((d) => {
+      const row = document.createElement("div");
+      row.className = "doc-row";
+      row.innerHTML =
+        '<div><div class="doc-name"></div><p class="hint"></p></div>' +
+        '<a class="btn ghost" target="_blank" rel="noopener">Åbn</a>';
+      row.querySelector(".doc-name").textContent = d.name;
+      row.querySelector(".hint").textContent =
+        new Date(d.uploaded_at).toLocaleString("da-DK") +
+        (d.uploaded_by ? " · " + d.uploaded_by : "") +
+        (d.size_bytes != null ? " · " + formatSize(d.size_bytes) : "");
+      const link = row.querySelector("a");
+      if (d.web_view_link) link.href = d.web_view_link;
+      else link.remove();
+      list.appendChild(row);
+    });
+  }
+
+  async function loadDocuments(erpId) {
+    const section = $("emp-documents");
+    if (!erpId) {
+      section.classList.add("hidden");
+      return;
+    }
+    section.classList.remove("hidden");
+    $("emp-documents-status").textContent =
+      "Kontrakter m.m. gemmes i medarbejderens mappe i Google Drive.";
+    try {
+      renderDocuments(await api.listEmployeeDocuments(erpId));
+    } catch (err) {
+      renderDocuments(null);
+      $("emp-documents-status").textContent = err.message || "Kunne ikke hente dokumenter.";
+    }
+  }
+
+  $("btn-upload-document").addEventListener("click", () => $("emp-documents-input").click());
+  $("emp-documents-input").addEventListener("change", async (e) => {
+    const files = e.target.files;
+    const erpId = currentPerson && currentPerson.legacy_id;
+    if (!files || !files.length || !erpId) return;
+    const btn = $("btn-upload-document");
+    btn.disabled = true;
+    $("emp-documents-status").textContent =
+      "Uploader " + files.length + (files.length === 1 ? " fil" : " filer") + " …";
+    try {
+      renderDocuments(await api.uploadEmployeeDocuments(erpId, files));
+      $("emp-documents-status").textContent = "Uploadet til Google Drive.";
+    } catch (err) {
+      $("emp-documents-status").textContent = "";
+      setEmpBanner(err.message || "Kunne ikke uploade.", "error");
+    } finally {
+      btn.disabled = false;
+      e.target.value = "";
+    }
   });
 
   $("btn-new-employee").addEventListener("click", startNewEmployee);
@@ -695,6 +982,9 @@
     "emp-position",
     "emp-department",
     "emp-start-date",
+    "emp-country",
+    "emp-leder",
+    "emp-buddy",
   ].forEach((id) => {
     const el = $(id);
     if (el) {

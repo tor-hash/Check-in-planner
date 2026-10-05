@@ -1,4 +1,4 @@
-"""Manager session API for the "Velkomstmail" (welcome-email template) tab."""
+"""Manager session API for the "Velkomstmail" tab: the template library."""
 from __future__ import annotations
 
 import json
@@ -7,10 +7,12 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.test import Client, TestCase
 
-from apps.onboarding.models import OnboardingFlow, WelcomeEmailTemplate
+from apps.onboarding.models import FlowStep, OnboardingFlow, WelcomeEmailTemplate
 from apps.planner.tests.factories import PersonFactory
 
 User = get_user_model()
+
+BASE = "/api/onboarding/manage/welcome-emails"
 
 
 def _as_manager(user: User) -> User:
@@ -19,199 +21,142 @@ def _as_manager(user: User) -> User:
     return user
 
 
-class WelcomeEmailTemplateApiTests(TestCase):
+def _payload(**overrides):
+    body = {
+        "name": "Dansk standard",
+        "language": "da",
+        "subject": "Velkommen {{ employee_first_name }}",
+        "html_body": "<p>Hej {{ employee_first_name }}</p>",
+        "is_default": False,
+    }
+    body.update(overrides)
+    return json.dumps(body)
+
+
+class WelcomeEmailLibraryApiTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.manager = _as_manager(
-            User.objects.create_user(
-                username="mgr", email="mgr@blackcapitaltechnology.com", first_name="Mgr"
-            )
+            User.objects.create_user(username="mgr", email="mgr@blackcapitaltechnology.com")
         )
         self.regular = User.objects.create_user(
             username="user", email="user@blackcapitaltechnology.com"
         )
-        self.flow = OnboardingFlow.objects.create(slug="f1", name="Flow One", is_active=True)
-        self.flow2 = OnboardingFlow.objects.create(slug="f2", name="Flow Two", is_active=True)
 
-    def _url(self, slug: str) -> str:
-        return f"/api/onboarding/manage/flows/{slug}/welcome-email"
-
-    def test_anonymous_401(self):
-        response = self.client.get(self._url("f1"))
-        self.assertEqual(response.status_code, 401)
-
-    def test_regular_user_403(self):
+    def test_anonymous_401_and_regular_403(self):
+        self.assertEqual(self.client.get(BASE).status_code, 401)
         self.client.force_login(self.regular)
-        response = self.client.get(self._url("f1"))
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.client.get(BASE).status_code, 403)
 
-    def test_get_unknown_flow_404(self):
+    def test_empty_list_includes_starter(self):
         self.client.force_login(self.manager)
-        response = self.client.get(self._url("nope"))
-        self.assertEqual(response.status_code, 404)
+        body = self.client.get(BASE).json()
+        self.assertEqual(body["results"], [])
+        self.assertIn("{{ employee_first_name }}", body["starter"]["html_body"])
 
-    def test_get_with_no_template_anywhere_returns_starter(self):
+    def test_create_update_delete(self):
         self.client.force_login(self.manager)
-        response = self.client.get(self._url("f1"))
-        self.assertEqual(response.status_code, 200)
-        body = response.json()
-        self.assertEqual(body["source"], "starter")
-        self.assertFalse(body["has_own_template"])
-        self.assertIn("{{ employee_first_name }}", body["html_body"])
+        created = self.client.post(BASE, data=_payload(), content_type="application/json")
+        self.assertEqual(created.status_code, 201, created.content)
+        tid = created.json()["id"]
+        self.assertEqual(created.json()["language"], "da")
 
-    def test_put_creates_own_template(self):
-        self.client.force_login(self.manager)
-        response = self.client.put(
-            self._url("f1"),
-            data=json.dumps({"subject": "Hej {{ employee_first_name }}", "html_body": "<p>Hi</p>"}),
+        updated = self.client.put(
+            f"{BASE}/{tid}", data=_payload(name="Norsk", language="no"),
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, 200, response.content)
-        body = response.json()
-        self.assertTrue(body["has_own_template"])
-        self.assertEqual(body["source"], "own")
-        self.assertEqual(body["html_body"], "<p>Hi</p>")
-        self.assertEqual(body["updated_by"], "mgr@blackcapitaltechnology.com")
-        self.assertTrue(WelcomeEmailTemplate.objects.filter(flow=self.flow).exists())
+        self.assertEqual(updated.status_code, 200, updated.content)
+        self.assertEqual(WelcomeEmailTemplate.objects.get(pk=tid).language, "no")
 
-    def test_put_rejects_bad_template_syntax(self):
-        self.client.force_login(self.manager)
-        response = self.client.put(
-            self._url("f1"),
-            data=json.dumps({"subject": "Hej", "html_body": "{% if %}"}),
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertFalse(WelcomeEmailTemplate.objects.filter(flow=self.flow).exists())
+        self.assertEqual(self.client.delete(f"{BASE}/{tid}").status_code, 200)
+        self.assertFalse(WelcomeEmailTemplate.objects.exists())
+        self.assertEqual(self.client.get(f"{BASE}/{tid}").status_code, 404)
 
-    def test_put_rejects_missing_fields(self):
+    def test_default_is_per_language(self):
         self.client.force_login(self.manager)
-        response = self.client.put(
-            self._url("f1"), data=json.dumps({"subject": "Hej"}), content_type="application/json"
-        )
-        self.assertEqual(response.status_code, 400)
+        a = self.client.post(BASE, data=_payload(is_default=True), content_type="application/json").json()
+        n = self.client.post(
+            BASE, data=_payload(language="no", is_default=True), content_type="application/json"
+        ).json()
+        b = self.client.post(BASE, data=_payload(is_default=True), content_type="application/json").json()
+        defaults = set(WelcomeEmailTemplate.objects.filter(is_default=True).values_list("pk", flat=True))
+        self.assertEqual(defaults, {n["id"], b["id"]})
+        self.assertNotIn(a["id"], defaults)
 
-    def test_put_is_default_fallback_unsets_previous_default(self):
+    def test_rejects_bad_syntax_missing_fields_and_bad_language(self):
         self.client.force_login(self.manager)
-        self.client.put(
-            self._url("f1"),
-            data=json.dumps({"subject": "A", "html_body": "A", "is_default_fallback": True}),
-            content_type="application/json",
-        )
-        response = self.client.put(
-            self._url("f2"),
-            data=json.dumps({"subject": "B", "html_body": "B", "is_default_fallback": True}),
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()["is_default_fallback"])
-        t1 = WelcomeEmailTemplate.objects.get(flow=self.flow)
-        self.assertFalse(t1.is_default_fallback)
-
-    def test_flow_without_own_template_inherits_default_fallback(self):
-        self.client.force_login(self.manager)
-        self.client.put(
-            self._url("f1"),
-            data=json.dumps({"subject": "A subject", "html_body": "<p>A body</p>", "is_default_fallback": True}),
-            content_type="application/json",
-        )
-        response = self.client.get(self._url("f2"))
-        body = response.json()
-        self.assertEqual(body["source"], "fallback")
-        self.assertEqual(body["fallback_flow_slug"], "f1")
-        self.assertEqual(body["html_body"], "<p>A body</p>")
-
-    def test_delete_reverts_to_starter(self):
-        self.client.force_login(self.manager)
-        self.client.put(
-            self._url("f1"),
-            data=json.dumps({"subject": "A", "html_body": "A"}),
-            content_type="application/json",
-        )
-        response = self.client.delete(self._url("f1"))
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["source"], "starter")
-        self.assertFalse(WelcomeEmailTemplate.objects.filter(flow=self.flow).exists())
-
-    def test_delete_without_own_template_404(self):
-        self.client.force_login(self.manager)
-        response = self.client.delete(self._url("f1"))
-        self.assertEqual(response.status_code, 404)
+        for body in (
+            _payload(html_body="{% if %}"),
+            _payload(name=""),
+            _payload(subject=""),
+            _payload(language="sv"),
+        ):
+            r = self.client.post(BASE, data=body, content_type="application/json")
+            self.assertEqual(r.status_code, 400, body)
+        self.assertFalse(WelcomeEmailTemplate.objects.exists())
 
 
 class WelcomeEmailPreviewApiTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.manager = _as_manager(
-            User.objects.create_user(
-                username="mgr", email="mgr@blackcapitaltechnology.com", first_name="Mgr"
-            )
+            User.objects.create_user(username="mgr", email="mgr@blackcapitaltechnology.com")
         )
-        self.flow = OnboardingFlow.objects.create(slug="f1", name="Flow One", is_active=True)
+        self.flow = OnboardingFlow.objects.create(
+            slug="f1", name="Flow One", is_active=True, is_default=True
+        )
+        FlowStep.objects.create(
+            flow=self.flow, order=1, component_type="checkbox", title="Læs håndbogen",
+            title_no="Les håndboken", config={"label": "Done?"},
+        )
         self.client.force_login(self.manager)
 
-    def _url(self, slug: str) -> str:
-        return f"/api/onboarding/manage/flows/{slug}/welcome-email/preview"
+    def _post(self, body=None):
+        return self.client.post(
+            f"{BASE}/preview",
+            data=json.dumps(body) if body is not None else None,
+            content_type="application/json",
+        )
 
-    def test_preview_with_no_body_uses_sample_data_and_starter_template(self):
-        response = self.client.post(self._url("f1"), content_type="application/json")
-        self.assertEqual(response.status_code, 200, response.content)
-        body = response.json()
+    def test_no_body_uses_sample_data_and_starter(self):
+        r = self._post()
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
         self.assertEqual(body["source"], "starter")
         self.assertIn("Anna", body["subject"])
-        self.assertIn("Anna", body["html"])
         self.assertIn("Anna", body["plain"])
 
-    def test_preview_with_erp_id_uses_real_person_and_buddy_fields(self):
-        PersonFactory(legacy_id="alice", email="alice@example.com", name="Alice Andersen")
-        response = self.client.post(
-            self._url("f1"),
-            data=json.dumps({"erp_id": "alice", "buddy_name": "Rasmus"}),
-            content_type="application/json",
+    def test_country_picks_language_default_and_step_text(self):
+        WelcomeEmailTemplate.objects.create(
+            name="DK", language="da", subject="DK", html_body="<p>DK</p>", is_default=True
         )
-        self.assertEqual(response.status_code, 200, response.content)
-        body = response.json()
-        self.assertIn("Alice", body["subject"])
+        no = WelcomeEmailTemplate.objects.create(
+            name="NO", language="no", subject="NO",
+            html_body="{% for s in todo_steps %}<p>{{ s.title }}</p>{% endfor %}", is_default=True,
+        )
+        body = self._post({"country": "NO"}).json()
+        self.assertEqual(body["template_id"], no.pk)
+        self.assertIn("Les håndboken", body["html"])
+
+    def test_template_id_and_real_person(self):
+        PersonFactory(legacy_id="alice", email="alice@example.com", name="Alice Andersen")
+        t = WelcomeEmailTemplate.objects.create(
+            name="X", language="da", subject="Hej {{ employee_first_name }}",
+            html_body="<p>{{ buddy_name }}</p>",
+        )
+        body = self._post({"template_id": t.pk, "erp_id": "alice", "buddy_name": "Rasmus"}).json()
+        self.assertEqual(body["subject"], "Hej Alice")
         self.assertIn("Rasmus", body["html"])
 
-    def test_preview_unknown_erp_id_404(self):
-        response = self.client.post(
-            self._url("f1"), data=json.dumps({"erp_id": "nope"}), content_type="application/json"
-        )
-        self.assertEqual(response.status_code, 404)
-
-    def test_preview_draft_content_does_not_touch_saved_template(self):
-        response = self.client.post(
-            self._url("f1"),
-            data=json.dumps({"subject": "Draft {{ employee_first_name }}", "html_body": "<p>Draft body</p>"}),
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, 200, response.content)
-        body = response.json()
-        self.assertNotIn("source", body)
+    def test_draft_content(self):
+        body = self._post({"subject": "Draft", "html_body": "<p>Draft body</p>"}).json()
+        self.assertEqual(body["source"], "draft")
         self.assertIn("Draft body", body["html"])
-        self.assertFalse(WelcomeEmailTemplate.objects.filter(flow=self.flow).exists())
 
-    def test_preview_bad_draft_syntax_400(self):
-        response = self.client.post(
-            self._url("f1"),
-            data=json.dumps({"subject": "Hej", "html_body": "{% if %}"}),
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, 400)
-
-    def test_preview_html_only_without_subject_400(self):
-        response = self.client.post(
-            self._url("f1"),
-            data=json.dumps({"html_body": "<p>Only html</p>"}),
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, 400)
-
-    def test_preview_bad_buddy_email_400(self):
-        response = self.client.post(
-            self._url("f1"),
-            data=json.dumps({"buddy_email": "not-an-email"}),
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, 400)
+    def test_errors(self):
+        self.assertEqual(self._post({"erp_id": "nope"}).status_code, 404)
+        self.assertEqual(self._post({"subject": "Hej", "html_body": "{% if %}"}).status_code, 400)
+        self.assertEqual(self._post({"html_body": "<p>x</p>"}).status_code, 400)
+        self.assertEqual(self._post({"buddy_email": "not-an-email"}).status_code, 400)
+        self.assertEqual(self._post({"country": "SE"}).status_code, 400)
+        self.assertEqual(self._post({"flow_slug": "nope"}).status_code, 404)

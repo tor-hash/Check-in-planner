@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     "apps.accounts",
     "apps.planner",
     "apps.onboarding",
+    "apps.feedback",
 ]
 
 MIDDLEWARE = [
@@ -124,7 +125,9 @@ LOGOUT_REDIRECT_URL = "login"
 SOCIAL_AUTH_LOGIN_ERROR_URL = "/accounts/login/?auth_error=1"
 
 AUTHENTICATION_BACKENDS = (
-    "social_core.backends.google.GoogleOAuth2",
+    # GoogleOAuth2 plus an opt-in Drive scope for the scheduler account —
+    # see apps/onboarding/google_auth.py. Same backend name/redirect URI.
+    "apps.onboarding.google_auth.GoogleOAuth2WithOptionalDrive",
     "django.contrib.auth.backends.ModelBackend",
 )
 
@@ -164,6 +167,14 @@ SOCIAL_AUTH_GOOGLE_OAUTH2_EXTRA_DATA = [
     ("scope", "scope"),
 ]
 GOOGLE_CALENDAR_TIMEZONE = os.getenv("GOOGLE_CALENDAR_TIMEZONE", "Europe/Copenhagen")
+# Shared Google Workspace mailbox that owns every onboarding meeting and
+# sends the onboarding welcome email. It must sign in to the planner once
+# (so its Google Calendar/Gmail access is stored). Set to "" to fall back
+# to the old behavior: meetings in the first participant's own calendar,
+# welcome email from whoever assigned the flow.
+ONBOARDING_SCHEDULER_EMAIL = os.getenv(
+    "ONBOARDING_SCHEDULER_EMAIL", "scheduler@blackcapitaltechnology.com"
+).strip()
 USE_GOOGLE_SHEET_JOURNAL = env_bool("USE_GOOGLE_SHEET_JOURNAL", False)
 
 # ---------------------------------------------------------------------------
@@ -218,6 +229,7 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.load_extra_data",
     "social_core.pipeline.user.user_details",
     "apps.accounts.pipeline.ensure_manager_provisioned",
+    "apps.onboarding.google_auth.clear_drive_connect_flag",
 )
 
 if IS_STAGING or IS_PRODUCTION:

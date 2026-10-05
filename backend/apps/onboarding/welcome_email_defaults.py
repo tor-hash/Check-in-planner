@@ -1,12 +1,11 @@
 """Starter content for the welcome-email template feature.
 
 ``STARTER_SUBJECT`` / ``STARTER_HTML_BODY`` are the ultimate fallback used
-by ``welcome_email.resolve_welcome_email_template`` when a flow has no
-``WelcomeEmailTemplate`` of its own *and* no template anywhere in the
-system is marked ``is_default_fallback`` — i.e. a fresh install where no
-manager has edited a welcome email yet. They're also what the "Velkomstmail"
-editor pre-fills for a brand-new flow so there's always a real, polished
-starting point rather than a blank textarea.
+by ``welcome_email.resolve_welcome_email_template`` when no
+``WelcomeEmailTemplate`` exists in the needed language — i.e. a fresh
+install where no manager has saved a welcome email yet. They're also what
+the "Velkomstmail" editor pre-fills for a new template so there's always a
+real, polished starting point rather than a blank textarea.
 
 This is the actual email a BCT manager sent to a real new hire (see the
 PR/session that added this feature), genericised with two merge tags:

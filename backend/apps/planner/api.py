@@ -147,9 +147,12 @@ def people_collection(request: HttpRequest):
         return _validation_error(validation)
     if Person.objects.filter(legacy_id=payload.get("id")).exists():
         return JsonResponse({"detail": "Person with this id already exists."}, status=409)
-    with transaction.atomic():
-        person = upsert_person(payload, request.user)
-        _bump_state_version()
+    try:
+        with transaction.atomic():
+            person = upsert_person(payload, request.user)
+            _bump_state_version()
+    except ValueError as exc:
+        return JsonResponse({"detail": str(exc)}, status=400)
     return JsonResponse(serialize_person(person), status=201)
 
 
@@ -180,9 +183,12 @@ def people_detail(request: HttpRequest, person_id: str):
     validation = validate_person_payload(payload, require_id=True)
     if not validation.valid:
         return _validation_error(validation)
-    with transaction.atomic():
-        person = upsert_person(payload, request.user)
-        _bump_state_version()
+    try:
+        with transaction.atomic():
+            person = upsert_person(payload, request.user)
+            _bump_state_version()
+    except ValueError as exc:
+        return JsonResponse({"detail": str(exc)}, status=400)
     return JsonResponse(serialize_person(person))
 
 
@@ -406,6 +412,7 @@ def _serialize_manager_settings(manager: "ManagerProfile") -> dict:
         "managerId": manager.legacy_id,
         "managerName": manager.person.name if manager.person else manager.legacy_id,
         "autoBookingEnabled": manager.auto_booking_enabled,
+        "autoBookingPeriodsAhead": manager.auto_booking_periods_ahead,
         "bookingBlockedWindows": manager.booking_blocked_windows,
         "preferredMeetingDurationMinutes": manager.preferred_meeting_duration_minutes,
         "maxAutoBookingsPerDay": manager.max_auto_bookings_per_day,
@@ -456,6 +463,15 @@ def manager_settings(request: HttpRequest, manager_id: str):
         if not isinstance(val, bool):
             return JsonResponse({"detail": "autoBookingEnabled must be a boolean."}, status=400)
         manager.auto_booking_enabled = val
+
+    if "autoBookingPeriodsAhead" in payload:
+        periods = payload["autoBookingPeriodsAhead"]
+        if not isinstance(periods, int) or isinstance(periods, bool) or periods < 1 or periods > 12:
+            return JsonResponse(
+                {"detail": "autoBookingPeriodsAhead must be an integer between 1 and 12."},
+                status=400,
+            )
+        manager.auto_booking_periods_ahead = periods
 
     if "bookingBlockedWindows" in payload:
         err_msg = _validate_blocked_windows(payload["bookingBlockedWindows"])

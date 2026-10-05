@@ -6,9 +6,14 @@ Given a session window (week_start … week_end), a manager, and a person, it:
      every working day in the window.
   3. Respects the manager's ``booking_blocked_windows`` and
      ``booking_preferred_days`` preferences.
-  4. Enforces a minimum buffer between meetings (default 30 min) and a
-     maximum number of auto-booked check-ins per manager per calendar day
-     (default 3).
+  4. Enforces the manager's buffer (``ManagerProfile.booking_gap_minutes``,
+     default 30 min) both *before and after* the new check-in against
+     **every** busy block in the manager's calendar -- other check-ins and
+     any other meeting/event alike -- plus check-ins booked earlier in the
+     same run. The employee's calendar only has to be free for the slot
+     itself (the buffer is the manager's setting, not the employee's).
+     Also enforces a maximum number of auto-booked check-ins per manager per
+     calendar day (default 3).
   5. Returns the first mutually free slot, or ``None`` if none exists.
 
 Strategy
@@ -24,6 +29,12 @@ Strategy
 • ``already_booked`` is a list of ``(start_utc, end_utc)`` tuples representing
   meetings booked earlier in the same auto-booking run that are not yet
   reflected in the free/busy snapshot (which is queried once per call).
+• ``allow_same_day`` (default True) controls whether "today" (in
+  ``tz_name``) is itself a candidate day. The auto-booking job passes its
+  own value, driven by ``PlannerConfig.auto_booking_allow_same_day``
+  (default False), so a same-day cron run doesn't produce a same-day
+  meeting; callers that represent an explicit human choice (e.g.
+  rescheduling) leave it at the default.
 """
 from __future__ import annotations
 
@@ -234,6 +245,50 @@ def _is_on_day(dt_utc: datetime, d: date, tz_name: str) -> bool:
     return dt_utc.astimezone(tz).date() == d
 
 
+def _today_local(tz_name: str) -> date:
+    """Return today's date in *tz_name*, based on the real current time."""
+    import zoneinfo
+
+    from django.utils import timezone as dj_tz
+
+    tz = zoneinfo.ZoneInfo(tz_name)
+    return dj_tz.now().astimezone(tz).date()
+
+
+def _ordered_candidate_dates(
+    window: "SessionWindow",
+    *,
+    only_weekdays: bool,
+    preferred_days: list[str],
+    allow_same_day: bool,
+    today_local: date,
+) -> list[date]:
+    """Build the chronologically-ordered list of candidate dates within
+    ``window``: applies the weekdays-only filter and, when
+    ``allow_same_day`` is False, excludes ``today_local``; then reorders so
+    preferred days come first (chronological order preserved within each
+    group).
+    """
+    all_dates: list[date] = []
+    current = window.week_start
+    while current <= window.week_end:
+        if only_weekdays and current.weekday() >= 5:
+            current += timedelta(days=1)
+            continue
+        if not allow_same_day and current == today_local:
+            current += timedelta(days=1)
+            continue
+        all_dates.append(current)
+        current += timedelta(days=1)
+
+    if preferred_days:
+        pref_set = set(preferred_days)
+        preferred = [d for d in all_dates if _WEEKDAY_NAMES[d.weekday()] in pref_set]
+        other = [d for d in all_dates if _WEEKDAY_NAMES[d.weekday()] not in pref_set]
+        return preferred + other
+    return all_dates
+
+
 # ---------------------------------------------------------------------------
 # Public interface
 # ---------------------------------------------------------------------------
@@ -250,6 +305,7 @@ def find_available_slot(
     buffer_minutes: int = 30,
     max_per_day: int = 3,
     already_booked: list[tuple[datetime, datetime]] | None = None,
+    allow_same_day: bool = True,
 ) -> SlotResult | None:
     """Return the first mutually free slot in ``window``, or ``None``.
 
@@ -259,8 +315,11 @@ def find_available_slot(
         The Django ``User`` whose Google credentials are used to call the
         free/busy API.
     buffer_minutes:
-        Minimum gap (in minutes) required between any two meetings for this
-        manager.  Defaults to 30.  Pass 0 to disable.
+        Minimum free time (in minutes) required before *and* after the new
+        check-in, measured against every busy block in the manager's calendar
+        (other check-ins and all other events) and against ``already_booked``.
+        The employee's busy blocks are only checked for direct overlap.
+        Defaults to 30.  Pass 0 to disable.
     max_per_day:
         Maximum number of auto-booked check-in meetings a manager may have on
         any single calendar day.  Defaults to 3.  Pass 0 to disable.
@@ -268,6 +327,11 @@ def find_available_slot(
         List of ``(start_utc, end_utc)`` tuples for meetings booked earlier in
         the same auto-booking run.  These are not yet visible in the free/busy
         snapshot (which is queried once per call) and must be checked manually.
+    allow_same_day:
+        When False, today (in ``tz_name``) is excluded from the candidate
+        dates entirely -- the earliest possible slot is tomorrow. Defaults
+        to True. The auto-booking job passes its own setting here; other
+        callers (e.g. an explicit reschedule) leave the default.
     """
     from apps.planner.google.freebusy import query_freebusy
 
@@ -281,24 +345,13 @@ def find_available_slot(
     blocked_windows: list[dict] = manager.booking_blocked_windows or []
     preferred_days: list[str] = manager.booking_preferred_days or []
 
-    # Build the list of candidate dates across the session window.
-    all_dates: list[date] = []
-    current = window.week_start
-    while current <= window.week_end:
-        if only_weekdays and current.weekday() >= 5:
-            current += timedelta(days=1)
-            continue
-        all_dates.append(current)
-        current += timedelta(days=1)
-
-    # Preferred days first, then the rest (preserving chronological order within each group).
-    if preferred_days:
-        pref_set = set(preferred_days)
-        preferred = [d for d in all_dates if _WEEKDAY_NAMES[d.weekday()] in pref_set]
-        other = [d for d in all_dates if _WEEKDAY_NAMES[d.weekday()] not in pref_set]
-        ordered_dates = preferred + other
-    else:
-        ordered_dates = all_dates
+    ordered_dates = _ordered_candidate_dates(
+        window,
+        only_weekdays=only_weekdays,
+        preferred_days=preferred_days,
+        allow_same_day=allow_same_day,
+        today_local=_today_local(tz_name),
+    )
 
     if not ordered_dates:
         logger.warning(
@@ -313,6 +366,7 @@ def find_available_slot(
     import zoneinfo
 
     tz = zoneinfo.ZoneInfo(tz_name)
+    buffer_delta = timedelta(minutes=max(buffer_minutes, 0))
     window_start_utc = datetime(
         window.week_start.year,
         window.week_start.month,
@@ -320,7 +374,7 @@ def find_available_slot(
         work_start.hour,
         work_start.minute,
         tzinfo=tz,
-    ).astimezone(UTC)
+    ).astimezone(UTC) - buffer_delta
     window_end_utc = datetime(
         window.week_end.year,
         window.week_end.month,
@@ -328,7 +382,10 @@ def find_available_slot(
         work_end.hour,
         work_end.minute,
         tzinfo=tz,
-    ).astimezone(UTC)
+    ).astimezone(UTC) + buffer_delta
+    # ^ Both ends are widened by the buffer so an event that ends just before
+    #   work-start on the first day (or starts just after work-end on the last
+    #   day) is still visible and the buffer around it is respected.
 
     emails = []
     if manager.person and manager.person.email:
@@ -359,17 +416,22 @@ def find_available_slot(
         except Exception:
             logger.exception("slot_finder: free/busy query failed; proceeding with no busy data")
 
-    # Merge busy intervals for all participants.
-    all_busy = []
+    # Split busy intervals by whose calendar they come from:
+    #   • manager_busy -- every event in the manager's calendar (check-ins AND
+    #     any other meeting) plus check-ins booked earlier in this run that
+    #     are not yet in the free/busy snapshot. The manager's buffer applies
+    #     to these, both before and after the candidate slot.
+    #   • other_busy   -- the employee's calendar. Only a direct overlap
+    #     disqualifies a slot; the buffer is the manager's preference.
+    manager_busy: list = []
+    other_busy: list = []
     for email in emails:
-        all_busy.extend(busy_by_email.get(email, []))
+        target = manager_busy if email == manager_email else other_busy
+        target.extend(busy_by_email.get(email, []))
 
     # Convert already_booked tuples to interval objects so _overlaps_busy can
     # treat them the same as Google free/busy intervals.
-    extra_busy = [_SimpleInterval(start=s, end=e) for s, e in already_booked]
-
-    # Combined busy list: Google free/busy + meetings booked this run.
-    combined_busy = all_busy + extra_busy
+    manager_busy.extend(_SimpleInterval(start=s, end=e) for s, e in already_booked)
 
     # Walk candidate slots in chronological order.
     for candidate_date in ordered_dates:
@@ -415,7 +477,9 @@ def find_available_slot(
             if slot_start < dj_tz.now():
                 continue
 
-            if not _overlaps_busy(slot_start, slot_end, combined_busy, buffer_minutes):
+            if _overlaps_busy(slot_start, slot_end, manager_busy, buffer_minutes):
+                continue
+            if not _overlaps_busy(slot_start, slot_end, other_busy, 0):
                 logger.info(
                     "slot_finder: found slot %s (+%d min) for manager=%s person=%s",
                     slot_start.isoformat(),

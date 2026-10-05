@@ -4,28 +4,24 @@ Intended to be called by a weekly Render Cron Job (every Monday 05:00 UTC).
 Idempotent: existing non-cancelled bookings for the same (manager, person,
 window) are skipped automatically.
 
+How many upcoming session windows are booked for a given manager is read
+from that manager's own ``auto_booking_periods_ahead`` setting (booking
+settings page / Django admin) -- there is no run-level override here.
+
 Usage
 -----
     python manage.py run_auto_bookings
-    python manage.py run_auto_bookings --windows 3   # book 3 windows ahead
     python manage.py run_auto_bookings --dry-run      # plan only, no DB/Google writes
 """
 from __future__ import annotations
 
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand
 
 
 class Command(BaseCommand):
     help = "Auto-book check-in meetings for all active managers (runs monthly)."
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            "--windows",
-            type=int,
-            default=1,
-            metavar="N",
-            help="Number of upcoming session windows to book for (default: 1).",
-        )
         parser.add_argument(
             "--dry-run",
             action="store_true",
@@ -34,22 +30,18 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        windows_ahead: int = options["windows"]
         dry_run: bool = options["dry_run"]
-
-        if windows_ahead < 1 or windows_ahead > 12:
-            raise CommandError("--windows must be between 1 and 12.")
 
         from apps.planner.services.auto_booking import run_auto_bookings
 
         self.stdout.write(
             self.style.NOTICE(
                 f"{'[dry-run] ' if dry_run else ''}Running auto-bookings "
-                f"({windows_ahead} window(s) ahead)…"
+                f"(each manager's own periods-ahead setting)…"
             )
         )
 
-        summary = run_auto_bookings(windows_ahead=windows_ahead, dry_run=dry_run)
+        summary = run_auto_bookings(dry_run=dry_run)
 
         self.stdout.write(
             self.style.SUCCESS(

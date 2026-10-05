@@ -38,6 +38,7 @@ def create_checkin_event(
     organizer_user,
     attendee_email: str | None,
     starts_at: datetime,
+    attendee_emails: list[str] | None = None,
     duration_minutes: int = 30,
     title: str = "Check-in samtale",
     agenda: str = "",
@@ -69,8 +70,15 @@ def create_checkin_event(
             }
         },
     }
-    if attendee_email:
-        body["attendees"] = [{"email": attendee_email}]
+    # ``attendee_emails`` lets onboarding invite several people (leder,
+    # buddy, the employee, ...); check-ins pass a single ``attendee_email``.
+    invitees: list[str] = []
+    for e in [attendee_email, *(attendee_emails or [])]:
+        e = (e or "").strip()
+        if e and e.lower() not in {x.lower() for x in invitees}:
+            invitees.append(e)
+    if invitees:
+        body["attendees"] = [{"email": e} for e in invitees]
 
     service = _build_calendar_service(organizer_user)
     try:
@@ -88,7 +96,7 @@ def create_checkin_event(
         logger.exception(
             "Calendar events.insert failed for organizer=%s attendee=%s starts_at=%s",
             getattr(organizer_user, "email", "?"),
-            attendee_email,
+            ", ".join(invitees),
             starts_at.isoformat(),
         )
         raise

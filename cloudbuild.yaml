@@ -66,5 +66,25 @@ steps:
       - --image=gcr.io/$PROJECT_ID/checkin-planner
       - --region=europe-north1
 
+  # Keep scheduled-onboarding-job's image in sync with the app image on
+  # every deploy. Runs `run_scheduled_onboarding` (see render.yaml for the
+  # equivalent Render cron). Same reasoning as the two jobs above: Cloud
+  # Scheduler owns triggering it — only keep the image current here.
+  #
+  # NOTE: unlike auto-booking-job/decline-sync-job, this Cloud Run Job +
+  # its Cloud Scheduler trigger do not exist yet and must be created once,
+  # manually, before this step will succeed — e.g.:
+  #   gcloud run jobs create scheduled-onboarding-job   #     --image=gcr.io/$PROJECT_ID/checkin-planner   #     --region=europe-north1   #     --command=python,backend/manage.py,run_scheduled_onboarding
+  #   gcloud scheduler jobs create http scheduled-onboarding-trigger   #     --schedule="15 5 * * *" --uri=... (see auto-booking-job's scheduler trigger for the pattern)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - update
+      - scheduled-onboarding-job
+      - --image=gcr.io/$PROJECT_ID/checkin-planner
+      - --region=europe-north1
+
 images:
   - 'gcr.io/$PROJECT_ID/checkin-planner'

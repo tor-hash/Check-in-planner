@@ -21,6 +21,7 @@
       <button type="button" class="tab active" id="tab-flows" data-view="flows">Flows</button>
       <button type="button" class="tab" id="tab-employees" data-view="employees">Medarbejdere</button>
       <button type="button" class="tab" id="tab-welcome-email" data-view="welcome-email">Velkomstmail</button>
+      <button type="button" class="tab" id="tab-settings" data-view="settings">Indstillinger</button>
     </div>
   </nav>
 
@@ -131,12 +132,46 @@
               <input type="text" id="emp-department" maxlength="128">
             </div>
           </div>
-          <div class="field">
-            <label for="emp-start-date">Startdato</label>
-            <input type="date" id="emp-start-date">
+          <div class="field-row">
+            <div class="field" style="flex:1;margin:0">
+              <label for="emp-start-date">Startdato</label>
+              <input type="date" id="emp-start-date">
+            </div>
+            <div class="field" style="flex:1;margin:0">
+              <label for="emp-country">Land</label>
+              <select id="emp-country">
+                <option value="DK">Danmark</option>
+                <option value="NO">Norge</option>
+              </select>
+            </div>
           </div>
+          <span class="hint">Landet bestemmer sproget i onboardingen (velkomstmail og mødetitler) og hvilke helligdage der springes over ved booking.</span>
+          <div class="field-row">
+            <div class="field" style="flex:1;margin:0">
+              <label for="emp-leder">Leder</label>
+              <select id="emp-leder"></select>
+            </div>
+            <div class="field" style="flex:1;margin:0">
+              <label for="emp-buddy">Buddy</label>
+              <select id="emp-buddy"></select>
+            </div>
+          </div>
+          <span class="hint">Hvem denne medarbejder rapporterer til, og hvem der er deres onboarding-buddy. Bruges også til at booke møder og udfylde velkomstmailen når et flow tildeles.</span>
           <p id="emp-meta" class="hint hidden"></p>
         </form>
+
+        <div class="steps-section hidden" id="emp-documents">
+          <div class="panel-head sub">
+            <h3>Dokumenter</h3>
+            <div class="panel-head-actions">
+              <a class="btn ghost hidden" id="emp-documents-folder" target="_blank" rel="noopener">Åbn mappe i Drive</a>
+              <button type="button" class="btn" id="btn-upload-document">Upload dokument</button>
+              <input type="file" id="emp-documents-input" multiple hidden>
+            </div>
+          </div>
+          <p class="hint" id="emp-documents-status">Kontrakter m.m. gemmes i medarbejderens mappe i Google Drive.</p>
+          <div id="emp-documents-list" class="steps-list"></div>
+        </div>
       </section>
 
       <section class="panel empty-state" id="emp-empty-state">
@@ -147,35 +182,51 @@
 
   <div id="welcome-email-view" class="hidden">
     <main class="layout">
-      <aside class="panel list-panel" id="we-flow-picker-panel">
+      <aside class="panel list-panel" id="we-list-panel">
         <div class="panel-head">
-          <h2>Vælg flow</h2>
+          <h2>Velkomstmails</h2>
+          <button type="button" class="btn" id="btn-we-new">+ Ny skabelon</button>
         </div>
-        <select id="we-flow-select" class="we-flow-select"></select>
-        <p class="hint" id="we-source-hint"></p>
+        <div id="we-list" class="flow-list"></div>
         <p class="hint">
-          Ét flow kan markeres som standard-skabelon og bruges automatisk af
-          alle flows, der ikke har deres egen velkomstmail.
+          Velkomstmails er skabeloner, der vælges når et flow tildeles en
+          medarbejder. Hver skabelon har et sprog; én skabelon pr. sprog kan
+          være standard og er forvalgt i "Tildel flow".
         </p>
       </aside>
 
-      <section class="panel editor-panel" id="we-editor-panel">
+      <section class="panel editor-panel hidden" id="we-editor-panel">
         <div class="panel-head">
-          <h2>Rediger velkomstmail</h2>
+          <h2 id="we-editor-title">Rediger velkomstmail</h2>
           <div class="panel-head-actions">
-            <button type="button" class="btn danger ghost" id="btn-we-reset">Nulstil til standard</button>
+            <button type="button" class="btn ghost" id="btn-we-duplicate">Duplikér</button>
+            <button type="button" class="btn danger ghost" id="btn-we-delete">Slet</button>
             <button type="button" class="btn" id="btn-we-save">Gem</button>
           </div>
         </div>
 
+        <div class="field-row">
+          <div class="field" style="flex:2;margin:0">
+            <label for="we-name">Navn</label>
+            <input type="text" id="we-name" maxlength="128" placeholder="fx Velkomst – Danmark">
+          </div>
+          <div class="field" style="flex:1;margin:0">
+            <label for="we-language">Sprog</label>
+            <select id="we-language">
+              <option value="da">Dansk</option>
+              <option value="no">Norsk</option>
+            </select>
+          </div>
+        </div>
         <div class="field">
           <label for="we-subject">Emnelinje</label>
           <input type="text" id="we-subject" maxlength="255">
         </div>
         <label class="check">
           <input type="checkbox" id="we-is-default">
-          Brug som standard-skabelon for flows uden egen velkomstmail
+          Standard for dette sprog (forvalgt når et flow tildeles)
         </label>
+        <p class="hint" id="we-meta"></p>
 
         <div class="we-split">
           <div class="we-html-col">
@@ -192,8 +243,60 @@
             <div class="field">
               <label>Forhåndsvisning <span class="hint" id="we-preview-status"></span></label>
               <iframe id="we-preview-frame" class="preview-frame preview-frame-lg" sandbox=""></iframe>
+              <span class="hint">Vist med eksempeldata og trinnene fra standard-flowet, på skabelonens sprog.</span>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section class="panel empty-state" id="we-empty-state">
+        <p>Vælg en velkomstmail i listen, eller opret en ny.</p>
+      </section>
+    </main>
+  </div>
+
+  <div id="settings-view" class="hidden">
+    <main class="layout settings-layout">
+      <section class="panel editor-panel">
+        <div class="panel-head">
+          <h2>Systemkonto</h2>
+        </div>
+        <p class="hint">
+          Den Google-konto systemet handler som: den opretter alle onboarding-møder
+          (og inviterer deltagerne), sender velkomstmailen og uploader dokumenter til
+          Drive. Kontoen skal have logget ind i planner'en én gang.
+        </p>
+        <div class="field">
+          <label for="set-system-email">E-mail</label>
+          <div class="inline-row">
+            <input type="email" id="set-system-email" placeholder="fx scheduler@blackcapitaltechnology.com">
+            <button type="button" class="btn" id="btn-save-system-email">Gem</button>
+          </div>
+          <span class="hint" id="set-system-email-hint"></span>
+        </div>
+      </section>
+
+      <section class="panel editor-panel">
+        <div class="panel-head">
+          <h2>Google Drive — medarbejderdokumenter</h2>
+        </div>
+        <p class="hint">
+          Dokumenter uploadet på en medarbejder gemmes i en mappe med navnet
+          "Navn (ERP-ID)" inde i Employee-mappen nedenfor. Mappen oprettes ved
+          første upload. Alt uploades som systemkontoen.
+        </p>
+        <ol class="settings-checklist">
+          <li id="set-scheduler-signin"></li>
+          <li id="set-scheduler-drive"></li>
+          <li id="set-folder-status"></li>
+        </ol>
+        <div class="field">
+          <label for="set-drive-folder">Employee-mappe i Google Drive (link)</label>
+          <div class="inline-row">
+            <input type="text" id="set-drive-folder" placeholder="https://drive.google.com/drive/folders/…">
+            <button type="button" class="btn" id="btn-save-settings">Gem</button>
+          </div>
+          <span class="hint">Åbn mappen i Drive og kopiér linket fra adresselinjen. Mappen skal være delt med systemkontoen med redigeringsadgang.</span>
         </div>
       </section>
     </main>
@@ -211,13 +314,25 @@
         <select id="step-type" required></select>
       </div>
       <div class="field">
-        <label for="step-title">Titel</label>
+        <label for="step-title">Titel (dansk)</label>
         <input type="text" id="step-title" required maxlength="200">
       </div>
       <div class="field">
-        <label for="step-description">Beskrivelse</label>
+        <label for="step-description">Beskrivelse (dansk)</label>
         <textarea id="step-description" rows="2"></textarea>
       </div>
+      <details class="advanced-json" id="step-no-details">
+        <summary>Norsk tekst</summary>
+        <div class="field">
+          <label for="step-title-no">Titel (norsk)</label>
+          <input type="text" id="step-title-no" maxlength="200">
+        </div>
+        <div class="field">
+          <label for="step-description-no">Beskrivelse (norsk)</label>
+          <textarea id="step-description-no" rows="2"></textarea>
+        </div>
+        <span class="hint">Bruges for medarbejdere i Norge. Tomme felter bruger den danske tekst.</span>
+      </details>
       <label class="check"><input type="checkbox" id="step-required" checked> Påkrævet</label>
 
       <div id="config-fields" class="config-fields"></div>
@@ -244,17 +359,41 @@
       </div>
       <div class="field-row">
         <div class="field" style="flex:1;margin:0">
-          <label for="assign-flow-buddy-name">Buddy (navn)</label>
-          <input type="text" id="assign-flow-buddy-name" maxlength="128" placeholder="fx Rasmus">
+          <label for="assign-flow-leder">Leder *</label>
+          <select id="assign-flow-leder" required></select>
         </div>
         <div class="field" style="flex:1;margin:0">
-          <label for="assign-flow-buddy-email">Buddy (e-mail)</label>
-          <input type="email" id="assign-flow-buddy-email" maxlength="254">
+          <label for="assign-flow-buddy">Buddy *</label>
+          <select id="assign-flow-buddy" required></select>
         </div>
       </div>
+      <div class="field-row">
+        <div class="field" style="flex:1;margin:0">
+          <label for="assign-flow-country">Land</label>
+          <select id="assign-flow-country">
+            <option value="DK">Danmark</option>
+            <option value="NO">Norge</option>
+          </select>
+        </div>
+        <div class="field" style="flex:2;margin:0">
+          <label for="assign-flow-welcome-email">Velkomstmail</label>
+          <select id="assign-flow-welcome-email"></select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="assign-flow-start-date">Startdato *</label>
+        <input type="date" id="assign-flow-start-date" required>
+        <span class="hint">Medarbejderens første arbejdsdag. Alle møder placeres ud fra denne dato, og den gemmes også på medarbejderen.</span>
+      </div>
       <p class="hint">
-        Valgfrit. Bruges i velkomstmailen som
+        Leder og buddy er påkrævet. De bruges til at booke møder (afhængigt af
+        trinnets indstilling) og til at udfylde velkomstmailens
+        {% templatetag openvariable %} leder_name {% templatetag closevariable %} /
         {% templatetag openvariable %} buddy_name {% templatetag closevariable %}.
+        <b>Send nu</b> sender velkomstmailen og booker alle møder med det samme.
+        <b>Send på startdatoen</b> venter med begge dele til startdatoens morgen
+        (ca. kl. 07:15). Landet bestemmer sprog (velkomstmail og mødetitler) og helligdage, og
+        gemmes også på medarbejderen.
       </p>
 
       <p id="assign-flow-summary" class="hint"></p>
@@ -266,7 +405,8 @@
 
       <div class="dialog-actions">
         <button type="button" class="btn ghost" id="btn-assign-flow-cancel">Annuller</button>
-        <button type="submit" class="btn" id="btn-assign-flow-confirm">Tildel og send</button>
+        <button type="button" class="btn ghost" id="btn-assign-flow-on-start">Send på startdatoen</button>
+        <button type="submit" class="btn" id="btn-assign-flow-confirm">Send nu</button>
       </div>
     </form>
   </dialog>
@@ -277,6 +417,7 @@
   <script src="{% static 'onboarding/onboarding-api.js' %}"></script>
   <script src="{% static 'onboarding/flows-editor.js' %}"></script>
   <script src="{% static 'onboarding/welcome-email-editor.js' %}"></script>
+  <script src="{% static 'onboarding/onboarding-settings.js' %}"></script>
   <script src="{% static 'onboarding/employees-editor.js' %}"></script>
 </body>
 </html>

@@ -14,19 +14,18 @@ check, so re-attaching an existing assignment never re-sends it).
 ===========================================================================
 EDITABLE TEMPLATE — how content is resolved and rendered
 ===========================================================================
-The actual subject/HTML a manager sees and edits lives in
-``WelcomeEmailTemplate`` (one row per ``OnboardingFlow``, editable from the
-"Velkomstmail" tab at ``/onboarding/flows/`` — see ``manage_api.py``'s
-``flow_welcome_email`` / ``flow_welcome_email_preview`` views). This module
-just resolves *which* template applies to a given flow and renders it:
+The actual subject/HTML lives in ``WelcomeEmailTemplate`` — a library of
+named templates, each in one language (Dansk/Norsk), edited on the
+"Velkomstmail" tab at ``/onboarding/flows/`` (``manage_api.welcome_emails_*``).
+The manager picks one in the "Tildel flow" dialog; it's stored on
+``OnboardingAssignment.welcome_email_template``.
 
-``resolve_welcome_email_template(flow)`` — in order:
-  1. This flow's own ``WelcomeEmailTemplate``, if it has one.
-  2. Whichever template in the system (any flow) is marked
-     ``is_default_fallback=True``, if any.
-  3. The hardcoded starter content in ``welcome_email_defaults.py`` — the
-     real BCT welcome email this feature shipped with. Always available,
-     so the system works even before any manager has touched this feature.
+``resolve_welcome_email_template(template_id=..., language=...)`` — in order:
+  1. The explicitly chosen template (if it still exists).
+  2. The default template for ``language`` (``is_default=True``).
+  3. Any template in ``language``.
+  4. The hardcoded starter content in ``welcome_email_defaults.py`` (Danish)
+     — always available, so the system works before anyone has saved one.
 
 ``build_merge_context(...)`` builds the dict of merge tags available to the
 subject/HTML (``{{ employee_first_name }}``, ``{{ buddy_name }}``, etc. —
@@ -65,10 +64,12 @@ MERGE_TAGS = [
     ("employee_name", "Medarbejderens fulde navn"),
     ("employee_first_name", "Medarbejderens fornavn"),
     ("employee_email", "Medarbejderens e-mail"),
-    ("manager_name", "Navnet på den leder, der tildeler flowet"),
-    ("manager_email", "E-mailen på den leder, der tildeler flowet"),
-    ("buddy_name", "Buddyens navn (tomt hvis ikke udfyldt — brug {% if buddy_name %})"),
-    ("buddy_email", "Buddyens e-mail (tomt hvis ikke udfyldt)"),
+    ("manager_name", "Navnet på den, der tildelte/planlagde flowet"),
+    ("manager_email", "E-mailen på den, der tildelte/planlagde flowet"),
+    ("leder_name", "Navnet på medarbejderens leder (den de refererer til)"),
+    ("leder_email", "E-mailen på medarbejderens leder"),
+    ("buddy_name", "Buddyens navn"),
+    ("buddy_email", "Buddyens e-mail"),
     ("flow_name", "Navnet på onboarding-flowet"),
     ("position", "Medarbejderens stilling"),
     ("department", "Medarbejderens afdeling"),
@@ -81,33 +82,49 @@ MERGE_TAGS = [
 class _StarterTemplate:
     """Duck-types a ``WelcomeEmailTemplate`` row without touching the DB."""
 
-    flow = None
-    is_default_fallback = False
+    pk = None
+    id = None
+    name = "Indbygget start-skabelon"
+    language = "da"
+    is_default = False
+    updated_at = None
+    updated_by = None
+    updated_by_id = None
 
     def __init__(self, subject: str, html_body: str):
         self.subject = subject
         self.html_body = html_body
 
 
-def resolve_welcome_email_template(flow):
-    """Return ``(template, source, fallback_flow_slug)`` for ``flow``.
+def starter_template() -> _StarterTemplate:
+    return _StarterTemplate(STARTER_SUBJECT, STARTER_HTML_BODY)
 
-    ``source`` is one of ``"own"``, ``"fallback"``, ``"starter"`` — see the
-    module docstring for the resolution order. ``fallback_flow_slug`` is
-    only set when ``source == "fallback"`` (the slug of the flow whose
-    template is being borrowed).
+
+def resolve_welcome_email_template(*, template_id=None, language: str = "da"):
+    """Return ``(template, source)`` — see the module docstring for the order.
+
+    ``source`` is ``"chosen"``, ``"default"``, ``"language"`` or ``"starter"``.
     """
     from .models import WelcomeEmailTemplate
 
-    own = WelcomeEmailTemplate.objects.filter(flow=flow).first()
-    if own is not None:
-        return own, "own", None
-
-    fallback = WelcomeEmailTemplate.objects.filter(is_default_fallback=True).first()
-    if fallback is not None:
-        return fallback, "fallback", fallback.flow.slug
-
-    return _StarterTemplate(STARTER_SUBJECT, STARTER_HTML_BODY), "starter", None
+    if template_id:
+        chosen = WelcomeEmailTemplate.objects.filter(pk=template_id).first()
+        if chosen is not None:
+            return chosen, "chosen"
+    in_language = WelcomeEmailTemplate.objects.filter(language=language)
+    default = in_language.filter(is_default=True).first()
+    if default is not None:
+        return default, "default"
+    first = in_language.order_by("name").first()
+    if first is not None:
+        return first, "language"
+    if language != "da":
+        logger.warning(
+            "welcome_email: no template in language %r — falling back to the "
+            "built-in (Danish) starter template.",
+            language,
+        )
+    return starter_template(), "starter"
 
 
 def build_merge_context(
@@ -117,14 +134,20 @@ def build_merge_context(
     requested_by,
     buddy_name: str = "",
     buddy_email: str = "",
+    leder_name: str = "",
+    leder_email: str = "",
     profile=None,
+    country: str = "DK",
 ) -> dict:
     """Build the merge-tag context for ``flow``'s welcome email.
 
     ``person`` is the planner ``Person`` (name/email/etc.). ``profile`` is
     the ``OnboardingProfile`` if one exists yet (position/department/start
     date) — optional since preview can run before an employee has one.
-    ``requested_by`` is the manager attaching (or previewing) the flow.
+    ``requested_by`` is the manager attaching (or previewing) the flow —
+    note this may differ from ``leder_name``/``leder_email`` (the employee's
+    actual reports-to manager), since anyone with manager access can attach
+    a flow.
     """
     steps = list(flow.steps.all().order_by("order"))
     todo_steps = [s for s in steps if s.component_type != "calendar_meeting"]
@@ -147,22 +170,24 @@ def build_merge_context(
         "manager_email": manager_email,
         "buddy_name": (buddy_name or "").strip(),
         "buddy_email": (buddy_email or "").strip(),
+        "leder_name": (leder_name or "").strip(),
+        "leder_email": (leder_email or "").strip(),
         "flow_name": flow.name,
         "position": getattr(profile, "position", "") or "",
         "department": getattr(profile, "department", "") or "",
         "start_date": getattr(profile, "start_date", None),
         "todo_steps": [
             {
-                "title": s.title,
-                "description": s.description,
+                "title": s.title_for(country),
+                "description": s.description_for(country),
                 "kind_label": _STEP_KIND_LABELS.get(s.component_type, ""),
             }
             for s in todo_steps
         ],
         "meeting_steps": [
             {
-                "title": s.title,
-                "description": s.description,
+                "title": s.title_for(country),
+                "description": s.description_for(country),
                 "duration_minutes": (s.config or {}).get("duration_minutes", 30),
             }
             for s in meeting_steps
@@ -197,6 +222,8 @@ def validate_template_syntax(*, subject: str, html_body: str) -> None:
         "manager_email": "manager@example.com",
         "buddy_name": "",
         "buddy_email": "",
+        "leder_name": "",
+        "leder_email": "",
         "flow_name": "Preview",
         "position": "",
         "department": "",
@@ -243,19 +270,12 @@ def html_to_plain(html: str) -> str:
     return "\n".join(collapsed).strip()
 
 
-def render_welcome_email(*, flow, context: dict) -> tuple[str, str, str, str]:
-    """Resolve + render the welcome email for ``flow``.
-
-    Returns ``(subject, plain_text, html, source)`` — ``source`` is
-    whichever of ``"own"``/``"fallback"``/``"starter"``
-    ``resolve_welcome_email_template`` used, handy for callers that want to
-    surface that in a preview.
-    """
-    template, source, _fallback_slug = resolve_welcome_email_template(flow)
+def render_welcome_email(*, template, context: dict) -> tuple[str, str, str]:
+    """Render ``template`` (a ``WelcomeEmailTemplate`` or the starter) against
+    ``context``. Returns ``(subject, plain_text, html)``."""
     subject = render_merge_tags(template.subject, context)
     html = render_merge_tags(template.html_body, context)
-    plain = html_to_plain(html)
-    return subject, plain, html, source
+    return subject, html_to_plain(html), html
 
 
 def send_onboarding_welcome_email(*, person, assignment, requested_by) -> CalendarShareRequest:
@@ -264,7 +284,9 @@ def send_onboarding_welcome_email(*, person, assignment, requested_by) -> Calend
     ``person`` is the planner ``Person`` record for the employee (used for
     the ``CalendarShareRequest`` audit row and the recipient address).
     ``assignment`` supplies the flow, buddy fields, and step list.
-    ``requested_by`` is the manager whose Gmail sends the email.
+    ``requested_by`` is the manager who assigned the flow. The email is
+    sent from the scheduler mailbox (``ONBOARDING_SCHEDULER_EMAIL``) when
+    one is configured, otherwise from ``requested_by``'s own Gmail.
 
     Records a ``CalendarShareRequest`` for audit purposes (same model the
     standalone calendar-share feature uses) and raises ``ValidationError``
@@ -281,22 +303,46 @@ def send_onboarding_welcome_email(*, person, assignment, requested_by) -> Calend
         requested_by=requested_by,
         buddy_name=assignment.buddy_name,
         buddy_email=assignment.buddy_email,
+        leder_name=assignment.leder_name,
+        leder_email=assignment.leder_email,
         profile=assignment.profile,
+        country=assignment.country,
     )
-    subject, plain, html, _source = render_welcome_email(flow=assignment.flow, context=context)
+    from .countries import language_for_country
+
+    template, _source = resolve_welcome_email_template(
+        template_id=assignment.welcome_email_template_id,
+        language=language_for_country(assignment.country),
+    )
+    subject, plain, html = render_welcome_email(template=template, context=context)
 
     record = CalendarShareRequest(
         person=person,
         requested_by=requested_by,
         channel=CalendarShareRequest.CHANNEL_EMAIL,
     )
+    # Sent from the shared scheduler mailbox when one is configured, with
+    # Reply-To pointing at the leder so the employee's replies reach a
+    # person. Falls back to the assigning manager's own Gmail otherwise.
+    from apps.onboarding.calendar_booking import OrganizerResolutionError, scheduler_user
+
+    try:
+        sender = scheduler_user() or requested_by
+    except OrganizerResolutionError as exc:
+        record.success = False
+        record.error_message = str(exc)[:500]
+        record.save()
+        raise ValidationError(str(exc)) from exc
+    reply_to = (assignment.leder_email or getattr(requested_by, "email", "") or "").strip()
+
     try:
         _send_gmail(
-            from_user=requested_by,
+            from_user=sender,
             to_email=person.email,
             subject=subject,
             plain_text=plain,
             html=html,
+            reply_to=reply_to or None,
         )
     except GoogleCredentialsUnavailable as exc:
         record.success = False

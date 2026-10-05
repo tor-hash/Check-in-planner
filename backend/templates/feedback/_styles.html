@@ -1,0 +1,24 @@
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --border:#2a2f3d; --text:#e7eaf0; --muted:#8a93a5; --accent:#6ea8fe; --danger:#ff6b6b; --success:#4ade80; }
+  * { box-sizing: border-box; }
+  body { font-family: Segoe UI, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+  .head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; }
+  h1 { margin: 0; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
+  .card h2 { margin: 0 0 .4rem; font-size: 1.05rem; }
+  .card p { margin: 0 0 .6rem; white-space: pre-wrap; }
+  .meta { color: var(--muted); font-size: .85rem; }
+  .empty { color: var(--muted); font-style: italic; }
+  .btn { display: inline-block; border: none; border-radius: 8px; padding: 10px 14px; font-weight: 600; font-size: .95rem; cursor: pointer; text-decoration: none; font-family: inherit; }
+  .btn-green { background: var(--success); color: #0b1a10; }
+  .btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  .btn-danger { background: transparent; color: var(--danger); border: 1px solid #4a1f23; }
+  .btn-sm { padding: 6px 10px; font-size: .85rem; }
+  .actions { display: flex; gap: .5rem; margin-top: .75rem; }
+  .actions form { margin: 0; }
+  label { display: block; margin: 0 0 .35rem; color: var(--muted); font-size: .9rem; }
+  input[type="text"], textarea { width: 100%; background: #0d1017; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; color: var(--text); font-size: 1rem; font-family: inherit; margin-bottom: 1rem; }
+  textarea { min-height: 160px; resize: vertical; }
+  .errorlist { color: var(--danger); margin: -.6rem 0 1rem; padding: 0; list-style: none; font-size: .9rem; }
+</style>

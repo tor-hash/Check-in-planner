@@ -15,6 +15,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from .components import get_component
+from .countries import DEFAULT_COUNTRY
 from .seed_baseline import DEFAULT_FLOW_SLUG, ensure_default_flow
 from .models import (
     FlowStep,
@@ -120,6 +121,8 @@ def create_step(flow: OnboardingFlow, *, data: dict[str, Any]) -> FlowStep:
         component_type=data["component_type"],
         title=data["title"],
         description=data.get("description") or "",
+        title_no=data.get("title_no") or "",
+        description_no=data.get("description_no") or "",
         config=data["config"],
         is_required=data["is_required"],
     )
@@ -138,6 +141,10 @@ def update_step(flow: OnboardingFlow, step_id: int, *, data: dict[str, Any]) -> 
     step.component_type = data["component_type"]
     step.title = data["title"]
     step.description = data.get("description") or ""
+    if "title_no" in data:
+        step.title_no = data["title_no"] or ""
+    if "description_no" in data:
+        step.description_no = data["description_no"] or ""
     step.config = data["config"]
     step.is_required = data["is_required"]
     step.save()
@@ -216,28 +223,51 @@ def _ensure_user(*, email: str, erp_id: str, first_name: str, last_name: str):
 
 
 def _link_person_if_unlinked(profile: OnboardingProfile) -> None:
-    """Link an existing planner ``Person`` to this profile, if one matches.
+    """Link this profile to its matching planner ``Person`` — creating one if needed.
 
     Employees are often added to the check-in planner (``Person``) before
     they're ever provisioned into onboarding. When that happens, the
     ``erp_employee_id`` used to provision them is, by convention, the
     person's ``legacy_id`` (see ``manage_api.assign_flow`` and the
     "+ Ny medarbejder" flow in ``employees-editor.js``, which pre-fills and
-    locks the ERP id from ``person.legacy_id``). If such a ``Person`` exists
-    and isn't already linked to a different profile, link it here so the
-    Employees tab picks it up immediately instead of showing an orphaned
-    profile forever.
+    locks the ERP id from ``person.legacy_id`` whenever one already
+    exists). In that case we just link the existing, unlinked record.
 
-    No-op (and never raises) when there's no matching ``Person``, the match
-    is already linked, or the planner app isn't installed.
+    But "+ Ny medarbejder" also allows creating an employee with *no* prior
+    planner roster entry at all — in that case there's no ``Person`` to
+    link, so we create one from the profile's own fields instead of
+    leaving the profile permanently orphaned. Without this, such an
+    employee would never appear in any ``Person``-backed view (the
+    Employees tab list itself, the main planner roster, leder/buddy
+    dropdowns elsewhere) — and setting their leder/buddy right after
+    creation, from the employee editor, would 404 with "Person not found"
+    (see ``manage_api.person_roles``) since there'd be no ``Person`` row
+    yet to update.
+
+    A ``Person`` already linked to a *different* profile is left alone.
+    Never raises when the planner app isn't installed.
     """
     try:
         from apps.planner.models import Person
     except Exception:  # pragma: no cover - planner app always installed in practice
         return
-    Person.objects.filter(
+
+    relinked = Person.objects.filter(
         legacy_id=profile.erp_employee_id, onboarding_profile__isnull=True
     ).update(onboarding_profile=profile)
+    if relinked:
+        return
+    if Person.objects.filter(legacy_id=profile.erp_employee_id).exists():
+        return  # already linked to a different profile — leave it alone
+
+    name = f"{profile.first_name} {profile.last_name}".strip() or profile.erp_employee_id
+    Person.objects.create(
+        legacy_id=profile.erp_employee_id,
+        name=name,
+        title=profile.position or "",
+        email=profile.user.email or "",
+        onboarding_profile=profile,
+    )
 
 
 @transaction.atomic
@@ -251,6 +281,11 @@ def create_employee(*, data: dict[str, Any]) -> tuple[OnboardingProfile, bool]:
     """
     profile = OnboardingProfile.objects.filter(erp_employee_id=data["erp_employee_id"]).first()
     if profile is not None:
+        # Idempotent replay of a profile created before _link_person_if_unlinked
+        # existed (or before it created rather than just linked) would
+        # otherwise stay orphaned forever — this call is itself idempotent,
+        # so it's safe (and necessary) to repeat here.
+        _link_person_if_unlinked(profile)
         return profile, False
 
     user = _ensure_user(
@@ -267,6 +302,7 @@ def create_employee(*, data: dict[str, Any]) -> tuple[OnboardingProfile, bool]:
         position=data.get("position") or "",
         department=data.get("department") or "",
         start_date=data.get("start_date"),
+        country=data.get("country") or DEFAULT_COUNTRY,
     )
     _link_person_if_unlinked(profile)
     return profile, True
@@ -294,25 +330,39 @@ def attach_flow(
     profile: OnboardingProfile,
     flow: OnboardingFlow,
     requested_by,
-    buddy_name: str = "",
-    buddy_email: str = "",
+    leder=None,
+    buddy=None,
+    scheduled_for=None,
+    country: str | None = None,
+    welcome_email_template=None,
 ) -> tuple[OnboardingAssignment, bool]:
-    """Attach ``flow`` to ``profile`` — the one deliberate "attach" action.
+    """Attach (or schedule) ``flow`` to ``profile`` — the one deliberate
 
-    Idempotent on ``(profile, flow)``: replaying returns the existing
-    assignment unchanged. ``requested_by`` is recorded as ``assigned_by``
-    the first time (backfilled on replay if it was never set, e.g. the
-    assignment originated some other way) since it drives the welcome-email
-    sender and "assigning_manager" meeting organizer resolution. ``buddy_name``
-    / ``buddy_email`` are likewise only set the first time — they're locked
-    in alongside the welcome email, which only ever sends once.
+    "attach" action. Idempotent on ``(profile, flow)``: replaying returns
+    the existing assignment unchanged — except while it's still only
+    *planned* (``scheduled_automation_ran_at`` unset), where the new
+    leder/buddy/date/country/template replace the old ones. ``requested_by`` is recorded as
+    ``assigned_by`` the first time (backfilled on replay if it was never
+    set, e.g. the assignment originated some other way) since it drives the
+    welcome-email sender and "assigning_manager" meeting organizer
+    resolution.
+
+    ``leder`` / ``buddy`` (planner ``Person`` instances, or ``None``) are
+    snapshotted onto ``leder_name``/``leder_email``/``buddy_name``/
+    ``buddy_email`` the first time only — locked in alongside the welcome
+    email, which only ever sends once. ``scheduled_for`` (a ``date``,
+    defaults to today when omitted) is likewise only set the first time,
+    as are ``country`` (defaults to the profile's) and
+    ``welcome_email_template`` (``None`` = default for that language);
+    see the ``OnboardingAssignment.scheduled_for`` field docstring for what
+    it drives.
 
     This function only creates the assignment + step-progress rows. It does
     **not** run the attach automation (welcome email / calendar booking /
     Slack invite) or the pre-flight checks that can block an attach — those
-    live in ``manage_api.assign_flow``, which is the only caller. Keeping
-    them there (rather than here) keeps this function usable from tests and
-    any future caller without dragging in Google/Slack side effects.
+    live in ``manage_api.assign_flow`` / ``automation.run_onboarding_attach_automation``.
+    Keeping them out of here keeps this function usable from tests and any
+    future caller without dragging in Google/Slack side effects.
 
     Returns ``(assignment, is_new)``.
     """
@@ -320,9 +370,51 @@ def attach_flow(
     is_new = assignment is None
     if is_new:
         assignment = _create_assignment_with_progress(profile=profile, flow=flow)
-        assignment.buddy_name = buddy_name
-        assignment.buddy_email = buddy_email
-        assignment.save(update_fields=["buddy_name", "buddy_email", "updated_at"])
+        assignment.buddy_name = buddy.name if buddy else ""
+        assignment.buddy_email = buddy.email if buddy else ""
+        assignment.leder_name = leder.name if leder else ""
+        assignment.leder_email = leder.email if leder else ""
+        assignment.scheduled_for = scheduled_for or timezone.localdate()
+        assignment.country = country or profile.country or DEFAULT_COUNTRY
+        assignment.welcome_email_template = welcome_email_template
+        assignment.save(
+            update_fields=[
+                "buddy_name",
+                "buddy_email",
+                "leder_name",
+                "leder_email",
+                "scheduled_for",
+                "country",
+                "welcome_email_template",
+                "updated_at",
+            ]
+        )
+
+    elif assignment.scheduled_automation_ran_at is None:
+        # Planned but not started yet (nothing sent, nothing booked): the
+        # manager is re-planning it, so take the dialog's latest values —
+        # e.g. switching from "on the start date" to "send now".
+        if buddy is not None:
+            assignment.buddy_name, assignment.buddy_email = buddy.name, buddy.email
+        if leder is not None:
+            assignment.leder_name, assignment.leder_email = leder.name, leder.email
+        if scheduled_for is not None:
+            assignment.scheduled_for = scheduled_for
+        if country:
+            assignment.country = country
+        assignment.welcome_email_template = welcome_email_template
+        assignment.save(
+            update_fields=[
+                "buddy_name",
+                "buddy_email",
+                "leder_name",
+                "leder_email",
+                "scheduled_for",
+                "country",
+                "welcome_email_template",
+                "updated_at",
+            ]
+        )
 
     if assignment.assigned_by_id is None:
         assignment.assigned_by = requested_by
@@ -356,6 +448,48 @@ def list_profiles_by_email(*, email: str) -> list[OnboardingProfile]:
     )
 
 
+def _sync_linked_person_identity(profile: OnboardingProfile) -> None:
+    """Keep an already-linked planner ``Person``'s identity fields in sync
+    with the employee's current ``OnboardingProfile``/``User`` data.
+
+    ``_link_person_if_unlinked`` only ever *creates* a ``Person`` from these
+    fields the first time a profile gets linked — by design, it never
+    touches an already-linked ``Person`` again (see its docstring: "A
+    Person already linked to a different profile is left alone"). That's
+    correct for a Person that predates onboarding, but it means editing
+    this employee's e-mail/name/position from the employee editor *after*
+    the initial link silently stopped updating the Person record — while
+    welcome-email sending and calendar-meeting booking both read the
+    recipient/attendee address straight off ``Person.email``, not off the
+    profile or user (see ``welcome_email.send_onboarding_welcome_email``
+    and ``calendar_booking.book_onboarding_calendar_meetings``). Editing
+    "E-mail" on this form looked like it updated the employee's contact
+    info everywhere, but the address automation actually used could stay
+    stale indefinitely. This keeps them in sync so there's one answer to
+    "what's this employee's email" across the product, not two.
+    """
+    person = getattr(profile, "planner_person", None)
+    if person is None:
+        return
+
+    name = f"{profile.first_name} {profile.last_name}".strip() or profile.erp_employee_id
+    email = profile.user.email or ""
+    title = profile.position or ""
+
+    changed = []
+    if person.email != email:
+        person.email = email
+        changed.append("email")
+    if person.name != name:
+        person.name = name
+        changed.append("name")
+    if person.title != title:
+        person.title = title
+        changed.append("title")
+    if changed:
+        person.save(update_fields=[*changed, "updated_at"])
+
+
 @transaction.atomic
 def update_employee(*, erp_id: str, data: dict[str, Any]) -> OnboardingProfile:
     """Update employee identity fields. Does not touch flow attachment.
@@ -383,9 +517,13 @@ def update_employee(*, erp_id: str, data: dict[str, Any]) -> OnboardingProfile:
 
     if "start_date" in data:
         profile.start_date = data["start_date"]
+    if "country" in data:
+        profile.country = data["country"]
 
     profile.save()
     user.save()
+    _link_person_if_unlinked(profile)
+    _sync_linked_person_identity(profile)
     return profile
 
 
@@ -499,14 +637,16 @@ def _recompute_assignment_status(assignment: OnboardingAssignment) -> None:
 # ---------------------------------------------------------------------------
 
 
-def serialize_step_progress(progress: StepProgress) -> dict[str, Any]:
+def serialize_step_progress(progress: StepProgress, country: str | None = None) -> dict[str, Any]:
+    """``title``/``description`` are in the assignment's language (``country``)."""
     step = progress.step
+    country = country or progress.assignment.country
     return {
         "id": step.id,
         "order": step.order,
         "component_type": step.component_type,
-        "title": step.title,
-        "description": step.description,
+        "title": step.title_for(country),
+        "description": step.description_for(country),
         "config": step.config,
         "is_required": step.is_required,
         "status": progress.status,
@@ -546,6 +686,7 @@ def serialize_employee_summary(profile: OnboardingProfile) -> dict[str, Any]:
         "position": _first(profile.position, person.title if person else ""),
         "department": _first(profile.department, person.function_name if person else ""),
         "start_date": profile.start_date.isoformat() if profile.start_date else None,
+        "country": profile.country,
     }
 
 
@@ -592,6 +733,12 @@ def serialize_employee_state(profile: OnboardingProfile) -> dict[str, Any]:
         "steps": [],
         "buddy_name": None,
         "buddy_email": None,
+        "leder_name": None,
+        "leder_email": None,
+        "scheduled_for": None,
+        "scheduled_automation_ran_at": None,
+        "assignment_country": None,
+        "welcome_email_template_id": None,
     }
 
 
@@ -612,9 +759,19 @@ def serialize_assignment(assignment: OnboardingAssignment) -> dict[str, Any]:
             "name": assignment.flow.name,
             "description": assignment.flow.description,
         },
-        "steps": [serialize_step_progress(p) for p in progresses],
+        "steps": [serialize_step_progress(p, assignment.country) for p in progresses],
+        "assignment_country": assignment.country,
+        "welcome_email_template_id": assignment.welcome_email_template_id,
         "buddy_name": assignment.buddy_name or None,
         "buddy_email": assignment.buddy_email or None,
+        "leder_name": assignment.leder_name or None,
+        "leder_email": assignment.leder_email or None,
+        "scheduled_for": assignment.scheduled_for.isoformat() if assignment.scheduled_for else None,
+        "scheduled_automation_ran_at": (
+            assignment.scheduled_automation_ran_at.isoformat()
+            if assignment.scheduled_automation_ran_at
+            else None
+        ),
     }
 
 
@@ -632,6 +789,8 @@ def serialize_flow(flow: OnboardingFlow) -> dict[str, Any]:
                 "component_type": step.component_type,
                 "title": step.title,
                 "description": step.description,
+                "title_no": step.title_no,
+                "description_no": step.description_no,
                 "config": step.config,
                 "is_required": step.is_required,
             }
@@ -649,42 +808,45 @@ def serialize_flow(flow: OnboardingFlow) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def serialize_welcome_email_template_for_flow(flow: OnboardingFlow) -> dict[str, Any]:
-    from .welcome_email import resolve_welcome_email_template
-
-    template, source, fallback_flow_slug = resolve_welcome_email_template(flow)
-    is_own = source == "own"
+def serialize_welcome_email_template(template) -> dict[str, Any]:
     return {
-        "flow_slug": flow.slug,
-        "source": source,
-        "has_own_template": is_own,
-        "is_default_fallback": bool(template.is_default_fallback) if is_own else False,
-        "fallback_flow_slug": fallback_flow_slug,
+        "id": template.pk,
+        "name": template.name,
+        "language": template.language,
+        "is_default": bool(template.is_default),
         "subject": template.subject,
         "html_body": template.html_body,
-        "updated_at": template.updated_at.isoformat() if is_own else None,
-        "updated_by": getattr(template.updated_by, "email", None) if is_own and template.updated_by_id else None,
+        "updated_at": template.updated_at.isoformat() if template.updated_at else None,
+        "updated_by": (
+            getattr(template.updated_by, "email", None) if template.updated_by_id else None
+        ),
+    }
+
+
+def list_welcome_email_templates() -> dict[str, Any]:
+    from .welcome_email import starter_template
+
+    starter = starter_template()
+    return {
+        "results": [
+            serialize_welcome_email_template(t)
+            for t in WelcomeEmailTemplate.objects.select_related("updated_by")
+        ],
+        "starter": {"subject": starter.subject, "html_body": starter.html_body},
     }
 
 
 @transaction.atomic
 def save_welcome_email_template(
-    flow: OnboardingFlow, *, data: dict[str, Any], updated_by
+    template: WelcomeEmailTemplate | None, *, data: dict[str, Any], updated_by
 ) -> WelcomeEmailTemplate:
-    template, _created = WelcomeEmailTemplate.objects.update_or_create(
-        flow=flow,
-        defaults={
-            "subject": data["subject"],
-            "html_body": data["html_body"],
-            "is_default_fallback": data.get("is_default_fallback", False),
-            "updated_by": updated_by,
-        },
-    )
+    """Create (``template=None``) or overwrite a library template."""
+    template = template or WelcomeEmailTemplate()
+    template.name = data["name"]
+    template.language = data["language"]
+    template.subject = data["subject"]
+    template.html_body = data["html_body"]
+    template.is_default = data.get("is_default", False)
+    template.updated_by = updated_by
+    template.save()
     return template
-
-
-@transaction.atomic
-def delete_welcome_email_template(flow: OnboardingFlow) -> bool:
-    """Delete this flow's own template, if any. Returns whether one existed."""
-    deleted, _ = WelcomeEmailTemplate.objects.filter(flow=flow).delete()
-    return deleted > 0

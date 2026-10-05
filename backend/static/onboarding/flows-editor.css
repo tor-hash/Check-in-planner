@@ -138,6 +138,12 @@ body {
   font: inherit;
 }
 .field-row { display: flex; gap: 16px; margin-bottom: 12px; }
+.field .inline-row { display: flex; gap: 8px; align-items: center; }
+.field label.check { display: flex; margin: 4px 0; color: var(--text); font-size: 13px; }
+.field .check input { width: auto; padding: 0; }
+#step-no-details { margin: 4px 0 12px; }
+.field-row + .hint { margin: -4px 0 12px; }
+.field .inline-row input, .field .inline-row select { width: auto; flex: 1; }
 .check { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
 .hint { font-size: 11px; color: var(--muted); display: block; margin-top: 4px; }
 
@@ -243,6 +249,16 @@ body {
 #employees-view.hidden { display: none; }
 #flows-view.hidden { display: none; }
 #welcome-email-view.hidden { display: none; }
+#settings-view.hidden { display: none; }
+.settings-layout { grid-template-columns: minmax(0, 820px); align-content: start; }
+.settings-checklist { margin: 8px 0 16px; padding-left: 20px; font-size: 13px; line-height: 1.8; }
+.settings-checklist .ok { color: #8fe3a8; }
+.settings-checklist .todo { color: #ffd38a; }
+.settings-checklist a { color: #8ab4ff; }
+.steps-section.hidden, .btn.hidden { display: none; }
+.doc-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
+.doc-row .doc-name { font-weight: 600; word-break: break-all; }
+.doc-row .hint { margin: 0; }
 
 /* ── Welcome email editor ("Velkomstmail" tab) ───────────────────────────── */
 

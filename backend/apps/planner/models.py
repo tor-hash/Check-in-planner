@@ -79,6 +79,26 @@ class Person(AuditFieldsModel):
         on_delete=models.SET_NULL,
         related_name="planner_person",
     )
+    leder = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="direct_reports",
+        help_text="The manager ('leder') this person reports to. Selectable "
+        "anywhere a Person is edited; required to attach/schedule an "
+        "onboarding flow for this person (see apps.onboarding).",
+    )
+    buddy = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="buddy_for",
+        help_text="The onboarding buddy assigned to guide/help this person. "
+        "Selectable anywhere a Person is edited; required to attach/schedule "
+        "an onboarding flow for this person (see apps.onboarding).",
+    )
 
     class Meta:
         ordering = ["name"]
@@ -108,6 +128,15 @@ class ManagerProfile(AuditFieldsModel):
     # Whether the system should auto-book check-ins for this manager's team.
     auto_booking_enabled = models.BooleanField(default=True)
 
+    # How many upcoming session windows (see PlannerConfig.weeks_per_session
+    # for the length of one window/"period") the auto-booking job books
+    # ahead for this manager every time it runs. Each manager tunes their
+    # own look-ahead independently. Default is 2: with a run every Monday
+    # and a 2-week period, this keeps the *current* period plus one full
+    # period beyond it always booked, rather than booking a period right
+    # as it starts.
+    auto_booking_periods_ahead = models.PositiveSmallIntegerField(default=2)
+
     # Blocked time windows. Each element is a dict:
     #   {"days": "all" | ["monday","tuesday",...], "start_time": "HH:MM", "end_time": "HH:MM"}
     # The slot-finder will never propose a slot that overlaps one of these windows.
@@ -120,9 +149,11 @@ class ManagerProfile(AuditFieldsModel):
     # for this manager on any single calendar day.
     max_auto_bookings_per_day = models.PositiveSmallIntegerField(default=2)
 
-    # Minimum gap (in minutes) the auto-booking job must leave between this
-    # manager's back-to-back check-ins. 0 disables the buffer.
-    booking_gap_minutes = models.PositiveSmallIntegerField(default=0)
+    # Buffer (in minutes) the auto-booking job keeps free both before and
+    # after every check-in it books, measured against *everything* in this
+    # manager's calendar -- other check-ins and any other meeting/event.
+    # 0 disables the buffer (back-to-back allowed).
+    booking_gap_minutes = models.PositiveSmallIntegerField(default=30)
 
     # Optional list of preferred weekday names (lowercase English), e.g.
     # ["tuesday", "thursday"].  When set the slot-finder tries these days first
@@ -154,6 +185,14 @@ class PlannerConfig(AuditFieldsModel):
     viewed_mgr_filter = models.CharField(max_length=32, default="all")
     week_offset = models.IntegerField(default=0)
     weeks_per_session = models.PositiveSmallIntegerField(default=2)
+
+    # Whether the auto-booking job (services.auto_booking) is allowed to
+    # book a check-in on the same calendar day it runs. Default False, so
+    # a Monday-morning run never produces a same-day meeting -- the
+    # earliest candidate day becomes tomorrow. This only affects the
+    # automatic job; a manager manually picking/rescheduling a slot can
+    # still choose today.
+    auto_booking_allow_same_day = models.BooleanField(default=False)
 
     @classmethod
     def singleton(cls):

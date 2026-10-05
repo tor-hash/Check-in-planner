@@ -83,6 +83,9 @@ def validate_person_payload(payload: Any, *, require_id: bool = True) -> Validat
     projects = payload.get("projects", [])
     if not isinstance(projects, list) or not all(isinstance(p, str) for p in projects):
         errors.append("Person.projects must be a list of project names (strings).")
+    for key in ("lederId", "buddyId"):
+        if key in payload and payload.get(key) not in (None, "") and not _is_id(payload.get(key)):
+            errors.append(f"Person.{key} must match [A-Za-z0-9._-]{{1,64}}.")
     return ValidationResult(not errors, errors)
 
 

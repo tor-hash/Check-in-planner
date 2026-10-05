@@ -106,6 +106,10 @@ def serialize_person(person: Person) -> dict[str, Any]:
         "linkedin": person.linkedin,
         "dessert": person.dessert,
         "projects": [project.name for project in person.projects.all()],
+        "lederId": person.leder.legacy_id if person.leder_id else "",
+        "lederName": person.leder.name if person.leder_id else "",
+        "buddyId": person.buddy.legacy_id if person.buddy_id else "",
+        "buddyName": person.buddy.name if person.buddy_id else "",
     }
 
 
@@ -177,6 +181,7 @@ def build_state_payload() -> dict[str, Any]:
         "viewedMgrFilter": cfg.viewed_mgr_filter or "all",
         "weekOffset": cfg.week_offset or 0,
         "weeksPerSession": cfg.weeks_per_session or 2,
+        "autoBookingAllowSameDay": bool(cfg.auto_booking_allow_same_day),
         "projects": projects,
         "journal": journal,
         "fnTags": fn_tags,
@@ -228,6 +233,26 @@ def upsert_project(payload: dict[str, Any], user) -> Project:
     return project
 
 
+def _resolve_role_person(payload: dict[str, Any], key: str, *, legacy_id: str) -> tuple[Person | None, str | None]:
+    """Resolve an optional self-referential Person field (``lederId``/``buddyId``).
+
+    Returns ``(person_or_None, error_or_None)``. Absent/blank clears the
+    field. A value that doesn't match an existing Person, or matches the
+    person themselves, is an error.
+    """
+    if key not in payload:
+        return None, "__unset__"  # sentinel: caller should not touch this field
+    raw = (payload.get(key) or "").strip()
+    if not raw:
+        return None, None
+    if raw == legacy_id:
+        return None, f"Person.{key} cannot reference themselves."
+    target = Person.objects.filter(legacy_id=raw).first()
+    if target is None:
+        return None, f"Person.{key} references an unknown person '{raw}'."
+    return target, None
+
+
 def upsert_person(payload: dict[str, Any], user) -> Person:
     legacy_id = (payload.get("id") or "").strip()[:32]
     if not legacy_id:
@@ -237,6 +262,13 @@ def upsert_person(payload: dict[str, Any], user) -> Person:
     fn_tag = None
     if fn_name:
         fn_tag = FunctionTag.objects.filter(display_name=fn_name).first()
+
+    leder, leder_err = _resolve_role_person(payload, "lederId", legacy_id=legacy_id)
+    if leder_err not in (None, "__unset__"):
+        raise ValueError(leder_err)
+    buddy, buddy_err = _resolve_role_person(payload, "buddyId", legacy_id=legacy_id)
+    if buddy_err not in (None, "__unset__"):
+        raise ValueError(buddy_err)
 
     defaults = {
         "name": (payload.get("name") or "")[:255],
@@ -252,6 +284,11 @@ def upsert_person(payload: dict[str, Any], user) -> Person:
         "dessert": (payload.get("dessert") or "")[:255],
         "updated_by": user,
     }
+    if leder_err != "__unset__":
+        defaults["leder"] = leder
+    if buddy_err != "__unset__":
+        defaults["buddy"] = buddy
+
     person, created = Person.objects.get_or_create(
         legacy_id=legacy_id, defaults={**defaults, "created_by": user}
     )
@@ -385,6 +422,8 @@ def update_planner_config(payload: dict[str, Any], user) -> PlannerConfig:
             cfg.weeks_per_session = max(1, min(12, n))
         except (TypeError, ValueError):
             cfg.weeks_per_session = 2
+    if "autoBookingAllowSameDay" in payload:
+        cfg.auto_booking_allow_same_day = bool(payload.get("autoBookingAllowSameDay"))
     cfg.updated_by = user
     if not cfg.created_by:
         cfg.created_by = user

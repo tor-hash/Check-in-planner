@@ -469,6 +469,14 @@
         </select>
       </div>
       <div>
+        <label>Leder</label>
+        <select id="f-leder"></select>
+      </div>
+      <div>
+        <label>Buddy</label>
+        <select id="f-buddy"></select>
+      </div>
+      <div>
         <label>Org. unit</label>
         <input type="text" id="f-org" value="BCT" placeholder="BCT / BCG">
       </div>
@@ -1660,16 +1668,34 @@ function populateFnSelect(currentValue) {
   const all = [...tags.map(t => t.displayName), "Other"];
   sel.value = all.includes(currentValue) ? currentValue : (tags[0]?.displayName || "Other");
 }
+/** Populate a Leder/Buddy <select> with every other person, keeping `currentValue`
+ *  selected if it still points at a valid (non-excluded) person. `excludeId` is the
+ *  person currently being edited (so nobody can be their own leder/buddy). */
+function populateRoleSelect(selectId, currentValue, excludeId) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  const others = state.people
+    .filter(p => p.id !== excludeId)
+    .slice()
+    .sort((a, b) => (a.name || "").localeCompare(b.name || "", "da"));
+  const hasCurrent = !!currentValue && others.some(p => p.id === currentValue);
+  const opts = ['<option value="">— Ingen —</option>']
+    .concat(others.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`));
+  sel.innerHTML = opts.join("");
+  sel.value = hasCurrent ? currentValue : "";
+}
 function openModal(personId = null) {
   if (!canEditRoster()) return;
   editingId = personId;
   document.getElementById("modal-title").textContent = personId ? "Redigér medarbejder" : "Tilføj medarbejder";
   const defaultFn = (state.fnTags && state.fnTags[0]?.displayName) || "Engineering";
-  const p = personId ? findPerson(personId) : { name:"", title:"", fn:defaultFn, org:"BCT", loc:"Aalborg Denmark", mbti:"", email:"", phone:"", linkedin:"", dessert:"", projects:[] };
+  const p = personId ? findPerson(personId) : { name:"", title:"", fn:defaultFn, org:"BCT", loc:"Aalborg Denmark", mbti:"", email:"", phone:"", linkedin:"", dessert:"", projects:[], lederId:"", buddyId:"" };
   ["name","title","org","loc","mbti","email","phone","linkedin","dessert"].forEach(k => {
     document.getElementById("f-"+k).value = p[k] || "";
   });
   populateFnSelect(p.fn || defaultFn);
+  populateRoleSelect("f-leder", p.lederId || "", editingId);
+  populateRoleSelect("f-buddy", p.buddyId || "", editingId);
   document.getElementById("f-projects").value = (p.projects || []).join(", ");
   document.getElementById("modal-delete").style.display = personId ? "inline-block" : "none";
   document.getElementById("modal-bg").classList.add("active");
@@ -1681,6 +1707,15 @@ function saveModal() {
   if (!name) { alert("Navn er påkrævet."); return; }
   const projects = document.getElementById("f-projects").value
     .split(",").map(s => s.trim()).filter(Boolean);
+  const lederSel = document.getElementById("f-leder");
+  const buddySel = document.getElementById("f-buddy");
+  const lederId = lederSel.value;
+  const buddyId = buddySel.value;
+  // Snapshot the display name too so the roster reflects the choice immediately,
+  // without waiting for a full reload from the server (which is where lederName/
+  // buddyName authoritatively come from — see serialize_person on the backend).
+  const lederName = lederId ? (lederSel.options[lederSel.selectedIndex]?.textContent || "") : "";
+  const buddyName = buddyId ? (buddySel.options[buddySel.selectedIndex]?.textContent || "") : "";
   const data = {
     name,
     title:    document.getElementById("f-title").value.trim(),
@@ -1692,7 +1727,9 @@ function saveModal() {
     phone:    document.getElementById("f-phone").value.trim(),
     linkedin: document.getElementById("f-linkedin").value.trim(),
     dessert:  document.getElementById("f-dessert").value.trim(),
-    projects
+    projects,
+    lederId, lederName,
+    buddyId, buddyName
   };
   if (editingId) {
     const p = findPerson(editingId);
@@ -2589,6 +2626,8 @@ function buildPersonReport(personId, cutoff, includeNotes) {
           <tr><th>Funktion</th><td>${escapeHtml(p.fn || "—")}</td></tr>
           <tr><th>Team</th><td>${teamLabel}</td></tr>
           <tr><th>Email</th><td>${escapeHtml(p.email || "—")}</td></tr>
+          <tr><th>Leder</th><td>${escapeHtml(p.lederName || "—")}</td></tr>
+          <tr><th>Buddy</th><td>${escapeHtml(p.buddyName || "—")}</td></tr>
           <tr><th>Projekter</th><td>${(p.projects || []).map(escapeHtml).join(", ") || "—"}</td></tr>
         </tbody>
       </table>
@@ -2806,7 +2845,9 @@ function saveEntry() {
 }
 function deleteEntry(personId, entryId) {
   if (!confirm("Slet denne check-in entry? (Sletningen synkroniseres til den delte journal)")) return;
-  // Find the entry first so we still have its _rowIndex for the sheet update.
+  // Find the entry first so we still have its sync metadata (_rowIndex for
+  // the legacy Google Sheet journal, or just its id for the Django-backed
+  // journal) for the delete call below.
   const arr = state.journal[personId] || [];
   const entryRef = arr.find(e => e.id === entryId);
   state.journal[personId] = arr.filter(e => e.id !== entryId);
@@ -2816,7 +2857,19 @@ function deleteEntry(personId, entryId) {
   renderLists();
   // Opdatér historik-modal hvis åben.
   if (openHistoryPid === personId) renderHistoryModal();
-  if (isOauthSignedIn() && entryRef && entryRef._rowIndex) {
+  // NOTE: this used to also require `entryRef._rowIndex` here, a field only
+  // ever set by the legacy Google Sheet journal sync path. Entries loaded
+  // from the Django-backed journal (the default now — see
+  // PLANNER_USE_SHEET_JOURNAL / journalLoadAll's _ingestEntriesIntoState,
+  // which never sets _rowIndex) would silently skip the sync call below:
+  // the entry disappeared from the UI immediately but was never actually
+  // deleted server-side, so it reappeared on the next "Hent delt journal" /
+  // page reload. journalSoftDeleteEntry (window.journalSoftDeleteEntry, see
+  // the Phase-4 Django shim near the bottom of this file) only needs the
+  // entry's id, which every entry has regardless of which journal backend
+  // it came from — so the _rowIndex requirement was simply wrong for the
+  // (now default) Django path and deletes are synced whenever signed in.
+  if (isOauthSignedIn() && entryRef) {
     journalSoftDeleteEntry(entryRef, personId).catch(err => {
       console.error("[journal sync] delete failed", err);
       alert("Kunne ikke synkronisere sletningen til den delte journal: " + err.message + "\n\nDen er slettet lokalt — prøv 'Hent delt journal' senere for at gen-synkronisere.");

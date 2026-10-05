@@ -13,7 +13,8 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
+from django.utils import timezone
 
 from apps.onboarding.calendar_booking import BookingRunResult, StepBookingResult
 from apps.onboarding.models import FlowStep, OnboardingAssignment, OnboardingFlow, OnboardingProfile
@@ -63,6 +64,7 @@ def _one_booked_result() -> BookingRunResult:
     return result
 
 
+@override_settings(ONBOARDING_SCHEDULER_EMAIL="")
 class AssignFlowAutomationApiTests(TestCase):
     def setUp(self):
         self.client = Client()
@@ -88,14 +90,24 @@ class AssignFlowAutomationApiTests(TestCase):
         self.person.onboarding_profile = self.profile
         self.person.save(update_fields=["onboarding_profile"])
 
+        self.leder = PersonFactory(
+            legacy_id="leder1", email="leder1@blackcapitaltechnology.com", name="Lena Leder"
+        )
+        self.buddy = PersonFactory(
+            legacy_id="buddy1", email="rasmus@blackcapitaltechnology.com", name="Rasmus"
+        )
+
         self.client.force_login(self.manager)
 
-    def _assign(self, *, buddy_name=None, buddy_email=None):
-        body = {"flow_slug": self.flow.slug}
-        if buddy_name is not None:
-            body["buddy_name"] = buddy_name
-        if buddy_email is not None:
-            body["buddy_email"] = buddy_email
+    def _assign(self, *, leder_id=None, buddy_id=None, scheduled_for=None, **extra):
+        body = {
+            "flow_slug": self.flow.slug,
+            "leder_id": self.leder.legacy_id if leder_id is None else leder_id,
+            "buddy_id": self.buddy.legacy_id if buddy_id is None else buddy_id,
+            **extra,
+        }
+        if scheduled_for is not None:
+            body["scheduled_for"] = scheduled_for
         return self.client.post(
             "/api/onboarding/manage/employees/alice/assign-flow",
             data=json.dumps(body),
@@ -121,6 +133,29 @@ class AssignFlowAutomationApiTests(TestCase):
 
         assignment = OnboardingAssignment.objects.get(profile=self.profile)
         self.assertEqual(assignment.assigned_by_id, self.manager.id)
+
+    @patch("apps.onboarding.calendar_booking.book_onboarding_calendar_meetings")
+    @patch("apps.onboarding.welcome_email.send_onboarding_welcome_email")
+    def test_country_and_welcome_template_are_saved(self, mock_email, mock_book):
+        from apps.onboarding.models import WelcomeEmailTemplate
+
+        mock_book.return_value = _empty_booking_result()
+        template = WelcomeEmailTemplate.objects.create(
+            name="NO", language="no", subject="Hei", html_body="<p>Hei</p>"
+        )
+        response = self._assign(country="NO", welcome_email_template_id=template.pk)
+        self.assertEqual(response.status_code, 201, response.content)
+        assignment = OnboardingAssignment.objects.get(profile=self.profile)
+        self.assertEqual(assignment.country, "NO")
+        self.assertEqual(assignment.welcome_email_template_id, template.pk)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.country, "NO")  # saved on the employee too
+        self.assertEqual(response.json()["assignment_country"], "NO")
+
+    def test_unknown_welcome_template_404_and_bad_country_400(self):
+        self.assertEqual(self._assign(welcome_email_template_id=987654).status_code, 404)
+        self.assertEqual(self._assign(country="SE").status_code, 400)
+        self.assertFalse(OnboardingAssignment.objects.filter(profile=self.profile).exists())
 
     @patch("apps.onboarding.calendar_booking.book_onboarding_calendar_meetings")
     @patch("apps.onboarding.welcome_email.send_onboarding_welcome_email")
@@ -216,19 +251,42 @@ class AssignFlowAutomationApiTests(TestCase):
 
     @patch("apps.onboarding.calendar_booking.book_onboarding_calendar_meetings")
     @patch("apps.onboarding.welcome_email.send_onboarding_welcome_email")
-    def test_buddy_fields_are_stored_on_first_attach(self, mock_email, mock_book):
+    def test_leder_and_buddy_fields_are_stored_on_first_attach(self, mock_email, mock_book):
         mock_book.return_value = _empty_booking_result()
 
-        response = self._assign(buddy_name="Rasmus", buddy_email="rasmus@blackcapitaltechnology.com")
+        response = self._assign()
         self.assertEqual(response.status_code, 201, response.content)
 
         assignment = OnboardingAssignment.objects.get(profile=self.profile)
         self.assertEqual(assignment.buddy_name, "Rasmus")
         self.assertEqual(assignment.buddy_email, "rasmus@blackcapitaltechnology.com")
+        self.assertEqual(assignment.leder_name, "Lena Leder")
+        self.assertEqual(assignment.leder_email, "leder1@blackcapitaltechnology.com")
         self.assertEqual(response.json()["buddy_name"], "Rasmus")
+        self.assertEqual(response.json()["leder_name"], "Lena Leder")
 
-    def test_invalid_buddy_email_blocks_attach(self):
-        response = self._assign(buddy_name="Rasmus", buddy_email="not-an-email")
+        # Also persisted onto the Person record itself, visible everywhere.
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.leder_id, self.leder.id)
+        self.assertEqual(self.person.buddy_id, self.buddy.id)
+
+    def test_unknown_buddy_id_blocks_attach(self):
+        response = self._assign(buddy_id="does-not-exist")
+        self.assertEqual(response.status_code, 404, response.content)
+        self.assertFalse(OnboardingAssignment.objects.filter(profile=self.profile).exists())
+
+    def test_missing_leder_id_blocks_attach(self):
+        response = self.client.post(
+            "/api/onboarding/manage/employees/alice/assign-flow",
+            data=json.dumps({"flow_slug": self.flow.slug, "buddy_id": self.buddy.legacy_id}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("leder_id", response.json()["detail"])
+        self.assertFalse(OnboardingAssignment.objects.filter(profile=self.profile).exists())
+
+    def test_leder_cannot_be_the_employee_themselves(self):
+        response = self._assign(leder_id="alice")
         self.assertEqual(response.status_code, 400, response.content)
         self.assertFalse(OnboardingAssignment.objects.filter(profile=self.profile).exists())
 
@@ -242,7 +300,7 @@ class AssignFlowAutomationApiTests(TestCase):
         """
         mock_book.return_value = _empty_booking_result()
 
-        response = self._assign(buddy_name="Rasmus")
+        response = self._assign()
         self.assertEqual(response.status_code, 201, response.content)
         self.assertEqual(response.json()["automation"]["welcomeEmail"], {"sent": True})
 
@@ -251,3 +309,66 @@ class AssignFlowAutomationApiTests(TestCase):
         self.assertIn("Alice", kwargs["subject"])
         self.assertIn("Rasmus", kwargs["html"])
         self.assertIn("Alice", kwargs["plain_text"])
+
+    @patch("apps.onboarding.calendar_booking.book_onboarding_calendar_meetings")
+    @patch("apps.onboarding.welcome_email.send_onboarding_welcome_email")
+    def test_send_now_with_future_start_date_runs_now_and_saves_start_date(self, mock_email, mock_book):
+        mock_book.return_value = _empty_booking_result()
+        response = self._assign(start_date="2099-03-02", run_mode="now")
+        self.assertEqual(response.status_code, 201, response.content)
+        mock_email.assert_called_once()
+        mock_book.assert_called_once()
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.start_date.isoformat(), "2099-03-02")
+        assignment = OnboardingAssignment.objects.get(profile=self.profile)
+        self.assertIsNotNone(assignment.scheduled_automation_ran_at)
+
+    @patch("apps.onboarding.calendar_booking.book_onboarding_calendar_meetings")
+    @patch("apps.onboarding.welcome_email.send_onboarding_welcome_email")
+    def test_send_on_start_date_defers_until_start_date_then_replan_to_now(self, mock_email, mock_book):
+        mock_book.return_value = _empty_booking_result()
+        first = self._assign(start_date="2099-03-02", run_mode="on_start_date")
+        self.assertEqual(first.status_code, 201, first.content)
+        self.assertEqual(first.json()["automation"]["deferredUntil"], "2099-03-02")
+        mock_email.assert_not_called()
+        mock_book.assert_not_called()
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.start_date.isoformat(), "2099-03-02")
+
+        # Still only planned -> re-planning as "send now" runs it immediately.
+        second = self._assign(start_date="2099-03-02", run_mode="now")
+        self.assertEqual(second.status_code, 200, second.content)
+        mock_email.assert_called_once()
+        mock_book.assert_called_once()
+        assignment = OnboardingAssignment.objects.get(profile=self.profile)
+        self.assertEqual(assignment.scheduled_for, timezone.localdate())
+
+    def test_on_start_date_requires_start_date_and_valid_mode(self):
+        self.assertEqual(self._assign(run_mode="on_start_date").status_code, 400)
+        self.assertEqual(self._assign(start_date="2099-03-02", run_mode="later").status_code, 400)
+        self.assertFalse(OnboardingAssignment.objects.filter(profile=self.profile).exists())
+
+    @patch("apps.onboarding.calendar_booking.book_onboarding_calendar_meetings")
+    @patch("apps.onboarding.welcome_email.send_onboarding_welcome_email")
+    @patch("apps.onboarding.slack_invite.send_onboarding_slack_invite")
+    def test_future_scheduled_for_defers_automation(self, mock_slack, mock_email, mock_book):
+        """A future scheduled_for creates the assignment but runs none of
+        the automation yet — that's run_scheduled_onboarding's job."""
+        response = self._assign(scheduled_for="2099-01-01")
+        self.assertEqual(response.status_code, 201, response.content)
+        body = response.json()
+        self.assertEqual(body["scheduled_for"], "2099-01-01")
+        self.assertIsNone(body["scheduled_automation_ran_at"])
+        self.assertEqual(body["automation"]["deferredUntil"], "2099-01-01")
+        self.assertIsNone(body["automation"]["welcomeEmail"])
+        self.assertIsNone(body["automation"]["meetings"])
+        self.assertIsNone(body["automation"]["slackInvite"])
+
+        mock_email.assert_not_called()
+        mock_slack.assert_not_called()
+        mock_book.assert_not_called()
+
+        assignment = OnboardingAssignment.objects.get(profile=self.profile)
+        self.assertIsNone(assignment.scheduled_automation_ran_at)
+        # Leder/buddy are still snapshotted immediately, independent of scheduling.
+        self.assertEqual(assignment.leder_name, "Lena Leder")

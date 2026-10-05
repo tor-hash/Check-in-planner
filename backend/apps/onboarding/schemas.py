@@ -13,6 +13,8 @@ from typing import Any
 
 from django.http import JsonResponse
 
+from .countries import COUNTRY_CODES, LANGUAGE_CODES
+
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _ERP_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _NAME_MAX = 128
@@ -21,6 +23,13 @@ _TITLE_MAX = 200
 
 def _err(detail: str, **extra) -> JsonResponse:
     return JsonResponse({"detail": detail, **extra}, status=400)
+
+
+def _country(value: Any) -> tuple[str | None, JsonResponse | None]:
+    """Validate a country code ("DK"/"NO", case-insensitive)."""
+    if not isinstance(value, str) or value.strip().upper() not in COUNTRY_CODES:
+        return None, _err(f"country must be one of {list(COUNTRY_CODES)}.")
+    return value.strip().upper(), None
 
 
 def _opt_str(value: Any, name: str, *, max_length: int) -> tuple[str, JsonResponse | None]:
@@ -84,6 +93,12 @@ def validate_create_employee(payload: Any) -> tuple[dict[str, Any] | None, JsonR
         except ValueError:
             return None, _err("start_date must be an ISO date string (YYYY-MM-DD).")
 
+    country = None
+    if payload.get("country") not in (None, ""):
+        country, err = _country(payload.get("country"))
+        if err is not None:
+            return None, err
+
     return (
         {
             "erp_employee_id": erp_id,
@@ -93,6 +108,7 @@ def validate_create_employee(payload: Any) -> tuple[dict[str, Any] | None, JsonR
             "position": position,
             "department": department,
             "start_date": start_date,
+            "country": country,
         },
         None,
     )
@@ -161,6 +177,12 @@ def validate_update_employee(payload: Any) -> tuple[dict[str, Any] | None, JsonR
                 cleaned["start_date"] = date.fromisoformat(raw)
             except ValueError:
                 return None, _err("start_date must be an ISO date string (YYYY-MM-DD).")
+
+    if "country" in payload:
+        country, err = _country(payload.get("country"))
+        if err is not None:
+            return None, err
+        cleaned["country"] = country
 
     if not cleaned:
         return None, _err("No fields to update.")
@@ -247,6 +269,18 @@ def validate_step_payload(payload: Any) -> tuple[dict[str, Any] | None, JsonResp
     if err is not None:
         return None, err
 
+    norwegian: dict[str, str] = {}
+    if "title_no" in payload:
+        norwegian["title_no"], err = _opt_str(payload.get("title_no"), "title_no", max_length=_TITLE_MAX)
+        if err is not None:
+            return None, err
+    if "description_no" in payload:
+        norwegian["description_no"], err = _opt_str(
+            payload.get("description_no"), "description_no", max_length=2000
+        )
+        if err is not None:
+            return None, err
+
     order_raw = payload.get("order")
     if order_raw is None:
         return None, _err("order is required.")
@@ -274,6 +308,7 @@ def validate_step_payload(payload: Any) -> tuple[dict[str, Any] | None, JsonResp
             "order": order,
             "is_required": is_required_bool,
             "config": config,
+            **norwegian,
         },
         None,
     )
@@ -328,7 +363,7 @@ _HTML_BODY_MAX = 100_000
 
 
 def validate_welcome_email_template(payload: Any) -> tuple[dict[str, Any] | None, JsonResponse | None]:
-    """Validate a welcome-email-template save payload (PUT .../welcome-email).
+    """Validate a welcome-email-template save payload (POST/PUT .../welcome-emails).
 
     Template *syntax* (bad ``{% %}``/``{{ }}``) is not checked here — that
     requires actually rendering it, which the view does separately via
@@ -351,16 +386,27 @@ def validate_welcome_email_template(payload: Any) -> tuple[dict[str, Any] | None
     if len(html_body) > _HTML_BODY_MAX:
         return None, _err(f"html_body must be at most {_HTML_BODY_MAX} chars.")
 
-    is_default_fallback = payload.get("is_default_fallback", False)
-    is_default_fallback_bool, err = _require_bool(is_default_fallback, "is_default_fallback")
+    name, err = _opt_str(payload.get("name"), "name", max_length=_NAME_MAX)
+    if err is not None:
+        return None, err
+    if not name:
+        return None, _err("name is required.")
+
+    language = payload.get("language")
+    if not isinstance(language, str) or language.strip().lower() not in LANGUAGE_CODES:
+        return None, _err(f"language must be one of {list(LANGUAGE_CODES)}.")
+
+    is_default_bool, err = _require_bool(payload.get("is_default", False), "is_default")
     if err is not None:
         return None, err
 
     return (
         {
+            "name": name,
+            "language": language.strip().lower(),
             "subject": subject,
             "html_body": html_body,
-            "is_default_fallback": is_default_fallback_bool,
+            "is_default": is_default_bool,
         },
         None,
     )
@@ -369,12 +415,13 @@ def validate_welcome_email_template(payload: Any) -> tuple[dict[str, Any] | None
 def validate_welcome_email_preview(payload: Any) -> tuple[dict[str, Any] | None, JsonResponse | None]:
     """Validate a preview-render request.
 
-    Every field is optional: an empty body previews the flow's currently
-    *saved* effective template with placeholder sample data. ``subject``/
-    ``html_body`` (both required together) preview unsaved draft content
-    instead — used by the "Velkomstmail" editor so the preview reflects
-    what's in the textarea, not what's on disk. ``erp_id`` renders with a
-    real employee's data instead of the placeholder sample.
+    Every field is optional. ``subject``/``html_body`` (both together)
+    preview unsaved draft content — used by the "Velkomstmail" editor.
+    Otherwise ``template_id`` previews that saved template, or (without
+    it) the default template for ``country``'s language — used by the
+    "Tildel flow" dialog. ``flow_slug`` supplies the step lists (default
+    flow when omitted), ``erp_id`` a real employee instead of sample data,
+    and ``country`` the language of the step titles.
     """
     if payload is None:
         payload = {}
@@ -404,6 +451,23 @@ def validate_welcome_email_preview(payload: Any) -> tuple[dict[str, Any] | None,
         return None, err
     cleaned["erp_id"] = erp_id
 
+    template_id = payload.get("template_id")
+    if template_id not in (None, ""):
+        if not isinstance(template_id, int) or isinstance(template_id, bool):
+            return None, _err("template_id must be an integer.")
+    cleaned["template_id"] = template_id or None
+
+    flow_slug, err = _opt_str(payload.get("flow_slug"), "flow_slug", max_length=64)
+    if err is not None:
+        return None, err
+    cleaned["flow_slug"] = flow_slug
+
+    cleaned["country"] = None
+    if payload.get("country") not in (None, ""):
+        cleaned["country"], err = _country(payload.get("country"))
+        if err is not None:
+            return None, err
+
     buddy_name, err = _opt_str(payload.get("buddy_name"), "buddy_name", max_length=_NAME_MAX)
     if err is not None:
         return None, err
@@ -417,24 +481,95 @@ def validate_welcome_email_preview(payload: Any) -> tuple[dict[str, Any] | None,
     else:
         cleaned["buddy_email"] = ""
 
+    leder_name, err = _opt_str(payload.get("leder_name"), "leder_name", max_length=_NAME_MAX)
+    if err is not None:
+        return None, err
+    cleaned["leder_name"] = leder_name
+
+    leder_email_raw = payload.get("leder_email")
+    if leder_email_raw:
+        if not isinstance(leder_email_raw, str) or not _EMAIL_RE.match(leder_email_raw.strip().lower()):
+            return None, _err("leder_email must be a valid email address.")
+        cleaned["leder_email"] = leder_email_raw.strip()
+    else:
+        cleaned["leder_email"] = ""
+
     return cleaned, None
 
 
-def validate_buddy_fields(payload: Any) -> tuple[dict[str, Any] | None, JsonResponse | None]:
-    """Validate the optional buddy_name/buddy_email on an assign-flow payload."""
+_LEGACY_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+
+def validate_schedule_flow_fields(payload: Any) -> tuple[dict[str, Any] | None, JsonResponse | None]:
+    """Validate the leder_id/buddy_id/scheduled_for fields on an assign-flow
+
+    (schedule-flow) payload. Both ``leder_id`` and ``buddy_id`` are
+    required — they reference planner ``Person.legacy_id`` values and are
+    resolved to actual ``Person`` rows by the caller (``manage_api``),
+    which is also responsible for checking those rows exist and aren't the
+    employee themselves. ``start_date`` + ``run_mode`` ("now" /
+    "on_start_date") is what the "Tildel flow" dialog sends. The older
+    ``scheduled_for`` is still accepted for API callers; an absent value
+    means "today" (attach immediately) — the caller clamps a past date up
+    to today rather than rejecting it.
+    """
     if not isinstance(payload, dict):
         return None, _err("Body must be a JSON object.")
 
-    buddy_name, err = _opt_str(payload.get("buddy_name"), "buddy_name", max_length=_NAME_MAX)
-    if err is not None:
-        return None, err
+    leder_id = payload.get("leder_id")
+    if not isinstance(leder_id, str) or not _LEGACY_ID_RE.match(leder_id.strip()):
+        return None, _err("leder_id is required and must reference an existing person.")
 
-    buddy_email_raw = payload.get("buddy_email")
-    if buddy_email_raw:
-        if not isinstance(buddy_email_raw, str) or not _EMAIL_RE.match(buddy_email_raw.strip().lower()):
-            return None, _err("buddy_email must be a valid email address.")
-        buddy_email = buddy_email_raw.strip()
+    buddy_id = payload.get("buddy_id")
+    if not isinstance(buddy_id, str) or not _LEGACY_ID_RE.match(buddy_id.strip()):
+        return None, _err("buddy_id is required and must reference an existing person.")
+
+    cleaned: dict[str, Any] = {
+        "leder_id": leder_id.strip(),
+        "buddy_id": buddy_id.strip(),
+    }
+
+    cleaned["country"] = None
+    if payload.get("country") not in (None, ""):
+        cleaned["country"], err = _country(payload.get("country"))
+        if err is not None:
+            return None, err
+
+    template_id = payload.get("welcome_email_template_id")
+    if template_id not in (None, ""):
+        if not isinstance(template_id, int) or isinstance(template_id, bool):
+            return None, _err("welcome_email_template_id must be an integer.")
+    cleaned["welcome_email_template_id"] = template_id or None
+
+    # The employee's start date — also the anchor every meeting is placed
+    # relative to. ``run_mode`` decides when the welcome email + bookings
+    # happen: "now", or "on_start_date" (the daily job runs them that morning).
+    cleaned["start_date"] = None
+    start_date_raw = payload.get("start_date")
+    if start_date_raw not in (None, ""):
+        if not isinstance(start_date_raw, str):
+            return None, _err("start_date must be an ISO date string (YYYY-MM-DD).")
+        try:
+            cleaned["start_date"] = date.fromisoformat(start_date_raw)
+        except ValueError:
+            return None, _err("start_date must be an ISO date string (YYYY-MM-DD).")
+
+    run_mode = payload.get("run_mode")
+    if run_mode not in (None, "", "now", "on_start_date"):
+        return None, _err("run_mode must be 'now' or 'on_start_date'.")
+    cleaned["run_mode"] = run_mode or None
+    if cleaned["run_mode"] == "on_start_date" and cleaned["start_date"] is None:
+        return None, _err("start_date is required when run_mode is 'on_start_date'.")
+
+    scheduled_for_raw = payload.get("scheduled_for")
+    if scheduled_for_raw not in (None, ""):
+        if not isinstance(scheduled_for_raw, str):
+            return None, _err("scheduled_for must be an ISO date string (YYYY-MM-DD).")
+        try:
+            cleaned["scheduled_for"] = date.fromisoformat(scheduled_for_raw)
+        except ValueError:
+            return None, _err("scheduled_for must be an ISO date string (YYYY-MM-DD).")
     else:
-        buddy_email = ""
+        cleaned["scheduled_for"] = None
 
-    return {"buddy_name": buddy_name, "buddy_email": buddy_email}, None
+    return cleaned, None

@@ -27,6 +27,7 @@ def _send_gmail(
     subject: str,
     plain_text: str,
     html: str | None = None,
+    reply_to: str | None = None,
 ) -> None:
     """Send an email from ``from_user``'s Gmail account.
 
@@ -52,6 +53,8 @@ def _send_gmail(
     message["to"] = to_email
     message["from"] = from_email
     message["subject"] = subject
+    if reply_to and reply_to.strip() and reply_to.strip().lower() != from_email.lower():
+        message["reply-to"] = reply_to.strip()
 
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
 

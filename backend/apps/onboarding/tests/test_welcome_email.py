@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from apps.onboarding.models import FlowStep, OnboardingFlow, OnboardingProfile, WelcomeEmailTemplate
 from apps.onboarding.welcome_email import (
@@ -87,55 +87,70 @@ class BuildMergeContextAndResolveTests(TestCase):
         self.assertEqual([s["title"] for s in context["todo_steps"]], ["Photo taken"])
         self.assertEqual([s["title"] for s in context["meeting_steps"]], ["1:1 with manager"])
 
+    def test_context_uses_norwegian_step_text_for_norway(self):
+        FlowStep.objects.filter(flow=self.flow, order=1).update(title_no="Bilde tatt")
+        context = build_merge_context(
+            person=self.person, flow=self.flow, requested_by=self.manager, country="NO"
+        )
+        self.assertEqual([s["title"] for s in context["todo_steps"]], ["Bilde tatt"])
+        # No Norwegian text on the meeting step -> falls back to the primary text.
+        self.assertEqual([s["title"] for s in context["meeting_steps"]], ["1:1 with manager"])
+
     def test_resolves_to_starter_when_nothing_configured(self):
-        template, source, fallback_slug = resolve_welcome_email_template(self.flow)
+        template, source = resolve_welcome_email_template(language="da")
         self.assertEqual(source, "starter")
-        self.assertIsNone(fallback_slug)
         self.assertIn("{{ employee_first_name }}", template.html_body)
 
-    def test_resolves_to_own_template_when_present(self):
-        WelcomeEmailTemplate.objects.create(
-            flow=self.flow, subject="Hej {{ employee_first_name }}", html_body="<p>Custom</p>"
+    def test_resolves_chosen_then_default_then_any_in_language(self):
+        da_default = WelcomeEmailTemplate.objects.create(
+            name="DK std", language="da", subject="S", html_body="<p>DK</p>", is_default=True
         )
-        template, source, fallback_slug = resolve_welcome_email_template(self.flow)
-        self.assertEqual(source, "own")
-        self.assertIsNone(fallback_slug)
-        self.assertEqual(template.html_body, "<p>Custom</p>")
-
-    def test_resolves_to_default_fallback_from_another_flow(self):
-        other_flow = OnboardingFlow.objects.create(slug="other", name="Other", is_active=True)
-        WelcomeEmailTemplate.objects.create(
-            flow=other_flow, subject="Fallback subject", html_body="<p>Fallback</p>",
-            is_default_fallback=True,
+        da_other = WelcomeEmailTemplate.objects.create(
+            name="DK alt", language="da", subject="S", html_body="<p>DK alt</p>"
         )
-        template, source, fallback_slug = resolve_welcome_email_template(self.flow)
-        self.assertEqual(source, "fallback")
-        self.assertEqual(fallback_slug, "other")
-        self.assertEqual(template.html_body, "<p>Fallback</p>")
+        no_only = WelcomeEmailTemplate.objects.create(
+            name="NO", language="no", subject="S", html_body="<p>NO</p>"
+        )
+        self.assertEqual(
+            resolve_welcome_email_template(template_id=da_other.pk, language="da"),
+            (da_other, "chosen"),
+        )
+        self.assertEqual(resolve_welcome_email_template(language="da"), (da_default, "default"))
+        self.assertEqual(resolve_welcome_email_template(language="no"), (no_only, "language"))
+        # A deleted choice falls back to the language default.
+        self.assertEqual(
+            resolve_welcome_email_template(template_id=999999, language="da"),
+            (da_default, "default"),
+        )
 
-    def test_only_one_template_can_be_default_fallback(self):
-        other_flow = OnboardingFlow.objects.create(slug="other2", name="Other 2", is_active=True)
+    def test_only_one_default_per_language(self):
         t1 = WelcomeEmailTemplate.objects.create(
-            flow=self.flow, subject="A", html_body="A", is_default_fallback=True
+            name="A", language="da", subject="A", html_body="A", is_default=True
+        )
+        t_no = WelcomeEmailTemplate.objects.create(
+            name="N", language="no", subject="N", html_body="N", is_default=True
         )
         t2 = WelcomeEmailTemplate.objects.create(
-            flow=other_flow, subject="B", html_body="B", is_default_fallback=True
+            name="B", language="da", subject="B", html_body="B", is_default=True
         )
         t1.refresh_from_db()
-        self.assertFalse(t1.is_default_fallback)
-        self.assertTrue(t2.is_default_fallback)
+        t_no.refresh_from_db()
+        self.assertFalse(t1.is_default)
+        self.assertTrue(t2.is_default)
+        self.assertTrue(t_no.is_default)
 
-    def test_render_welcome_email_uses_resolved_template(self):
+    def test_render_welcome_email(self):
         context = build_merge_context(
             person=self.person, flow=self.flow, requested_by=self.manager, buddy_name="Rasmus"
         )
-        subject, plain, html, source = render_welcome_email(flow=self.flow, context=context)
-        self.assertEqual(source, "starter")
+        template, _ = resolve_welcome_email_template(language="da")
+        subject, plain, html = render_welcome_email(template=template, context=context)
         self.assertIn("Alice", subject)
         self.assertIn("Rasmus", html)
         self.assertIn("Alice", plain)
 
 
+@override_settings(ONBOARDING_SCHEDULER_EMAIL="")
 class SendOnboardingWelcomeEmailTests(TestCase):
     def setUp(self):
         self.manager = User.objects.create_user(
@@ -163,6 +178,25 @@ class SendOnboardingWelcomeEmailTests(TestCase):
         self.assignment.refresh_from_db()
         self.assertIsNotNone(self.assignment.welcome_email_sent_at)
 
+    @patch("apps.onboarding.welcome_email._send_gmail")
+    def test_sends_assignment_template_in_its_language(self, mock_send):
+        WelcomeEmailTemplate.objects.create(
+            name="DK", language="da", subject="Velkommen", html_body="<p>DK</p>", is_default=True
+        )
+        chosen = WelcomeEmailTemplate.objects.create(
+            name="NO", language="no", subject="Velkommen {{ employee_first_name }}",
+            html_body="<p>Hei</p>", is_default=True,
+        )
+        self.assignment.country = "NO"
+        self.assignment.save()
+        send_onboarding_welcome_email(
+            person=self.person, assignment=self.assignment, requested_by=self.manager
+        )
+        kwargs = mock_send.call_args.kwargs
+        self.assertEqual(kwargs["subject"], "Velkommen Alice")
+        self.assertIn("Hei", kwargs["html"])
+        self.assertIsNotNone(chosen.pk)
+
     @patch("apps.onboarding.welcome_email._send_gmail", side_effect=GoogleCredentialsUnavailable("no creds"))
     def test_missing_credentials_raises_and_records_failure(self, mock_send):
         with self.assertRaises(ValidationError):
@@ -182,3 +216,38 @@ class SendOnboardingWelcomeEmailTests(TestCase):
                 person=self.person, assignment=self.assignment, requested_by=self.manager
             )
         self.assertEqual(CalendarShareRequest.objects.count(), 0)
+
+
+@override_settings(ONBOARDING_SCHEDULER_EMAIL="scheduler@blackcapitaltechnology.com")
+class SchedulerWelcomeEmailTests(TestCase):
+    def setUp(self):
+        self.manager = User.objects.create_user(username="mgr9", email="mgr9@blackcapitaltechnology.com")
+        self.person = PersonFactory(legacy_id="bob", email="bob@example.com", name="Bob")
+        emp_user = User.objects.create_user(username="bob-emp", email="bob.emp@x.dk", is_active=False)
+        profile = OnboardingProfile.objects.create(user=emp_user, erp_employee_id="bob")
+        flow = OnboardingFlow.objects.create(slug="f9", name="Onboarding", is_active=True)
+        self.assignment = profile.assignments.create(
+            flow=flow, assigned_by=self.manager, leder_email="leder@blackcapitaltechnology.com"
+        )
+
+    @patch("apps.onboarding.welcome_email._send_gmail")
+    def test_sent_from_scheduler_with_reply_to_leder(self, mock_send):
+        scheduler = User.objects.create_user(
+            username="sched", email="scheduler@blackcapitaltechnology.com"
+        )
+        record = send_onboarding_welcome_email(
+            person=self.person, assignment=self.assignment, requested_by=self.manager
+        )
+        kwargs = mock_send.call_args.kwargs
+        self.assertEqual(kwargs["from_user"], scheduler)
+        self.assertEqual(kwargs["reply_to"], "leder@blackcapitaltechnology.com")
+        self.assertEqual(record.requested_by, self.manager)
+
+    @patch("apps.onboarding.welcome_email._send_gmail")
+    def test_scheduler_not_signed_in_fails_clearly(self, mock_send):
+        with self.assertRaises(ValidationError) as ctx:
+            send_onboarding_welcome_email(
+                person=self.person, assignment=self.assignment, requested_by=self.manager
+            )
+        self.assertIn("hasn't signed in", str(ctx.exception))
+        mock_send.assert_not_called()

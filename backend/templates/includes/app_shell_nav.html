@@ -1,5 +1,7 @@
 {% load static %}
 <link rel="stylesheet" href="{% static 'planner/styles/app-nav.css' %}">
+{# Danish dd/mm/åååå + 24h for every date/time field on every page #}
+<script src="{% static 'common/locale-inputs.js' %}"></script>
 <header class="app-shell" role="navigation" aria-label="App navigation">
   <div class="app-shell-inner">
     <a class="app-shell-brand" href="{% url 'planner:home' %}">BCT</a>
@@ -19,6 +21,7 @@
         {% csrf_token %}
         <button type="submit" class="app-shell-logout">Log out</button>
       </form>
+      <a href="{% url 'feedback:list' %}" class="app-shell-feedback{% if nav_section == 'feedback' %} active{% endif %}">Feedback</a>
     </div>
   </div>
 </header>

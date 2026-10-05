@@ -287,11 +287,34 @@
       return { fields };
     }
     if (typeId === "calendar_meeting") {
-      return {
-        with_email: $("cfg-with-email").value.trim(),
+      const participants = [];
+      document.querySelectorAll(".cfg-participant-role").forEach((cb) => {
+        if (cb.checked) participants.push(cb.value);
+      });
+      $("cfg-participant-emails")
+        .value.split(/[\s,;]+/)
+        .map((e) => e.trim())
+        .filter(Boolean)
+        .forEach((e) => {
+          if (!participants.some((p) => p.toLowerCase() === e.toLowerCase())) participants.push(e);
+        });
+      if (participants.length === 0) throw new Error("Vælg mindst én deltager.");
+      const dayOffsetRaw = $("cfg-day-offset").value.trim();
+      const hour = $("cfg-time-hour").value;
+      const minute = $("cfg-time-minute").value;
+      const config = {
+        participants,
         duration_minutes: parseInt($("cfg-duration").value, 10) || 30,
-        suggested_window: $("cfg-window").value.trim(),
+        day_offset: dayOffsetRaw === "" ? null : parseInt(dayOffsetRaw, 10),
+        day_unit: $("cfg-day-unit").value,
+        time_of_day: hour === "" ? "" : hour + ":" + (minute || "00"),
       };
+      if (config.day_offset === null) {
+        delete config.day_offset;
+        delete config.day_unit;
+      }
+      if (!config.time_of_day) delete config.time_of_day;
+      return config;
     }
     return type.default_config || {};
   }
@@ -330,14 +353,80 @@
       );
     } else if (typeId === "calendar_meeting") {
       container.innerHTML =
-        '<div class="field"><label>Med (email)</label><input type="email" id="cfg-with-email" required></div>' +
+        '<div class="field"><label>Deltagere</label>' +
+        '<label class="check"><input type="checkbox" class="cfg-participant-role" value="leder"> Medarbejderens leder</label>' +
+        '<label class="check"><input type="checkbox" class="cfg-participant-role" value="buddy"> Medarbejderens buddy</label>' +
+        '<label class="check"><input type="checkbox" class="cfg-participant-role" value="assigning_manager"> Den der tildeler flowet</label>' +
+        '<input type="text" id="cfg-participant-emails" placeholder="Andre e-mails, adskilt med komma (fx it@blackcapitaltechnology.com)">' +
+        '<p class="hint">Medarbejderen inviteres altid. Mødet bookes på et tidspunkt hvor alle valgte deltagere er ledige, ' +
+        'og oprettes af systemkontoen (Indstillinger), som også inviterer alle.</p></div>' +
         '<div class="field"><label>Varighed (min)</label><input type="number" id="cfg-duration" min="5" max="240" value="30"></div>' +
-        '<div class="field"><label>Forslaget vindue</label><input type="text" id="cfg-window" placeholder="fx first week"></div>';
-      $("cfg-with-email").value = cfg.with_email || "";
+        '<div class="field"><label>Dage efter startdato (valgfrit)</label>' +
+        '<div class="inline-row">' +
+        '<input type="number" id="cfg-day-offset" min="0" placeholder="fx 30">' +
+        '<select id="cfg-day-unit">' +
+        '<option value="calendar">kalenderdage</option>' +
+        '<option value="business">arbejdsdage</option>' +
+        "</select></div>" +
+        '<p class="hint"><b>Kalenderdage:</b> almindelige dage fra startdatoen (startdagen er 0). 30 = 30 dage efter start. ' +
+        'Falder dagen på en weekend eller helligdag, rykkes mødet til næste arbejdsdag.<br>' +
+        '<b>Arbejdsdage:</b> kun hverdage tæller (weekender og helligdage springes over). "Uge 1" betyder ' +
+        'medarbejderens første fem arbejdsdage: 0 = startdagen, 1 = næste arbejdsdag, 5 = første dag i uge 2. ' +
+        'Starter medarbejderen en torsdag, bliver "uge 1 · onsdag" (2) til mandag og "uge 1 · torsdag" (3) til tirsdag.<br>' +
+        'Lad feltet stå tomt for at booke på selve startdatoen (dag 0). Der bookes aldrig før startdatoen.</p></div>' +
+        '<div class="field"><label>Klokkeslæt (valgfrit, 24-timer)</label>' +
+        '<div class="inline-row">' +
+        '<select id="cfg-time-hour"><option value="">--</option></select>' +
+        '<span>:</span>' +
+        '<select id="cfg-time-minute"></select>' +
+        "</div>" +
+        '<p class="hint">Forsøges først på den beregnede dag — er en af deltagerne optaget der, findes næste tid hvor alle er ledige.</p></div>';
+      // Older steps have a single with_email instead of participants;
+      // blank means the leder (see components.py participant_tokens()).
+      const knownRoles = ["leder", "buddy", "assigning_manager"];
+      const tokens =
+        Array.isArray(cfg.participants) && cfg.participants.length
+          ? cfg.participants
+          : [cfg.with_email || "leder"];
+      document.querySelectorAll(".cfg-participant-role").forEach((cb) => {
+        cb.checked = tokens.includes(cb.value);
+      });
+      $("cfg-participant-emails").value = tokens.filter((t) => !knownRoles.includes(t)).join(", ");
       $("cfg-duration").value = cfg.duration_minutes || 30;
-      $("cfg-window").value = cfg.suggested_window || "";
+      const hasOffset = cfg.day_offset !== null && cfg.day_offset !== undefined;
+      $("cfg-day-offset").value = hasOffset ? cfg.day_offset : "";
+      // A saved offset without a unit predates day_unit and means working
+      // days; a brand-new step defaults to calendar days.
+      $("cfg-day-unit").value = cfg.day_unit || (hasOffset ? "business" : "calendar");
+      fillTimeSelects(cfg.time_of_day || "");
     }
     syncConfigJson();
+  }
+
+  // 24-hour time picker built from two selects, so the browser's locale
+  // (AM/PM on en-US Windows) never changes how the time is shown.
+  function fillTimeSelects(value) {
+    const hourSel = $("cfg-time-hour");
+    const minuteSel = $("cfg-time-minute");
+    const pad = (n) => String(n).padStart(2, "0");
+    for (let h = 0; h < 24; h++) hourSel.add(new Option(pad(h), pad(h)));
+    for (let m = 0; m < 60; m += 5) minuteSel.add(new Option(pad(m), pad(m)));
+    const match = /^(\d{1,2}):(\d{2})$/.exec(value);
+    if (match) {
+      const hh = pad(parseInt(match[1], 10));
+      const mm = match[2];
+      // Keep an off-grid saved minute (e.g. 07) selectable.
+      if (![...minuteSel.options].some((o) => o.value === mm)) minuteSel.add(new Option(mm, mm));
+      hourSel.value = hh;
+      minuteSel.value = mm;
+    } else {
+      hourSel.value = "";
+      minuteSel.value = "00";
+    }
+    minuteSel.disabled = hourSel.value === "";
+    hourSel.addEventListener("change", () => {
+      minuteSel.disabled = hourSel.value === "";
+    });
   }
 
   function appendFormFieldRow(list, field) {
@@ -399,6 +488,9 @@
       $("step-type").value = step.component_type;
       $("step-title").value = step.title;
       $("step-description").value = step.description || "";
+      $("step-title-no").value = step.title_no || "";
+      $("step-description-no").value = step.description_no || "";
+      $("step-no-details").open = !!(step.title_no || step.description_no);
       $("step-required").checked = step.is_required;
       renderConfigFields(step.component_type, step.config);
     } else {
@@ -411,6 +503,9 @@
       $("step-type").value = def ? def.type_id : "info_link";
       $("step-title").value = "";
       $("step-description").value = "";
+      $("step-title-no").value = "";
+      $("step-description-no").value = "";
+      $("step-no-details").open = false;
       $("step-required").checked = true;
       renderConfigFields(
         $("step-type").value,
@@ -442,6 +537,8 @@
       component_type: $("step-type").value,
       title: $("step-title").value.trim(),
       description: $("step-description").value.trim(),
+      title_no: $("step-title-no").value.trim(),
+      description_no: $("step-description-no").value.trim(),
       is_required: $("step-required").checked,
       config,
     };
@@ -521,6 +618,12 @@
   });
   $("btn-step-cancel").addEventListener("click", () => $("step-dialog").close());
   $("step-form").addEventListener("submit", saveStepFromDialog);
+  // Keep the JSON textarea in step with the form. Save reads that
+  // textarea first, so without this an edit in a typed field (e.g. the
+  // calendar "Dage efter startdato") was silently dropped.
+  ["input", "change"].forEach((evt) =>
+    $("config-fields").addEventListener(evt, syncConfigJson)
+  );
   $("step-config-json").addEventListener("blur", () => {
     try {
       parseConfigJson();

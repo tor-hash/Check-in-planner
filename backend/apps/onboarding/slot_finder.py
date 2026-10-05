@@ -26,6 +26,8 @@ from django.utils import timezone as dj_tz
 from apps.planner.google.credentials import credentials_for_user
 from apps.planner.google.freebusy import query_freebusy
 
+from .holidays_dk import is_holiday
+
 logger = logging.getLogger(__name__)
 
 _LUNCH_START = time(12, 0)
@@ -87,11 +89,14 @@ def find_organizer_slot(
     *,
     organizer_user,
     organizer_email: str,
+    busy_emails: list[str] | None = None,
     duration_minutes: int = 30,
     tz_name: str | None = None,
     buffer_minutes: int = 30,
     already_booked: list[tuple[datetime, datetime]] | None = None,
     search_from: date | None = None,
+    preferred_time: time | None = None,
+    country: str = "DK",
 ) -> OnboardingSlotResult | None:
     """Return the first open slot on ``organizer_user``'s own calendar.
 
@@ -100,8 +105,20 @@ def find_organizer_slot(
     a hard stop for this step (per product decision: don't book blind, tell
     them to connect their calendar).
 
-    Only the organizer's calendar is queried. The employee's free/busy is
-    intentionally not considered — see module docstring.
+    ``busy_emails`` are the calendars that must all be free — every
+    participant of the meeting (leder, buddy, ...). Queried through the
+    organizer's credentials; defaults to just ``organizer_email``. The
+    employee's free/busy is intentionally not considered — see module
+    docstring.
+
+    ``preferred_time`` is the clock time to try *first*, but only on
+    ``search_from`` itself (the step's intended day) — e.g. "Week 1 · Mon
+    09:00" passes ``search_from`` = that Monday and ``preferred_time`` =
+    09:00, so the scan starts right there instead of at the top of the
+    working day. If that day has no room from ``preferred_time`` onward,
+    this falls through to scanning later days from the normal start of the
+    working day, same as when ``preferred_time`` is omitted — it's a
+    starting point, not a hard requirement to land on that exact time.
     """
     tz_name = tz_name or getattr(settings, "GOOGLE_CALENDAR_TIMEZONE", "Europe/Copenhagen")
     already_booked = already_booked or []
@@ -116,6 +133,7 @@ def find_organizer_slot(
     dur = timedelta(minutes=duration_minutes)
 
     extra_busy = [_Interval(s, e) for s, e in already_booked]
+    emails_to_check = list(busy_emails) if busy_emails else [organizer_email]
 
     chunk_start = start_date
     while chunk_start <= horizon_end:
@@ -134,7 +152,7 @@ def find_organizer_slot(
         try:
             busy_by_email, errors_by_email = query_freebusy(
                 requesting_user=organizer_user,
-                emails=[organizer_email],
+                emails=emails_to_check,
                 time_min=window_start_utc,
                 time_max=window_end_utc,
                 timezone=tz_name,
@@ -142,27 +160,35 @@ def find_organizer_slot(
             if errors_by_email:
                 logger.warning(
                     "onboarding slot_finder: free/busy error for %s: %s",
-                    organizer_email, errors_by_email,
+                    ", ".join(errors_by_email), errors_by_email,
                 )
-            busy = list(busy_by_email.get(organizer_email, []))
+            busy = [
+                interval
+                for e in emails_to_check
+                for interval in busy_by_email.get(e, [])
+            ]
         except Exception:
             logger.exception(
                 "onboarding slot_finder: free/busy query failed for %s; "
                 "proceeding with no busy data for this chunk",
-                organizer_email,
+                ", ".join(emails_to_check),
             )
 
         combined_busy = busy + extra_busy
 
         current_date = chunk_start
         while current_date <= chunk_end:
-            if weekdays_only and current_date.weekday() >= 5:
+            if (weekdays_only and current_date.weekday() >= 5) or is_holiday(current_date, country):
                 current_date += timedelta(days=1)
                 continue
 
+            day_start_time = work_start
+            if preferred_time is not None and current_date == start_date:
+                day_start_time = max(work_start, preferred_time)
+
             slot_local = datetime(
                 current_date.year, current_date.month, current_date.day,
-                work_start.hour, work_start.minute,
+                day_start_time.hour, day_start_time.minute,
             )
             day_end_local = datetime(
                 current_date.year, current_date.month, current_date.day,

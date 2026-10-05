@@ -114,6 +114,56 @@ class PeopleResourceTests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
+    def test_leder_and_buddy_round_trip(self):
+        Person.objects.create(legacy_id="alice", name="Alice")
+        Person.objects.create(legacy_id="lena", name="Lena Leder")
+        Person.objects.create(legacy_id="rasmus", name="Rasmus Buddy")
+
+        response = self.client.put(
+            "/api/people/alice",
+            data=json.dumps({"name": "Alice", "lederId": "lena", "buddyId": "rasmus"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertEqual(body["lederId"], "lena")
+        self.assertEqual(body["lederName"], "Lena Leder")
+        self.assertEqual(body["buddyId"], "rasmus")
+        self.assertEqual(body["buddyName"], "Rasmus Buddy")
+
+        alice = Person.objects.get(legacy_id="alice")
+        self.assertEqual(alice.leder.legacy_id, "lena")
+        self.assertEqual(alice.buddy.legacy_id, "rasmus")
+
+        # Clearing: an explicit empty string unsets the field.
+        response = self.client.put(
+            "/api/people/alice",
+            data=json.dumps({"name": "Alice", "lederId": "", "buddyId": "rasmus"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        alice.refresh_from_db()
+        self.assertIsNone(alice.leder_id)
+        self.assertEqual(alice.buddy.legacy_id, "rasmus")
+
+    def test_leder_cannot_reference_self(self):
+        Person.objects.create(legacy_id="alice", name="Alice")
+        response = self.client.put(
+            "/api/people/alice",
+            data=json.dumps({"name": "Alice", "lederId": "alice"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+
+    def test_leder_must_reference_existing_person(self):
+        Person.objects.create(legacy_id="alice", name="Alice")
+        response = self.client.put(
+            "/api/people/alice",
+            data=json.dumps({"name": "Alice", "lederId": "does-not-exist"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+
 
 class ProjectsResourceTests(TestCase):
     def setUp(self):

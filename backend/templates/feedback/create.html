@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% if item %}Edit{% else %}New{% endif %} feedback · Check-in Planner</title>
+  {% include "feedback/_styles.html" %}
+</head>
+<body>
+  {% include "includes/app_shell_nav.html" %}
+  <main class="wrap">
+    <div class="head"><h1>{% if item %}Edit{% else %}New{% endif %} feedback</h1></div>
+    <form class="card" method="post">
+      {% csrf_token %}
+      <label for="id_title">Title</label>
+      <input type="text" id="id_title" name="title" maxlength="200" value="{{ form.title.value|default:'' }}" required>
+      {{ form.title.errors }}
+      <label for="id_description">Description</label>
+      <textarea id="id_description" name="description" required>{{ form.description.value|default:'' }}</textarea>
+      {{ form.description.errors }}
+      <button type="submit" class="btn btn-green">{% if item %}Save{% else %}Create{% endif %}</button>
+      <a class="btn btn-ghost" href="{% url 'feedback:list' %}">Cancel</a>
+    </form>
+  </main>
+</body>
+</html>

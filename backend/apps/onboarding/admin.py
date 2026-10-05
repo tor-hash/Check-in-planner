@@ -91,11 +91,10 @@ class WelcomeEmailTemplateAdmin(admin.ModelAdmin):
     superuser can see/fix things without going through the browser UI.
     """
 
-    list_display = ("flow", "subject", "is_default_fallback", "updated_at", "updated_by")
-    list_filter = ("is_default_fallback",)
-    search_fields = ("flow__slug", "subject")
+    list_display = ("name", "language", "subject", "is_default", "updated_at", "updated_by")
+    list_filter = ("language", "is_default")
+    search_fields = ("name", "subject")
     readonly_fields = ("created_at", "updated_at")
-    autocomplete_fields = ("flow",)
 
 
 @admin.register(StepProgress)

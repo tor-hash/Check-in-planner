@@ -353,8 +353,20 @@ PATCH it here with the shape below.
 
 Config:
 ```json
-{"with_email": "manager@...", "duration_minutes": 30, "suggested_window": "first week"}
+{"participants": ["leder", "buddy"], "duration_minutes": 30, "day_offset": 30, "day_unit": "calendar", "time_of_day": "10:00"}
 ```
+`participants` = who the meeting is with besides the employee: email
+addresses and/or `leder`, `buddy`, `assigning_manager`. The booking finds a
+time all of them are free and invites them all. When
+`ONBOARDING_SCHEDULER_EMAIL` is set (default
+`scheduler@blackcapitaltechnology.com`) that mailbox organizes the event and
+also sends the welcome email; it must sign in to the planner once. The older
+single `with_email` key is still accepted.
+`day_offset` (optional) = days after the employee's start date (start date is 0).
+`day_unit`: `"calendar"` counts plain calendar days and rolls forward to the
+next working day if that lands on a weekend or Danish holiday; `"business"`
+counts working days only (the default when omitted). `time_of_day` is 24h
+`HH:MM`, tried first on that day.
 Completion:
 ```json
 {

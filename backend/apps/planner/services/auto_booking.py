@@ -2,7 +2,9 @@
 
 Called once per week (via the ``run_auto_bookings`` management command).
 For each manager with ``auto_booking_enabled=True``:
-  • Find the next upcoming session window (1 by default).
+  • Find the manager's own upcoming session windows — how many is decided
+    by that manager's ``auto_booking_periods_ahead`` setting (default 2),
+    just like their other booking preferences.
   • For each window, find team members who don't already have a scheduled
     check-in with this manager in that window.
   • For each such person, call the slot-finder to locate the first free slot,
@@ -17,11 +19,22 @@ Design decisions
   idempotent — running it multiple times in a week is safe.
 • A per-manager ``already_booked`` list is threaded through the run so the
   slot-finder can enforce, using that manager's own settings:
-    - ``ManagerProfile.booking_gap_minutes`` — buffer between back-to-back
-      check-ins (default 0)
+    - ``ManagerProfile.booking_gap_minutes`` — buffer kept free before and
+      after each new check-in, against every event in the manager's
+      calendar, not just other check-ins (default 30)
     - ``ManagerProfile.max_auto_bookings_per_day`` — max auto-booked
       check-ins per manager per calendar day (default 2)
   Both limits apply across windows within the same run.
+• ``ManagerProfile.auto_booking_periods_ahead`` (default 2) decides how many
+  upcoming session windows are booked for that manager on each run. Because
+  each manager looks ahead by their own number of windows, the set of
+  windows processed is computed per manager rather than once for the whole
+  run.
+• ``PlannerConfig.auto_booking_allow_same_day`` (default False) is a
+  single org-wide toggle -- not per-manager -- controlling whether this job
+  is allowed to pick a slot on the same calendar day it runs. With the
+  default, a Monday-morning cron run's earliest candidate day is Tuesday,
+  never that same Monday.
 • Google credentials are taken from the manager's linked user account.
   Managers without a linked user, or without Google credentials, are skipped
   with a warning.
@@ -37,6 +50,7 @@ from apps.planner.models import (
     CheckInMeeting,
     ManagerNotification,
     ManagerProfile,
+    PlannerConfig,
     Person,
     TeamMembership,
 )
@@ -59,12 +73,16 @@ logger = logging.getLogger(__name__)
 
 def run_auto_bookings(
     *,
-    windows_ahead: int = 1,
     dry_run: bool = False,
     from_date: date | None = None,
     triggered_by: str = BookingRunLog.TRIGGER_CRON,
 ) -> dict:
     """Book check-ins for all eligible manager/person/window combinations.
+
+    How many upcoming session windows are booked for a given manager is
+    read from that manager's own ``auto_booking_periods_ahead`` setting —
+    there is no run-level override; each manager tunes their own look-ahead
+    on their booking settings page.
 
     Returns a summary dict with counts of booked / skipped / failed bookings.
     Pass ``dry_run=True`` to compute the plan without creating any rows.
@@ -86,11 +104,6 @@ def run_auto_bookings(
         run_log = BookingRunLog.objects.create(triggered_by=triggered_by)
 
     try:
-        windows = upcoming_session_windows(windows_ahead, from_date=from_date)
-        if not windows:
-            logger.warning("auto_booking: no upcoming session windows found")
-            return summary
-
         managers = ManagerProfile.objects.select_related("user", "person").filter(
             auto_booking_enabled=True
         )
@@ -106,11 +119,29 @@ def run_auto_bookings(
 
         # Track (start_utc, end_utc) tuples for every meeting booked during
         # this run, keyed by manager id.  Used by the slot-finder to enforce
-        # the 30-minute buffer and daily cap across successive bookings that
+        # the manager's buffer and daily cap across successive bookings that
         # are not yet visible in the free/busy snapshot.
         manager_run_bookings: dict[int, list[tuple]] = {m.id: [] for m in managers}
 
+        # Whether the job itself may pick a same-day slot -- a global
+        # policy, not per-manager (see PlannerConfig.auto_booking_allow_same_day).
+        allow_same_day = PlannerConfig.singleton().auto_booking_allow_same_day
+
         for manager in managers:
+            # Each manager books ahead by their own number of session
+            # windows ("periods") — see ManagerProfile.auto_booking_periods_ahead.
+            windows = upcoming_session_windows(
+                manager.auto_booking_periods_ahead, from_date=from_date
+            )
+            if not windows:
+                logger.warning(
+                    "auto_booking: no upcoming session windows found for manager %s "
+                    "(auto_booking_periods_ahead=%s)",
+                    manager.legacy_id,
+                    manager.auto_booking_periods_ahead,
+                )
+                continue
+
             for window in windows:
                 _process_manager_window(
                     manager,
@@ -118,6 +149,7 @@ def run_auto_bookings(
                     summary,
                     dry_run=dry_run,
                     manager_run_bookings=manager_run_bookings,
+                    allow_same_day=allow_same_day,
                 )
 
     except Exception as exc:
@@ -248,6 +280,7 @@ def _process_manager_window(
     *,
     dry_run: bool,
     manager_run_bookings: dict[int, list[tuple]],
+    allow_same_day: bool = True,
 ) -> None:
     organizer = _organizer_user(manager)
     if organizer is None:
@@ -280,6 +313,7 @@ def _process_manager_window(
                 summary,
                 dry_run=dry_run,
                 manager_run_bookings=manager_run_bookings,
+                allow_same_day=allow_same_day,
             )
         except Exception:
             logger.exception(
@@ -300,6 +334,7 @@ def _process_single(
     *,
     dry_run: bool,
     manager_run_bookings: dict[int, list[tuple]] | None = None,
+    allow_same_day: bool = True,
 ) -> None:
     from django.conf import settings
     from apps.planner.services.bookings import (
@@ -332,6 +367,7 @@ def _process_single(
         buffer_minutes=manager.booking_gap_minutes,
         max_per_day=manager.max_auto_bookings_per_day,
         already_booked=already_booked,
+        allow_same_day=allow_same_day,
     )
 
     if slot is None:
@@ -386,7 +422,7 @@ def _process_single(
         summary["booked"] += 1
 
         # Record this slot so subsequent bookings in the same run respect
-        # the 30-minute buffer and daily cap.
+        # the manager's buffer and daily cap.
         if manager_run_bookings is not None:
             end_dt = slot.starts_at + timedelta(minutes=slot.duration_minutes)
             manager_run_bookings[manager.id].append((slot.starts_at, end_dt))

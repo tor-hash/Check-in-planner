@@ -86,7 +86,34 @@ class ManagerSettingsApiTests(TestCase):
         body = response.json()
         self.assertEqual(body["preferredMeetingDurationMinutes"], 15)
         self.assertEqual(body["maxAutoBookingsPerDay"], 2)
-        self.assertEqual(body["bookingGapMinutes"], 0)
+        self.assertEqual(body["bookingGapMinutes"], 30)
+        self.assertEqual(body["autoBookingPeriodsAhead"], 2)
+
+    def test_manager_can_update_periods_ahead(self):
+        self.client.force_login(self.user_a)
+        response = self.client.put(
+            self.url_a,
+            data=json.dumps({"autoBookingPeriodsAhead": 4}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.mgr_a.refresh_from_db()
+        self.assertEqual(self.mgr_a.auto_booking_periods_ahead, 4)
+
+    def test_periods_ahead_out_of_range_rejected(self):
+        self.client.force_login(self.user_a)
+        response = self.client.put(
+            self.url_a,
+            data=json.dumps({"autoBookingPeriodsAhead": 0}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        response = self.client.put(
+            self.url_a,
+            data=json.dumps({"autoBookingPeriodsAhead": 13}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
 
     def test_manager_can_update_own_limits(self):
         self.client.force_login(self.user_a)
@@ -163,3 +190,45 @@ class ManagerSettingsApiTests(TestCase):
         ids = {m["id"] for m in body["managers"]}
         self.assertIn(self.mgr_a.legacy_id, ids)
         self.assertIn(self.mgr_b.legacy_id, ids)
+
+
+class PlannerConfigStateApiTests(TestCase):
+    """``PlannerConfig.auto_booking_allow_same_day`` -- the org-wide toggle
+    for whether the auto-booking job may pick a same-day slot -- round
+    trips through GET/PUT /api/state like the other global settings
+    (workHours, weeksPerSession, ...)."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username="cfg-tester", email="cfg-tester@blackcapitaltechnology.com")
+        manager_group, _ = Group.objects.get_or_create(name="manager")
+        self.user.groups.add(manager_group)
+
+    def test_state_defaults_to_false(self):
+        self.client.force_login(self.user)
+        response = self.client.get("/api/state")
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["autoBookingAllowSameDay"])
+
+    def test_manager_can_update_it(self):
+        self.client.force_login(self.user)
+        payload = {
+            "people": [],
+            "mgrs": [],
+            "teams": {"team-1": [], "team-2": [], "team-3": [], "pool": []},
+            "startDate": "2026-01-05",
+            "customDates": {},
+            "workHours": {"start": "09:00", "end": "17:00", "excludeLunch": True, "weekdaysOnly": True},
+            "projects": [],
+            "journal": {},
+            "fnTags": [],
+            "autoBookingAllowSameDay": True,
+        }
+        response = self.client.put("/api/state/update", data=payload, content_type="application/json")
+        self.assertEqual(response.status_code, 200)
+
+        from apps.planner.models import PlannerConfig
+        self.assertTrue(PlannerConfig.singleton().auto_booking_allow_same_day)
+
+        response = self.client.get("/api/state")
+        self.assertTrue(response.json()["autoBookingAllowSameDay"])

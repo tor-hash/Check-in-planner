@@ -223,7 +223,7 @@ def step_progress_detail(request: HttpRequest, erp_id: str, step_id: int):
             "step": {
                 "id": step.id,
                 "order": step.order,
-                "title": step.title,
+                "title": step.title_for(assignment.country),
                 "component_type": step.component_type,
                 "status": progress.status,
                 "completion_data": progress.completion_data,

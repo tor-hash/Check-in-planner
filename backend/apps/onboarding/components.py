@@ -183,30 +183,135 @@ class CalendarMeetingComponent(_Component):
     # regardless of who their manager actually is.
     ASSIGNING_MANAGER_SENTINEL = "assigning_manager"
 
+    # Sentinels resolved to the employee's chosen leder/buddy (planner
+    # Person.leder / Person.buddy, snapshotted onto the OnboardingAssignment
+    # at attach time — see calendar_booking._resolve_organizer). LEDER is
+    # also what an *unset/blank* with_email falls back to at booking time —
+    # see validate_config below and calendar_booking.py — since every
+    # employee is required to have a leder chosen before a flow can be
+    # attached, unlike ASSIGNING_MANAGER_SENTINEL which depends on who
+    # happened to click "Tildel flow".
+    LEDER_SENTINEL = "leder"
+    BUDDY_SENTINEL = "buddy"
+
+    ROLE_SENTINELS = (ASSIGNING_MANAGER_SENTINEL, LEDER_SENTINEL, BUDDY_SENTINEL)
+
+    # ``participants`` is the list of people the meeting is with, besides
+    # the employee: any mix of the role sentinels above and literal email
+    # addresses, e.g. ["leder", "buddy"]. The booking job finds a time when
+    # all of them are free and invites them all. It supersedes the older
+    # single ``with_email`` key — see ``participant_tokens`` — which is
+    # still read for steps saved before ``participants`` existed.
+    _MAX_PARTICIPANTS = 10
+
+    @classmethod
+    def participant_tokens(cls, config: dict | None) -> list[str]:
+        """Participant tokens for a step, oldest config shape included.
+
+        ``participants`` wins when present and non-empty; otherwise falls
+        back to ``[with_email]``, and a blank/missing value means the leder.
+        Duplicates are removed (case-insensitive), order is preserved.
+        """
+        cfg = config or {}
+        raw = cfg.get("participants")
+        if isinstance(raw, list) and any(isinstance(t, str) and t.strip() for t in raw):
+            tokens = [t.strip() for t in raw if isinstance(t, str) and t.strip()]
+        else:
+            tokens = [(cfg.get("with_email") or "").strip() or cls.LEDER_SENTINEL]
+        seen: set[str] = set()
+        out: list[str] = []
+        for t in tokens:
+            key = t.lower()
+            if key not in seen:
+                seen.add(key)
+                out.append(t)
+        return out
+
+    # Optional scheduling anchor: ``day_offset`` places this step N days
+    # after the employee's own start date (start date itself is day 0).
+    # ``day_unit`` says how those days are counted:
+    #
+    # * ``"calendar"`` — plain calendar days. "30 days after start" is
+    #   ``day_offset`` 30. If that lands on a weekend or a Danish holiday
+    #   it rolls forward to the next working day. Used for the 30/60/90-day
+    #   milestones.
+    # * ``"business"`` — working days (weekends and holidays don't count).
+    #   "Week 1 · Mon" is 0, "Week 1 · Tue" is 1, "Week 2 · Mon" is 5. Start
+    #   on a Thursday and 0/1/2/3/4 land on Thu/Fri/Mon/Tue/Wed — "Week 1"
+    #   simply means the employee's first five working days. Also the
+    #   meaning of a step saved without ``day_unit``.
+    #
+    # See ``calendar_booking.scheduled_day_for_step`` and ``holidays_dk``.
+    # ``time_of_day`` is the preferred 24h clock time to try first on that
+    # day (falls back to whatever's next free if taken). All optional — a
+    # step with no ``day_offset`` books the first available slot.
+    DAY_UNITS = ("calendar", "business")
+    _TIME_OF_DAY_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
     @classmethod
     def default_config(cls) -> dict[str, Any]:
         return {
-            "with_email": cls.ASSIGNING_MANAGER_SENTINEL,
+            "participants": [cls.LEDER_SENTINEL],
             "duration_minutes": 30,
-            "suggested_window": "first week",
         }
 
     @classmethod
     def validate_config(cls, config: Any) -> None:
         cfg = _require_dict(config, "config")
-        with_email = _require_str(cfg.get("with_email"), "config.with_email")
-        if with_email != cls.ASSIGNING_MANAGER_SENTINEL and "@" not in with_email:
-            raise ValidationError(
-                "config.with_email must be an email address or "
-                f"'{cls.ASSIGNING_MANAGER_SENTINEL}'."
+        if "participants" not in cfg and "with_email" not in cfg:
+            raise ValidationError("config.participants is required.")
+        if "with_email" in cfg:
+            with_email = _require_str(
+                cfg.get("with_email"), "config.with_email", allow_empty=True
             )
+            if with_email and with_email not in cls.ROLE_SENTINELS and "@" not in with_email:
+                raise ValidationError(
+                    "config.with_email must be an email address, blank (defaults "
+                    f"to '{cls.LEDER_SENTINEL}'), or one of {list(cls.ROLE_SENTINELS)}."
+                )
+        if "participants" in cfg:
+            participants = cfg["participants"]
+            if not isinstance(participants, list) or not participants:
+                raise ValidationError(
+                    "config.participants must be a non-empty list of participants."
+                )
+            if len(participants) > cls._MAX_PARTICIPANTS:
+                raise ValidationError(
+                    f"config.participants can have at most {cls._MAX_PARTICIPANTS} entries."
+                )
+            for p in participants:
+                if (
+                    not isinstance(p, str)
+                    or not p.strip()
+                    or (p.strip() not in cls.ROLE_SENTINELS and "@" not in p)
+                ):
+                    raise ValidationError(
+                        "Each entry in config.participants must be an email address "
+                        f"or one of {list(cls.ROLE_SENTINELS)}."
+                    )
         duration = cfg.get("duration_minutes", 30)
         if not isinstance(duration, int) or duration < _DURATION_MIN or duration > _DURATION_MAX:
             raise ValidationError(
                 f"config.duration_minutes must be int in [{_DURATION_MIN},{_DURATION_MAX}]."
             )
-        if "suggested_window" in cfg:
-            _require_str(cfg["suggested_window"], "config.suggested_window", allow_empty=True)
+        if "day_offset" in cfg and cfg["day_offset"] is not None:
+            day_offset = cfg["day_offset"]
+            if not isinstance(day_offset, int) or isinstance(day_offset, bool) or day_offset < 0:
+                raise ValidationError(
+                    "config.day_offset must be a non-negative integer (days "
+                    "after the employee's start date), or omitted/null."
+                )
+        if "day_unit" in cfg and cfg["day_unit"] is not None:
+            if cfg["day_unit"] not in cls.DAY_UNITS:
+                raise ValidationError(
+                    f"config.day_unit must be one of {list(cls.DAY_UNITS)}, or omitted."
+                )
+        if "time_of_day" in cfg and cfg["time_of_day"]:
+            time_of_day = _require_str(cfg["time_of_day"], "config.time_of_day", allow_empty=True)
+            if time_of_day and not cls._TIME_OF_DAY_RE.match(time_of_day):
+                raise ValidationError(
+                    "config.time_of_day must be 24h 'HH:MM' (e.g. '09:00'), or omitted/blank."
+                )
 
     @classmethod
     def validate_completion(cls, data: Any) -> None:

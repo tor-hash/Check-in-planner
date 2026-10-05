@@ -35,7 +35,8 @@ For at verificere: gå til https://console.cloud.google.com → vælg `blackcapi
 1. Sidebar → **APIs & Services** → **Library**
 2. Søg `Google Calendar API` → klik **Enable**
 3. Søg `Gmail API` → klik **Enable** (kræves for automatisk email når medarbejdere skal dele kalender i Check-in Planner)
-4. Senere: kom tilbage og enable `Google Drive API`, etc. når andre apps kræver det. Tager 5 sek pr. API.
+4. Søg `Google Drive API` → klik **Enable** (kræves for upload af medarbejderdokumenter — se "Medarbejderdokumenter i Google Drive" nederst)
+5. Senere: kom tilbage og enable flere APIs når andre apps kræver det. Tager 5 sek pr. API.
 
 ## 3. Konfigurér OAuth consent screen (engangs)
 
@@ -150,3 +151,20 @@ Hver app får sin egen Client ID, så de er fuldt isolerede på OAuth-niveau (en
 - **403 på en specifik medarbejders kalender** — den person har ikke delt sin kalender med den loggede-ind manager.
 - **Manager udenfor `@blackcapitaltechnology.com` får "access_denied"** — Internal apps tillader kun brugere på domænet. Hvis vi skal støtte eksterne (fx konsulenter), skal projektet flyttes til External + test users (eller verification).
 - **Brugeren ser "Permission denied" når en ny scope tilføjes** — eksisterende brugere skal logge ud og ind igen for at acceptere det nye scope. Klik "Log ud" i appen, så "Sign in with Google" igen.
+
+
+## Medarbejderdokumenter i Google Drive
+
+Dokumenter (kontrakter m.m.) uploades fra Onboarding → Medarbejdere → "Upload dokument" til
+`<Employee-mappe>/<Navn> (<ERP-ID>)/`. Alt uploades som planlægger-kontoen
+(`ONBOARDING_SCHEDULER_EMAIL`, standard `scheduler@blackcapitaltechnology.com`).
+
+1. Enable **Google Drive API** i projektet (se sektion 2).
+2. OAuth consent screen → **Data access / Scopes**: tilføj `https://www.googleapis.com/auth/drive`.
+   (Appen er "Internal", så det kræver ingen verificering. Scopet bedes kun om, når man
+   klikker "Giv Drive-adgang" — almindelige managers bliver ikke spurgt.)
+3. Del Employee-mappen i Drive med planlægger-kontoen med **redigeringsadgang**
+   (virker både i et delt drev og i "Min drev").
+4. Log ind i planner'en som planlægger-kontoen → Onboarding → **Indstillinger** →
+   klik **Giv Drive-adgang** og godkend.
+5. Indsæt Employee-mappens link på samme side og klik **Gem** (linket tjekkes mod Drive).

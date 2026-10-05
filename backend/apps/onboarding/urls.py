@@ -6,6 +6,17 @@ app_name = "onboarding"
 
 urlpatterns = [
     path("onboarding/flows/", views.flows_editor_view, name="flows-editor"),
+    path("onboarding/drive/connect/", views.drive_connect_view, name="drive-connect"),
+    path(
+        "api/onboarding/manage/settings",
+        manage_api.onboarding_settings,
+        name="manage-settings",
+    ),
+    path(
+        "api/onboarding/manage/employees/<str:erp_id>/documents",
+        manage_api.employee_documents,
+        name="manage-employee-documents",
+    ),
     path(
         "api/onboarding/manage/component-types",
         manage_api.component_types,
@@ -37,14 +48,19 @@ urlpatterns = [
         name="manage-steps-detail",
     ),
     path(
-        "api/onboarding/manage/flows/<slug:slug>/welcome-email",
-        manage_api.flow_welcome_email,
-        name="manage-flow-welcome-email",
+        "api/onboarding/manage/welcome-emails",
+        manage_api.welcome_emails_collection,
+        name="manage-welcome-emails-collection",
     ),
     path(
-        "api/onboarding/manage/flows/<slug:slug>/welcome-email/preview",
-        manage_api.flow_welcome_email_preview,
-        name="manage-flow-welcome-email-preview",
+        "api/onboarding/manage/welcome-emails/preview",
+        manage_api.welcome_email_preview,
+        name="manage-welcome-email-preview",
+    ),
+    path(
+        "api/onboarding/manage/welcome-emails/<int:template_id>",
+        manage_api.welcome_emails_detail,
+        name="manage-welcome-emails-detail",
     ),
     path(
         "api/onboarding/manage/employees",
@@ -70,6 +86,11 @@ urlpatterns = [
         "api/onboarding/manage/people",
         manage_api.people_list,
         name="manage-people-list",
+    ),
+    path(
+        "api/onboarding/manage/people/<str:legacy_id>/roles",
+        manage_api.person_roles,
+        name="manage-person-roles",
     ),
     path("api/onboarding/provision", api.provision_employee, name="provision-employee"),
     path("api/onboarding/employees", api.employees_collection, name="employees-collection"),

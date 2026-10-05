@@ -160,6 +160,11 @@
           </div>
           <p class="hint">When enabled, the system books one check-in per team member per biweekly session window, once a month.</p>
         </div>
+        <div class="field">
+          <label for="periods-ahead-input">Periods to book ahead</label>
+          <input type="number" id="periods-ahead-input" min="1" max="12" step="1" value="2">
+          <p class="hint">How many upcoming session windows the auto-booking job books for you each time it runs. Must be between 1 and 12.</p>
+        </div>
       </div>
 
       <!-- Meeting duration + preferred days -->
@@ -176,9 +181,9 @@
           <p class="hint">Maximum number of check-ins the auto-booking job will schedule for you on any single day.</p>
         </div>
         <div class="field">
-          <label for="gap-input">Gap between meetings (minutes)</label>
-          <input type="number" id="gap-input" min="0" max="120" step="5" value="0">
-          <p class="hint">Minimum breathing room the auto-booking job leaves between two of your check-ins. 0 allows back-to-back meetings.</p>
+          <label for="gap-input">Buffer before and after check-ins (minutes)</label>
+          <input type="number" id="gap-input" min="0" max="120" step="5" value="30">
+          <p class="hint">Free time the auto-booking job keeps before and after each check-in it books — respected against all meetings and events in your calendar, not just other check-ins. 0 allows back-to-back meetings.</p>
         </div>
         <div class="field">
           <label>Preferred days <span style="color:var(--muted)">(optional — leave empty for any weekday)</span></label>
@@ -379,9 +384,10 @@
           const s = await res.json();
 
           document.getElementById('auto-booking-toggle').checked = s.autoBookingEnabled;
+          document.getElementById('periods-ahead-input').value = s.autoBookingPeriodsAhead ?? 2;
           document.getElementById('duration-input').value = s.preferredMeetingDurationMinutes;
           document.getElementById('max-per-day-input').value = s.maxAutoBookingsPerDay ?? 2;
-          document.getElementById('gap-input').value = s.bookingGapMinutes ?? 0;
+          document.getElementById('gap-input').value = s.bookingGapMinutes ?? 30;
           document.getElementById('notification-email').value = s.notificationEmail ?? '';
           setPreferredDays(s.bookingPreferredDays ?? []);
 
@@ -411,6 +417,13 @@
           return;
         }
 
+        const periodsAhead = parseInt(document.getElementById('periods-ahead-input').value, 10);
+        if (isNaN(periodsAhead) || periodsAhead < 1 || periodsAhead > 12) {
+          showStatus('Periods to book ahead must be between 1 and 12.', true);
+          btn.disabled = false;
+          return;
+        }
+
         const maxPerDay = parseInt(document.getElementById('max-per-day-input').value, 10);
         if (isNaN(maxPerDay) || maxPerDay < 1 || maxPerDay > 10) {
           showStatus('Meetings per day must be between 1 and 10.', true);
@@ -427,6 +440,7 @@
 
         const payload = {
           autoBookingEnabled: document.getElementById('auto-booking-toggle').checked,
+          autoBookingPeriodsAhead: periodsAhead,
           bookingBlockedWindows: readWindows(),
           preferredMeetingDurationMinutes: dur,
           maxAutoBookingsPerDay: maxPerDay,

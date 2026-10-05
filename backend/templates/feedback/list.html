@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Feedback · Check-in Planner</title>
+  {% include "feedback/_styles.html" %}
+</head>
+<body>
+  {% include "includes/app_shell_nav.html" %}
+  <main class="wrap">
+    <div class="head">
+      <h1>Feedback</h1>
+      <a class="btn btn-green" href="{% url 'feedback:create' %}">+ Create</a>
+    </div>
+    {% for item in items %}
+      <section class="card">
+        <h2>{{ item.title }}</h2>
+        <p>{{ item.description }}</p>
+        <div class="meta">
+          {% if item.created_by %}{{ item.created_by.get_full_name|default:item.created_by.email }}{% else %}Unknown{% endif %}
+          · {{ item.created_at|date:"d/m/Y H:i" }}
+        </div>
+        {% if item.can_edit or item.can_delete %}
+          <div class="actions">
+            {% if item.can_edit %}<a class="btn btn-ghost btn-sm" href="{% url 'feedback:edit' item.pk %}">Edit</a>{% endif %}
+            {% if item.can_delete %}
+              <form method="post" action="{% url 'feedback:delete' item.pk %}" onsubmit="return confirm('Delete this feedback?');">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+              </form>
+            {% endif %}
+          </div>
+        {% endif %}
+      </section>
+    {% empty %}
+      <p class="empty">No feedback yet.</p>
+    {% endfor %}
+  </main>
+</body>
+</html>

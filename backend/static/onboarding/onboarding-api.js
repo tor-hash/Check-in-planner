@@ -26,7 +26,9 @@
         ...csrfHeader(),
       },
     };
-    if (opts.body !== undefined) {
+    if (opts.body instanceof FormData) {
+      init.body = opts.body; // browser sets the multipart Content-Type + boundary
+    } else if (opts.body !== undefined) {
       init.headers["Content-Type"] = "application/json";
       init.body = typeof opts.body === "string" ? opts.body : JSON.stringify(opts.body);
     }
@@ -119,6 +121,12 @@
     listPeople() {
       return request("/people");
     },
+    updatePersonRoles(legacyId, payload) {
+      return request("/people/" + encodeURIComponent(legacyId) + "/roles", {
+        method: "PATCH",
+        body: payload,
+      });
+    },
     assignFlow(erpId, flowSlug, extra) {
       return request("/employees/" + encodeURIComponent(erpId) + "/assign-flow", {
         method: "POST",
@@ -136,26 +144,42 @@
       });
     },
 
-    // ── Welcome email template ("Velkomstmail" tab) ─────────────────────────
-    getWelcomeEmailTemplate(flowSlug) {
-      return request("/flows/" + encodeURIComponent(flowSlug) + "/welcome-email");
+    // ── Settings ("Indstillinger" tab) + employee documents (Google Drive) ──
+    getSettings() {
+      return request("/settings");
     },
-    saveWelcomeEmailTemplate(flowSlug, payload) {
-      return request("/flows/" + encodeURIComponent(flowSlug) + "/welcome-email", {
-        method: "PUT",
-        body: payload,
-      });
+    saveSettings(payload) {
+      return request("/settings", { method: "PUT", body: payload });
     },
-    resetWelcomeEmailTemplate(flowSlug) {
-      return request("/flows/" + encodeURIComponent(flowSlug) + "/welcome-email", {
-        method: "DELETE",
-      });
+    listEmployeeDocuments(erpId) {
+      return request("/employees/" + encodeURIComponent(erpId) + "/documents");
     },
-    previewWelcomeEmail(flowSlug, payload) {
-      return request("/flows/" + encodeURIComponent(flowSlug) + "/welcome-email/preview", {
+    uploadEmployeeDocuments(erpId, files) {
+      const form = new FormData();
+      Array.from(files).forEach((f) => form.append("file", f));
+      return request("/employees/" + encodeURIComponent(erpId) + "/documents", {
         method: "POST",
-        body: payload || {},
+        body: form,
       });
+    },
+
+    // ── Welcome email library ("Velkomstmail" tab) ──────────────────────────
+    listWelcomeEmails() {
+      return request("/welcome-emails");
+    },
+    createWelcomeEmail(payload) {
+      return request("/welcome-emails", { method: "POST", body: payload });
+    },
+    updateWelcomeEmail(id, payload) {
+      return request("/welcome-emails/" + encodeURIComponent(id), { method: "PUT", body: payload });
+    },
+    deleteWelcomeEmail(id) {
+      return request("/welcome-emails/" + encodeURIComponent(id), { method: "DELETE" });
+    },
+    // payload: {subject+html_body (draft) | template_id, country, flow_slug,
+    //           erp_id, leder_name, leder_email, buddy_name, buddy_email}
+    previewWelcomeEmail(payload) {
+      return request("/welcome-emails/preview", { method: "POST", body: payload || {} });
     },
   };
 })();

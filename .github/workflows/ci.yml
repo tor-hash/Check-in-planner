@@ -57,4 +57,39 @@ jobs:
         run: python backend/manage.py makemigrations --check --dry-run
 
       - name: Run tests
-        run: python backend/manage.py test apps.planner.tests apps.accounts.tests apps.onboarding.tests --verbosity=2
+        run: python backend/manage.py test apps.planner.tests apps.accounts.tests apps.onboarding.tests apps.feedback --verbosity=2
+
+  # Deploy to Cloud Run on every push to main -- only after the backend
+  # job above has passed. Authenticates to Google Cloud with Workload
+  # Identity Federation (no JSON keys stored in GitHub) and runs the same
+  # cloudbuild.yaml used for manual deploys. One-time GCP setup:
+  # scripts/setup-github-deploy.sh
+  deploy:
+    needs: backend
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and deploy (Cloud Build)
+        run: |
+          gcloud builds submit . \
+            --config cloudbuild.yaml \
+            --project "${{ vars.GCP_PROJECT_ID }}"

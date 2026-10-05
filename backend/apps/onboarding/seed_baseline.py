@@ -58,9 +58,8 @@ DEFAULT_STEPS = [
         "config": {
             # Resolved per-employee to whoever attaches the flow, rather
             # than a fixed address — see CalendarMeetingComponent.
-            "with_email": CalendarMeetingComponent.ASSIGNING_MANAGER_SENTINEL,
+            "participants": [CalendarMeetingComponent.ASSIGNING_MANAGER_SENTINEL],
             "duration_minutes": 30,
-            "suggested_window": "first week",
         },
     },
 ]

@@ -224,7 +224,7 @@ The rebook modal is rendered here and wired to "rebook" notification actions.
     if (diff < 60)   return 'just now';
     if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
     if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
-    return d.toLocaleDateString();
+    return d.toLocaleDateString('da-DK', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\./g, '/');
   }
 
   /* ── state ── */
